@@ -1,0 +1,17 @@
+# # 1. 忽略 Agent 运行产生的动态对话历史和状态文件
+# *history.json
+# workspace-state.json
+# temp_*
+# *payload*.json
+
+# 2. 忽略数据库、日志和备份文件
+*.db
+*.sqlite
+*.log
+*.bak*
+__pycache__/
+
+# 3. 忽略环境变量等敏感信息
+.env
+.env.local
+._*

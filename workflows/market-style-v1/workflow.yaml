@@ -1,0 +1,81 @@
+# market-style-v1 — SSOT 工作流 + 异常分支（on_tool_error / 意图偏离重试）
+# session 建议字段: workflow_state, step_retry_count(本步因 context 未齐累计次数),
+#   状态切换时由网关注零 step_retry_count。工具致命失败时由网关跳转 on_tool_error_state 并重置/填充 sentinel。
+version: 1
+id: market_style_v1
+states:
+  - id: INITIATE
+    state_label: 启动
+    description: 会话已建立。向用户说明将依次拉行情、收方向、选风格、再进入 Streamy 成稿。不要在本步调用 ingest 或落盘稿。
+    allowed_tools: []
+    required_context_keys: []
+    next_state: INGEST_MARKET
+    on_tool_error_state: null
+    on_tool_error_note: null
+    max_retries: null
+    fallback_state: null
+    on_deny_next_steps: 本步为纯对话/说明，不调用任何工具。说明流程后再进入拉行情即可。
+
+  - id: INGEST_MARKET
+    state_label: 拉取行情
+    description: 调用行情/信源拉取，将摘要或 JSON 结果写入 session.market_data；本步末向用户问「本次创作方向」。
+    allowed_tools:
+      - finance_source_ingest
+      - fetch_market
+      - read_file
+    required_context_keys:
+      - market_data
+    next_state: SET_DIRECTION
+    # 工具超时/无数据/致命异常时：不卡死，降级进入「定方向」；网关应设 market_data 为 { "skipped": true, "reason": "..." } 或等效
+    on_tool_error_state: SET_DIRECTION
+    on_tool_error_note: 将 workflow_state=SET_DIRECTION，并写入可缺省事实占位；在回复中向用户说明「行情暂不可用，先定创作方向与风格」。
+    max_retries: 2
+    # 在「未因工具错误降级」且 market_data 始终无法写入时，由 step_retry_count 与 render 检查；超次则回退
+    fallback_state: INITIATE
+    on_deny_next_steps: 请先使用 finance_source_ingest / fetch_market 等拉取数据并写入 market_data，勿在此步建稿或走选题脚本。
+
+  - id: SET_DIRECTION
+    state_label: 定方向与列风格
+    description: 将用户自然语言方向写入 session.direction；并调用 user-style 列出可选风格，将列表写入 session.style_choices（或等价缓存），供下一步点选。
+    allowed_tools:
+      - user_style_list
+    required_context_keys:
+      - direction
+      - style_choices
+    next_state: SELECT_STYLE_INIT_DRAFT
+    on_tool_error_state: null
+    on_tool_error_note: 若 user_style_list 失败：同状态重试；若需仍可先只写入 direction、style_choices 用空列表占位（产品策略）。
+    max_retries: 3
+    fallback_state: INITIATE
+    on_deny_next_steps: 本步只列风格与收方向。勿调用 draft、勿跑 preflight；先让用户一句话说清想写什么、再 list 风格。
+
+  - id: SELECT_STYLE_INIT_DRAFT
+    state_label: 选风格与建稿
+    description: 解析用户选择的风格（序号或 UUID）写入 style_id；draft_manager 创建新稿并带 --style-id；get-context 结果写入 user_style_context。
+    allowed_tools:
+      - user_style_get_context
+      - draft_manager
+    required_context_keys:
+      - style_id
+      - draft_id
+      - user_style_context
+    next_state: CONTENT_GENERATION
+    on_tool_error_state: SET_DIRECTION
+    on_tool_error_note: 若 get-context 或建稿失败，可退回 SET_DIRECTION 请用户重选方向/风格，并视情况 step_retry_count+1。
+    max_retries: 2
+    fallback_state: SET_DIRECTION
+    on_deny_next_steps: 本步只绑定 style、create draft 与 get-context。勿在尚未建稿时执行 preflight_topic 整段成稿链。
+
+  - id: CONTENT_GENERATION
+    state_label: 成稿
+    description: 交 streamy：preflight/选题/大纲/逐字稿。凡 draft_manager update 须在 payload 中合并 market_data 摘要、direction、user_style_context（与 SKILL 中 user_style_context 一致）。
+    allowed_tools:
+      - preflight_topic
+      - draft_manager_update
+    required_context_keys: []
+    next_state: null
+    on_tool_error_state: CONTENT_GENERATION
+    on_tool_error_note: 单步成稿/更新失败时可在同状态重试，或请用户收缩范围；不自动退回 INITIATE。
+    max_retries: null
+    fallback_state: null
+    on_deny_next_steps: 本步执行选题与逐段落盘。勿在成稿中调用 ingest 全量重拉，除非产品允许「换题」子流程。

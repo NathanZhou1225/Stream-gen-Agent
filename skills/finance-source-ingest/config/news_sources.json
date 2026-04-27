@@ -1,0 +1,34 @@
+{
+  "sources": [
+    {
+      "name": "新浪财经-要闻",
+      "rss_url": "https://rss.sina.com.cn/roll/finance/hot_roll.xml",
+      "enabled": true,
+      "note": "新浪财经滚动要闻"
+    },
+    {
+      "name": "财新网-最新",
+      "rss_url": "https://www.caixin.com/rss/newest.xml",
+      "enabled": true,
+      "note": "财新网最新新闻"
+    },
+    {
+      "name": "和讯财经-头条",
+      "rss_url": "https://www.hexun.com/rss/headline.xml",
+      "enabled": true,
+      "note": "和讯财经头条"
+    },
+    {
+      "name": "同花顺财经-要闻",
+      "rss_url": "https://www.10jqka.com.cn/rss/yaowen.xml",
+      "enabled": false,
+      "note": "404失效，暂时停用"
+    },
+    {
+      "name": "每日经济新闻-要闻",
+      "rss_url": "https://www.nbd.com.cn/rss/yaowen.xml",
+      "enabled": false,
+      "note": "302跳转异常，暂时停用"
+    }
+  ]
+}

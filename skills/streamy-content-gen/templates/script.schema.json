@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "与 prompts/script-generation.md、scripts/script_renderer.py、draft_manager.py update --stage script_refining 对拍。Agent 提交的 payload 勿含 display_markdown。",
+  "title": "streamy-content-gen script.json",
+  "description": "逐字稿阶段 script.json 结构。落盘为 draft 目录下 script.json；合规扫描后由工具写回 compliance.*",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["draft_id", "duration_sec", "segments"],
+  "properties": {
+    "draft_id": {
+      "type": "string",
+      "description": "三位 Base36，与 meta.json 一致；与 `^[A-HJ-NP-Z0-9]{3}$`（I/O 排除）在运行上等价。",
+      "minLength": 3,
+      "maxLength": 3
+    },
+    "title": { "type": "string", "description": "稿件标题，与 outline 或 meta.topic 对齐" },
+    "duration_sec": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "总时长（秒），与各 segment 时长之和差 ≤5s 为宜"
+    },
+    "structure_template": {
+      "type": "string",
+      "description": "与 outline 的 structure_template 对齐",
+      "enum": ["standard", "reversal", "listicle", "story", "debate"]
+    },
+    "segments": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/segment" }
+    },
+    "cta": { "$ref": "#/definitions/cta" },
+    "compliance": { "$ref": "#/definitions/compliance" },
+    "source": { "$ref": "#/definitions/source" }
+  },
+  "definitions": {
+    "segment": {
+      "type": "object",
+      "required": ["time", "role", "say"],
+      "additionalProperties": true,
+      "properties": {
+        "time": {
+          "type": "string",
+          "description": "时间窗 M:SS–M:SS（如 0:00-0:04 或 1:15-1:27）",
+          "pattern": "^\\d+:\\d{2}-\\d+:\\d{2}$"
+        },
+        "role": {
+          "type": "string",
+          "description": "script_renderer._fmt_role 有友好标签；可自由增加字符串，但建议用下列",
+          "enum": [
+            "hook",
+            "argument_1",
+            "argument_2",
+            "argument_3",
+            "argument",
+            "turn",
+            "scene",
+            "conflict",
+            "result",
+            "action",
+            "cta"
+          ]
+        },
+        "say": { "type": "string", "description": "本段口播正文" },
+        "visual": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "如 贴纸:惊叹、配图:柱状图、特效:zoom-in、动作:手指屏幕"
+        },
+        "cta_hint": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "本段内 CTA 埋词；无则 null"
+        }
+      }
+    },
+    "cta": {
+      "type": "object",
+      "description": "全局 CTA；与 references/cta-patterns.md 合并枚举（业务话术可替换，类型名保留）",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "add_wechat",
+            "comment_reply",
+            "follow_series",
+            "join_group",
+            "dm_keyword"
+          ],
+          "description": "join_group、dm_keyword 为 cta-patterns 侧命名；与 comment_reply、follow_series 可并存，勿新增类型除非同步 PRD"
+        },
+        "position": {
+          "type": "string",
+          "enum": ["opening", "middle", "ending", "triple"]
+        },
+        "phrasing": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "compliance": {
+      "type": "object",
+      "description": "初稿可 pending；update 后由 lite_compliance_scan 写回。draft_manager 异常时见 scan_failed 仅作提示非持久化主路径",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "pass", "warn"]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "term": { "type": "string" },
+              "match_kind": { "type": "string" },
+              "offset": { "type": "integer" },
+              "context": { "type": "string" },
+              "pattern": { "type": "string" },
+              "segment_role": { "type": "string" },
+              "at_time": { "type": "string" },
+              "segment_index": { "type": "integer" }
+            }
+          }
+        },
+        "scanned_at": { "type": "string" },
+        "scanner_version": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "data_sources": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

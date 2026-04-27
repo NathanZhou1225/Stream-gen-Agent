@@ -1,0 +1,2 @@
+# render_sop_from_yaml.py / interceptor 共用
+pyyaml>=6.0.1

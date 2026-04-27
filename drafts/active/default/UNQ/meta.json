@@ -1,0 +1,12 @@
+{
+  "draft_id": "UNQ",
+  "user_id": "default",
+  "stage": "topic_picking",
+  "topic": null,
+  "style_id": null,
+  "created_at": "2026-04-24T16:25:37+08:00",
+  "last_updated": "2026-04-24T16:25:37+08:00",
+  "finalized_at": null,
+  "dropped_at": null,
+  "drop_reason": null
+}

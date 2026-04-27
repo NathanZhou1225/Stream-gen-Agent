@@ -1,0 +1,510 @@
+#!/usr/bin/env python3
+"""
+带方向开稿前置编排：自然语言方向 → 关键词降维 → 弱耦合调用 finance-source-ingest CLI
+→ 读取 snapshot.json → 组装 topic_picking 用 payload（stdout JSON，无 Traceback 外泄）。
+
+设计约束：
+- 不 import finance-source-ingest 代码，仅 subprocess；
+- 失败时 stdout 仅为结构化 JSON（ok=false），进程退出码 0，便于 Agent 管道解析。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import platform
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+# streamy-content-gen 根目录（本文件位于 scripts/）
+SKILL_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = Path(__file__).resolve().parent
+# 与 finance-source-ingest 为同 skills/ 下兄弟目录（可迁移：仅依赖此相对布局）
+DEFAULT_FINANCE_SIBLING = SKILL_ROOT.parent / "finance-source-ingest"
+DEFAULT_OUT_DIR = Path("/tmp/finance_data")
+PROVENANCE = "finance-source-ingest|preflight_topic.py"
+# markdown 注入 source_context 时的软上限，利于降 Token
+MAX_MD_CHARS = 8000
+# 飞书/对话可见的「热点摘要」条数（与 SKILL 契约一致，控制篇幅）
+FEISHU_DIGEST_MAX = 8
+FEISHU_DIGEST_LINE_CHARS = 220
+
+
+def _emit(obj: dict[str, Any]) -> None:
+    print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def _exit_ok(obj: dict[str, Any]) -> None:
+    _emit(obj)
+    raise SystemExit(0)
+
+
+def _keywords_from_direction(direction: str) -> str:
+    """
+    极简关键词降维：去标点 → 按空白切分 → 取长度≥2 的前若干 token；
+    若过短则退回整句截断，供 ingest --keywords 使用（空格分隔）。
+    """
+    raw = (direction or "").strip()
+    if not raw:
+        return "市场"
+    s = re.sub(r"[，。、；;:!！?？\"“”'‘（）()\[\]【】\s]+", " ", raw)
+    parts = [p.strip() for p in s.split() if len(p.strip()) >= 2]
+    parts = parts[:12]
+    if not parts:
+        return raw[:48] if raw else "市场"
+    return " ".join(parts)
+
+
+def _feishu_digest_bullets(md_summary: str, max_items: int = FEISHU_DIGEST_MAX) -> list[str]:
+    """
+    从 markdown_summary 抽取短列表，供飞书选题轮「必展示」事实锚点（不等同于整段 source_context）。
+    规则：顺序扫描以 "- " 开头的行，直至 max_items；无列表行时退回首段非标题正文一行。
+    """
+    md = (md_summary or "").strip()
+    if not md:
+        return []
+    bullets: list[str] = []
+    for raw in md.splitlines():
+        s = raw.strip()
+        if s.startswith("- ") and len(s) > 2:
+            bullets.append(s[:FEISHU_DIGEST_LINE_CHARS])
+            if len(bullets) >= max_items:
+                break
+    if bullets:
+        return bullets
+    # 无 markdown 列表时的降级：取首个有实质内容的非标题行
+    for raw in md.splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        return [s[:FEISHU_DIGEST_LINE_CHARS]]
+    return []
+
+
+def _resolve_ingest(finance_root: Path) -> Path:
+    return finance_root / "scripts" / "ingest.py"
+
+
+def _resolve_finance_venv_python(finance_root: Path) -> str:
+    """Prefer finance-source-ingest/.venv if present (Unix + Windows layouts)."""
+    if platform.system() == "Windows":
+        win = finance_root / ".venv" / "Scripts" / "python.exe"
+        if win.is_file():
+            return str(win)
+    nix = finance_root / ".venv" / "bin" / "python"
+    if nix.is_file():
+        return str(nix)
+    return sys.executable
+
+
+def _markdown_bullet_lines(md: str, cap: int = 32) -> list[str]:
+    """取 markdown 中以 '- ' 开头的行（截断），保序、去重前缀避免完全重复。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in (md or "").splitlines():
+        s = raw.strip()
+        if not s.startswith("- ") or len(s) < 3:
+            continue
+        key = re.sub(r"\s+", "", s[:40])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s[:280])
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _is_index_or_flow_bullet(line: str) -> bool:
+    """指数/北向/成交额等「打底」行，与财联社叙事行区分，用于选题差异化。"""
+    s = line.strip()
+    return any(
+        k in s
+        for k in (
+            "上证指数",
+            "深证成指",
+            "创业板指",
+            "北向",
+            "成交额",
+            "沪深京三市",
+            "三大指数",
+            "恒生",
+            "道琼斯",
+        )
+    )
+
+
+def _is_noise_bullet(line: str) -> bool:
+    """ingest 告警/降级/异常栈片段，不作为选题标题与 evidence 首选。"""
+    s = line.strip()
+    low = s.lower()
+    if any(
+        x in low
+        for x in (
+            "fallback_sina",
+            "akshare_call_failed",
+            "connectionerror",
+            "protocolerror",
+            "remotedisconnected",
+            "timeouterror",
+            "[a_share_indices",
+            "[news_keyword_fallback",
+            "keyword_fallback",
+        )
+    ):
+        return True
+    return s.startswith("- [") and ("超时" in s or "失败" in s or "error" in low)
+
+
+def _title_from_bullet_line(line: str, max_len: int = 56) -> str:
+    """从单条 '- …' 行抽「钩子标题」，尽量去掉时间戳与社媒前缀。"""
+    body = line[2:].strip() if line.strip().startswith("- ") else line.strip()
+    body = re.sub(r"^\[\d{1,2}:\d{2}\]\s*", "", body)
+    if "】" in body:
+        tail = body.split("】", 1)[-1].strip()
+        if len(tail) >= 6:
+            body = tail
+    if "—" in body and len(body) > 36:
+        tail = body.split("—", 1)[-1].strip()
+        if len(tail) >= 6:
+            body = tail
+    # 财联社常见前缀过长时，取「电，」后正文
+    if "财联社" in body[:16] and "电，" in body:
+        parts = body.split("电，", 1)
+        if len(parts) == 2 and len(parts[1].strip()) >= 6:
+            body = parts[1].strip()
+    body = re.sub(r"\s+", " ", body).strip()
+    if len(body) > max_len:
+        body = body[: max_len - 1].rstrip("，、； ") + "…"
+    return body[:80]
+
+
+def _norm_title_key(title: str) -> str:
+    return re.sub(r"\s+", "", (title or "")[:20])
+
+
+def _direction_tokens(direction: str) -> set[str]:
+    """与 ingest 关键词一致：长度≥2 的 token，用于判断快讯是否与用户方向同主题。"""
+    kw = _keywords_from_direction(direction)
+    return {t for t in kw.split() if len(t) >= 2}
+
+
+def _bullet_touches_direction(line: str, direction: str) -> bool:
+    toks = _direction_tokens(direction)
+    if not toks:
+        return True
+    return any(t in line for t in toks)
+
+
+def _three_distinct_candidates(direction: str, raw_bullets: list[str]) -> list[dict[str, str]]:
+    """
+    三条候选须在标题上可区分：优先用不同快讯/事实行；不足时用「行情 / 对照 / 讲述结构」模板。
+    """
+    direction_short = (direction or "").strip()[:44] or "本期选题"
+    angles = [
+        "偏事实钩子：用本条快讯或数据开场，再扣回用户方向",
+        "偏结构对照：与上条不同维度（板块/资金/节奏），避免重复口径",
+        "偏讲述策略：把用户方向落成「观众能跟上的三段节奏」",
+    ]
+
+    def pack(anchor_line: str, title: str, angle: str) -> dict[str, str]:
+        a = anchor_line[:280]
+        return {
+            "title": title[:80],
+            "angle": angle,
+            "evidence_anchor": f"{a} | provenance: {PROVENANCE}",
+        }
+
+    if not raw_bullets:
+        return [
+            pack(direction_short, direction_short[:80], angles[0]),
+            pack(direction_short, f"{direction_short}：先讲预期再看盘面", angles[1]),
+            pack(direction_short, f"{direction_short}：三个节奏误区一次说清", angles[2]),
+        ]
+
+    clean = [b for b in raw_bullets if not _is_noise_bullet(b)]
+    if not clean:
+        clean = list(raw_bullets)
+    news = [b for b in clean if not _is_index_or_flow_bullet(b)]
+    idx = [b for b in clean if _is_index_or_flow_bullet(b)]
+
+    seen_keys: set[str] = set()
+
+    def unique_title(raw_title: str, fallback: str) -> str:
+        t = (raw_title or "").strip()[:80] or fallback[:80]
+        k = _norm_title_key(t)
+        if k and k not in seen_keys:
+            seen_keys.add(k)
+            return t
+        for suf in ("·对照", "·节奏", "·落地", "·追问", "·复盘"):
+            tt = (t[:72] + suf)[:80]
+            kk = _norm_title_key(tt)
+            if kk not in seen_keys:
+                seen_keys.add(kk)
+                return tt
+        tt = (fallback[:74] + "·选")[:80]
+        seen_keys.add(_norm_title_key(tt))
+        return tt
+
+    triples: list[tuple[str, str, str]] = []
+
+    # ① 快讯优先；无快讯则用首条列表
+    a1 = news[0] if news else raw_bullets[0]
+    raw_headline = _title_from_bullet_line(a1)
+    if news and not _bullet_touches_direction(a1, direction):
+        snippet = raw_headline[:34] + ("…" if len(raw_headline) > 34 else "")
+        blended = f"{direction_short[:30]}｜盘面热点：{snippet}"
+        blended = (blended[:77] + "…") if len(blended) > 80 else blended
+        t1 = unique_title(blended, raw_headline)
+    else:
+        t1 = unique_title(raw_headline, direction_short)
+    triples.append((a1, t1, angles[0]))
+
+    # ② 第二条快讯，或指数/北向，或列表第二行
+    if len(news) > 1:
+        a2 = news[1]
+    elif idx:
+        a2 = idx[0]
+    elif len(raw_bullets) > 1:
+        a2 = raw_bullets[1]
+    else:
+        a2 = raw_bullets[0]
+    raw_t2 = _title_from_bullet_line(a2)
+    if _norm_title_key(raw_t2) == _norm_title_key(triples[0][1]):
+        raw_t2 = f"对照｜{_title_from_bullet_line(a2, 40)}"
+    t2 = unique_title(raw_t2, f"行情打底｜{direction_short[:36]}")
+    triples.append((a2, t2, angles[1]))
+
+    # ③ 第三条快讯；否则「指数+用户方向」模板；再否则轮换列表靠后行
+    if len(news) > 2:
+        a3 = news[2]
+        raw_t3 = _title_from_bullet_line(a3)
+    elif idx:
+        a3 = idx[min(1, len(idx) - 1)]
+        raw_t3 = f"指数走弱时，「{direction_short[:30]}」怎么讲才不空"
+    else:
+        a3 = raw_bullets[min(2, len(raw_bullets) - 1)]
+        raw_t3 = _title_from_bullet_line(a3)
+    if _norm_title_key(raw_t3) in seen_keys:
+        raw_t3 = f"{direction_short}：预期→盘面→行动，一条线讲透"
+    t3 = unique_title(raw_t3, f"讲述顺序｜{direction_short[:36]}")
+    triples.append((a3, t3, angles[2]))
+
+    return [pack(a, t, ang) for a, t, ang in triples]
+
+
+def _build_topic_payload(
+    direction: str,
+    snapshot: dict[str, Any],
+    md_summary: str,
+) -> dict[str, Any]:
+    """将 ingest 快照压成 topic_picking 所需最小契约（与 draft_manager P0-B 对齐）。"""
+    md_trim = (md_summary or "")[:MAX_MD_CHARS].strip()
+    meta = snapshot.get("meta") or {}
+    raw_bullets = _markdown_bullet_lines(md_trim)
+    candidates = _three_distinct_candidates(direction, raw_bullets)
+
+    source_context: list[str] = [
+        f"【用户方向】{direction.strip()}",
+        f"【ingest 关键词】{meta.get('keywords')}",
+        f"【事实摘要 markdown_summary】\n{md_trim}" if md_trim else "【事实摘要 markdown_summary】（空）",
+        f"provenance: {PROVENANCE}",
+    ]
+
+    return {
+        "source_context": source_context,
+        "candidates": candidates,
+        "preflight_meta": {
+            "direction": direction.strip(),
+            "ingest_schema_version": snapshot.get("schema_version"),
+            "ingest_fetched_at": meta.get("fetched_at"),
+            "markdown_truncated": len(md_summary or "") > MAX_MD_CHARS,
+        },
+    }
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="带方向开稿：拉取 finance-source-ingest 事实并输出 topic_payload JSON")
+    p.add_argument("--direction", required=True, help="用户自然语言选题方向")
+    p.add_argument(
+        "--finance-root",
+        type=Path,
+        default=DEFAULT_FINANCE_SIBLING,
+        help="finance-source-ingest 技能根目录（默认同 workspace 兄弟路径）",
+    )
+    p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="ingest --out-dir 目录")
+    p.add_argument("--max-items", type=int, default=5, help="传入 ingest 的 --max-items")
+    args = p.parse_args()
+
+    direction = args.direction.strip()
+    if not direction:
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_EMPTY_DIRECTION",
+                    "message": "direction 为空",
+                    "hint": "请传入 --direction '…'",
+                },
+            }
+        )
+
+    finance_root: Path = args.finance_root.resolve()
+    ingest_py = _resolve_ingest(finance_root)
+    if not ingest_py.is_file():
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_INGEST_NOT_FOUND",
+                    "message": "未检测到外部信源技能（ingest.py 不存在）",
+                    "hint": f"请确认 finance-source-ingest 与 streamy-content-gen 为兄弟目录，或传 --finance-root 指向该技能根目录。期望路径: {ingest_py}",
+                },
+            }
+        )
+
+    kw = _keywords_from_direction(direction)
+    out_dir: Path = args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    py_exe = _resolve_finance_venv_python(finance_root)
+
+    cmd = [
+        py_exe,
+        str(ingest_py),
+        "run",
+        "--sources",
+        "market,news",
+        "--keywords",
+        kw,
+        "--max-items",
+        str(max(1, int(args.max_items))),
+        "--out-dir",
+        str(out_dir),
+    ]
+    cwd = str((finance_root / "scripts").resolve())
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_INGEST_TIMEOUT",
+                    "message": "finance-source-ingest 执行超时",
+                    "hint": "请检查网络或 AkShare/东财可用性后重试",
+                },
+            }
+        )
+    except OSError as e:
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_INGEST_OS_ERROR",
+                    "message": str(e),
+                    "hint": "无法启动子进程，请检查 Python 路径与权限",
+                },
+            }
+        )
+
+    if proc.returncode != 0:
+        raw = (proc.stderr or proc.stdout or "").strip()
+        if "Traceback" in raw or "Error" in raw:
+            tail = "ingest 子进程报错（已省略 Python Traceback）；请检查 finance-source-ingest 的 venv、fetchers 与网络。"
+        else:
+            tail = raw.replace("\n", " ")[:800] if raw else "(无 stderr)"
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_INGEST_FAILED",
+                    "message": f"ingest 退出码 {proc.returncode}",
+                    "hint": "请手动提供事实锚点或修复 finance-source-ingest 环境。" + tail,
+                },
+            }
+        )
+
+    snap_path = out_dir / "snapshot.json"
+    if not snap_path.is_file():
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_SNAPSHOT_MISSING",
+                    "message": "ingest 成功但未找到 snapshot.json",
+                    "hint": f"检查 --out-dir 与 ingest 写盘权限: {snap_path}",
+                },
+            }
+        )
+
+    try:
+        snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_SNAPSHOT_PARSE",
+                    "message": str(e),
+                    "hint": "snapshot.json 损坏或非 JSON，请重新运行 ingest",
+                },
+            }
+        )
+
+    md_summary = str(snapshot.get("markdown_summary") or "")
+    try:
+        payload = _build_topic_payload(direction, snapshot, md_summary)
+    except Exception as e:  # noqa: BLE001
+        _exit_ok(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_PAYLOAD_BUILD",
+                    "message": str(e),
+                    "hint": "请手动提供 source_context 与 evidence_anchor",
+                },
+            }
+        )
+
+    digest = _feishu_digest_bullets(md_summary)
+    _exit_ok(
+        {
+            "ok": True,
+            "topic_payload": payload,
+            "feishu_digest_bullets": digest,
+            "snapshot_path": str(snap_path),
+            "ingest_keywords_used": kw,
+            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并落盘。飞书回复须先展示 feishu_digest_bullets（Markdown 列表），再列候选标题；禁止同一轮写大纲/逐字稿；选题确认后再 outline_refining",
+        }
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 — 禁止未捕获异常冒泡为 Traceback
+        _emit(
+            {
+                "ok": False,
+                "error": {
+                    "code": "PREFLIGHT_UNEXPECTED",
+                    "message": str(exc),
+                    "hint": "请检查脚本版本或联系维护者；可改用手动构造 source_context 与 evidence_anchor",
+                },
+            }
+        )
+        sys.exit(0)

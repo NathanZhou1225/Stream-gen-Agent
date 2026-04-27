@@ -1,0 +1,11 @@
+# streamy-content-gen · v0.1 依赖清单
+#
+# v1 策略：**尽量零三方依赖**，所有核心脚本（draft_manager / lite_compliance_scan /
+# fetch_hot_rank / 新浪海外数据）都只用 Python 3.10+ 标准库。
+#
+# 下面列出的包**仅在启用对应数据源时才需要**，部署时按需 `pip install -r requirements.txt`
+# 或单独 `pip install tushare`。
+
+# ---- 可选：Tushare 国内行情（fetch_market.py 的 Tushare 部分） ----
+# 未设置 TUSHARE_TOKEN 时脚本会优雅降级，本包可不装。
+tushare>=1.2.89
