@@ -16,6 +16,7 @@ import platform
 import re
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,11 @@ MAX_MD_CHARS = 8000
 FEISHU_DIGEST_MAX = 8
 FEISHU_DIGEST_LINE_CHARS = 220
 HOTLIST_DOWN_NOTICE = "⚠️ 弱舆情热榜信号暂不可用（两路来源均失败），本轮选题基于行情/快讯/公告生成。"
+CST = timezone(timedelta(hours=8))
+
+
+def _now_iso() -> str:
+    return datetime.now(CST).isoformat(timespec="seconds")
 
 
 def _emit(obj: dict[str, Any]) -> None:
@@ -393,7 +399,7 @@ def _pick_tophub_signal(hot_rank: dict[str, Any]) -> dict[str, Any] | None:
             "source": f"tophub:{site}",
             "signal": "staying_hot",
             "rank_or_heat": rank,
-            "ts": str(hot_rank.get("as_of") or now_iso()),
+            "ts": str(hot_rank.get("as_of") or _now_iso()),
             "note": f"{site}热榜出现相关讨论：{title}",
         }
     return None
@@ -413,7 +419,7 @@ def _pick_social_signal(snapshot: dict[str, Any]) -> dict[str, Any] | None:
         "source": f"social:{platform}",
         "signal": "staying_hot",
         "rank_or_heat": str(first.get("heat") or "") or None,
-        "ts": str(social.get("as_of") or now_iso()),
+        "ts": str(social.get("as_of") or _now_iso()),
         "note": f"{platform}相关热度信号：{title}",
     }
 
@@ -495,7 +501,7 @@ def _build_topic_payload(
     return {
         "version": "topic_schema_v1",
         "direction": direction.strip(),
-        "generated_at": now_iso(),
+        "generated_at": _now_iso(),
         "hotlist_meta": hotlist_meta,
         "source_context": source_context,
         "candidates": candidates,
