@@ -31,6 +31,7 @@ MAX_MD_CHARS = 8000
 # 飞书/对话可见的「热点摘要」条数（与 SKILL 契约一致，控制篇幅）
 FEISHU_DIGEST_MAX = 8
 FEISHU_DIGEST_LINE_CHARS = 220
+HOTLIST_DOWN_NOTICE = "⚠️ 弱舆情热榜信号暂不可用（两路来源均失败），本轮选题基于行情/快讯/公告生成。"
 
 
 def _emit(obj: dict[str, Any]) -> None:
@@ -86,6 +87,10 @@ def _feishu_digest_bullets(md_summary: str, max_items: int = FEISHU_DIGEST_MAX) 
 
 def _resolve_ingest(finance_root: Path) -> Path:
     return finance_root / "scripts" / "ingest.py"
+
+
+def _resolve_hot_rank_fetcher() -> Path:
+    return SCRIPTS_DIR / "fetch_hot_rank.py"
 
 
 def _resolve_finance_venv_python(finance_root: Path) -> str:
@@ -296,16 +301,187 @@ def _three_distinct_candidates(direction: str, raw_bullets: list[str]) -> list[d
     return [pack(a, t, ang) for a, t, ang in triples]
 
 
+def _source_type_from_line(line: str) -> str:
+    s = line.lower()
+    if "热榜" in line or "微博" in line or "抖音" in line or "知乎" in line or "百度" in line:
+        return "hotlist"
+    if "财联社" in line or line.strip().startswith("- ["):
+        return "news_flash"
+    if any(k in s for k in ("指数", "北向", "成交额", "涨跌", "人气股")):
+        return "market"
+    return "announcement"
+
+
+def _confidence_for_source(source_type: str) -> str:
+    if source_type in ("market", "news_flash", "announcement"):
+        return "high"
+    if source_type == "hotlist":
+        return "medium"
+    return "low"
+
+
+def _source_ref_from_line(line: str) -> str:
+    s = line.strip()
+    m = re.match(r"^- \[(\d{1,2}:\d{2})\]", s)
+    if m:
+        return f"财联社 {m.group(1)}"
+    if "微博" in s:
+        return "热榜:微博"
+    if "抖音" in s:
+        return "热榜:抖音"
+    if "知乎" in s:
+        return "热榜:知乎"
+    if "百度" in s:
+        return "热榜:百度"
+    if "指数" in s or "北向" in s or "成交额" in s:
+        return "market_snapshot"
+    return "ingest_markdown_summary"
+
+
+def _build_evidence(raw_bullets: list[str], weak_sentiment: dict[str, Any] | None) -> list[dict[str, str]]:
+    picked = [x for x in raw_bullets if not _is_noise_bullet(x)][:3]
+    out: list[dict[str, str]] = []
+    for line in picked:
+        point = _title_from_bullet_line(line, max_len=88)
+        stype = _source_type_from_line(line)
+        out.append(
+            {
+                "point": point,
+                "source_type": stype,
+                "source_ref": _source_ref_from_line(line),
+                "confidence": _confidence_for_source(stype),
+            }
+        )
+    if weak_sentiment and len(out) < 3:
+        out.append(
+            {
+                "point": str(weak_sentiment.get("note") or "热榜出现相关讨论热度"),
+                "source_type": "hotlist",
+                "source_ref": str(weak_sentiment.get("source") or "hotlist"),
+                "confidence": "medium",
+            }
+        )
+    while len(out) < 3:
+        out.append(
+            {
+                "point": "盘面与快讯暂无新增强信号，建议以已确认事实为主线展开。",
+                "source_type": "market",
+                "source_ref": "preflight_fallback",
+                "confidence": "low",
+            }
+        )
+    return out[:3]
+
+
+def _pick_tophub_signal(hot_rank: dict[str, Any]) -> dict[str, Any] | None:
+    lists = hot_rank.get("lists") or []
+    if not isinstance(lists, list):
+        return None
+    for lst in lists:
+        if not isinstance(lst, dict):
+            continue
+        site = str(lst.get("site") or "").strip()
+        items = lst.get("items") or []
+        if not site or not items or not isinstance(items, list):
+            continue
+        first = items[0] if isinstance(items[0], dict) else {}
+        title = str(first.get("title") or "").strip()
+        if not title:
+            continue
+        rank = first.get("rank")
+        return {
+            "source": f"tophub:{site}",
+            "signal": "staying_hot",
+            "rank_or_heat": rank,
+            "ts": str(hot_rank.get("as_of") or now_iso()),
+            "note": f"{site}热榜出现相关讨论：{title}",
+        }
+    return None
+
+
+def _pick_social_signal(snapshot: dict[str, Any]) -> dict[str, Any] | None:
+    social = ((snapshot.get("sections") or {}).get("social") or {})
+    items = social.get("items") or []
+    if not isinstance(items, list) or not items:
+        return None
+    first = items[0] if isinstance(items[0], dict) else {}
+    title = str(first.get("title") or "").strip()
+    platform = str(first.get("platform") or "").strip() or "social"
+    if not title:
+        return None
+    return {
+        "source": f"social:{platform}",
+        "signal": "staying_hot",
+        "rank_or_heat": str(first.get("heat") or "") or None,
+        "ts": str(social.get("as_of") or now_iso()),
+        "note": f"{platform}相关热度信号：{title}",
+    }
+
+
+def _build_hotlist_context(hot_rank: dict[str, Any], snapshot: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None, str | None]:
+    signal_primary = _pick_tophub_signal(hot_rank)
+    signal_secondary = _pick_social_signal(snapshot)
+    if signal_primary:
+        return (
+            {
+                "primary_source": "tophub.today",
+                "secondary_source": "social_api(vvhan->akshare)",
+                "fallback_used": False,
+                "fallback_reason": "",
+            },
+            signal_primary,
+            None,
+        )
+    if signal_secondary:
+        return (
+            {
+                "primary_source": "tophub.today",
+                "secondary_source": "social_api(vvhan->akshare)",
+                "fallback_used": True,
+                "fallback_reason": "primary_source_unavailable",
+            },
+            signal_secondary,
+            None,
+        )
+    return (
+        {
+            "primary_source": "tophub.today",
+            "secondary_source": "social_api(vvhan->akshare)",
+            "fallback_used": True,
+            "fallback_reason": "both_sources_unavailable",
+        },
+        None,
+        HOTLIST_DOWN_NOTICE,
+    )
+
+
 def _build_topic_payload(
     direction: str,
     snapshot: dict[str, Any],
     md_summary: str,
+    hot_rank: dict[str, Any],
 ) -> dict[str, Any]:
     """将 ingest 快照压成 topic_picking 所需最小契约（与 draft_manager P0-B 对齐）。"""
     md_trim = (md_summary or "")[:MAX_MD_CHARS].strip()
     meta = snapshot.get("meta") or {}
     raw_bullets = _markdown_bullet_lines(md_trim)
-    candidates = _three_distinct_candidates(direction, raw_bullets)
+    base_candidates = _three_distinct_candidates(direction, raw_bullets)
+    hotlist_meta, weak_sentiment, down_notice = _build_hotlist_context(hot_rank, snapshot)
+    direction_short = (direction or "").strip()[:32] or "本期方向"
+    candidates: list[dict[str, Any]] = []
+    for c in base_candidates:
+        title = str(c.get("title") or "").strip()
+        thesis = f"{direction_short}相关讨论与盘面事实正在共振，优先围绕「{title[:24]}」展开。"
+        candidates.append(
+            {
+                "title": title,
+                "angle": c.get("angle"),
+                "thesis": thesis[:88],
+                "evidence": _build_evidence(raw_bullets, weak_sentiment),
+                "weak_sentiment": weak_sentiment,
+                "evidence_anchor": c.get("evidence_anchor"),
+            }
+        )
 
     source_context: list[str] = [
         f"【用户方向】{direction.strip()}",
@@ -313,8 +489,14 @@ def _build_topic_payload(
         f"【事实摘要 markdown_summary】\n{md_trim}" if md_trim else "【事实摘要 markdown_summary】（空）",
         f"provenance: {PROVENANCE}",
     ]
+    if down_notice:
+        source_context.append(f"【弱舆情提示】{down_notice}")
 
     return {
+        "version": "topic_schema_v1",
+        "direction": direction.strip(),
+        "generated_at": now_iso(),
+        "hotlist_meta": hotlist_meta,
         "source_context": source_context,
         "candidates": candidates,
         "preflight_meta": {
@@ -322,6 +504,7 @@ def _build_topic_payload(
             "ingest_schema_version": snapshot.get("schema_version"),
             "ingest_fetched_at": meta.get("fetched_at"),
             "markdown_truncated": len(md_summary or "") > MAX_MD_CHARS,
+            "feishu_notice": down_notice,
         },
     }
 
@@ -377,7 +560,7 @@ def main() -> None:
         str(ingest_py),
         "run",
         "--sources",
-        "market,news",
+        "market,news,social",
         "--keywords",
         kw,
         "--max-items",
@@ -463,9 +646,36 @@ def main() -> None:
             }
         )
 
+    hot_rank_py = _resolve_hot_rank_fetcher()
+    hot_rank: dict[str, Any] = {"ok": False, "lists": [], "errors": [{"item": "hot_rank_script", "reason": "missing"}]}
+    if hot_rank_py.is_file():
+        try:
+            hr = subprocess.run(
+                [sys.executable, str(hot_rank_py), "--sites", "微博,抖音,百度,知乎", "--top", "10"],
+                cwd=str(SCRIPTS_DIR.resolve()),
+                capture_output=True,
+                text=True,
+                timeout=25,
+                check=False,
+            )
+            if hr.returncode == 0 and (hr.stdout or "").strip():
+                hot_rank = json.loads(hr.stdout)
+            else:
+                hot_rank = {
+                    "ok": False,
+                    "lists": [],
+                    "errors": [{"item": "hot_rank_script", "reason": (hr.stderr or hr.stdout or "").strip()[:300] or "nonzero_exit"}],
+                }
+        except Exception as e:  # noqa: BLE001
+            hot_rank = {
+                "ok": False,
+                "lists": [],
+                "errors": [{"item": "hot_rank_script", "reason": f"{type(e).__name__}: {e}"}],
+            }
+
     md_summary = str(snapshot.get("markdown_summary") or "")
     try:
-        payload = _build_topic_payload(direction, snapshot, md_summary)
+        payload = _build_topic_payload(direction, snapshot, md_summary, hot_rank)
     except Exception as e:  # noqa: BLE001
         _exit_ok(
             {
@@ -484,6 +694,7 @@ def main() -> None:
             "ok": True,
             "topic_payload": payload,
             "feishu_digest_bullets": digest,
+            "feishu_notice": payload.get("preflight_meta", {}).get("feishu_notice"),
             "snapshot_path": str(snap_path),
             "ingest_keywords_used": kw,
             "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并落盘。飞书回复须先展示 feishu_digest_bullets（Markdown 列表），再列候选标题；禁止同一轮写大纲/逐字稿；选题确认后再 outline_refining",

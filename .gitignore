@@ -1,8 +1,10 @@
 # # 1. 忽略 Agent 运行产生的动态对话历史和状态文件
-# *history.json
-# workspace-state.json
-# temp_*
-# *payload*.json
+*history.json
+workspace-state.json
+temp_*
+*payload*.json
+tmp/
+*.tmp
 
 # 2. 忽略数据库、日志和备份文件
 *.db
@@ -15,3 +17,8 @@ __pycache__/
 .env
 .env.local
 ._*
+
+# 4. 排除 IDE 和编辑器生成的专属缓存与配置文件
+.cursor_memory/
+.cursor/
+.vscode/
