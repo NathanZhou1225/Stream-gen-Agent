@@ -1,0 +1,15 @@
+[
+  {
+    "ts": "2026-04-24T16:25:35+08:00",
+    "action": "create",
+    "stage": "topic_picking",
+    "note": ""
+  },
+  {
+    "ts": "2026-04-28T13:34:50+08:00",
+    "action": "drop",
+    "stage": "dropped",
+    "prev_stage": "topic_picking",
+    "note": ""
+  }
+]

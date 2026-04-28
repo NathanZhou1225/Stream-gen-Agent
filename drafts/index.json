@@ -2,12 +2,9 @@
   "version": 1,
   "users": {
     "default": {
-      "active_drafts": [
-        "G69",
-        "UNQ"
-      ],
-      "focus": "UNQ",
-      "last_activity": "2026-04-27T16:47:16+08:00"
+      "active_drafts": [],
+      "focus": null,
+      "last_activity": "2026-04-28T13:34:56+08:00"
     }
   }
 }
