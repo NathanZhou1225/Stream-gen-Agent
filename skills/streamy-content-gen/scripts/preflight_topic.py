@@ -28,8 +28,10 @@ DEFAULT_FINANCE_SIBLING = SKILL_ROOT.parent / "finance-source-ingest"
 # 默认写入 workspace 内，避免沙箱/权限导致的 /tmp 写入失败
 DEFAULT_OUT_DIR = SKILL_ROOT.parent.parent / "tmp" / "finance_data"
 PROVENANCE = "finance-source-ingest|preflight_topic.py"
-# markdown 注入 source_context 时的软上限，利于降 Token
-MAX_MD_CHARS = 8000
+# markdown 用于候选抽取的软上限（降上下文体积，减少 topic 阶段耗时）
+MAX_MD_CHARS = 1600
+# 注入 source_context 的事实短摘条数（避免把整段 markdown 喂给后续阶段）
+SOURCE_CONTEXT_BULLET_CAP = 8
 # 飞书/对话可见的「热点摘要」条数（与 SKILL 契约一致，控制篇幅）
 FEISHU_DIGEST_MAX = 8
 FEISHU_DIGEST_LINE_CHARS = 220
@@ -168,6 +170,26 @@ def _markdown_bullet_lines(md: str, cap: int = 32) -> list[str]:
             continue
         seen.add(key)
         out.append(s[:280])
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _compact_source_context_bullets(raw_bullets: list[str], cap: int = SOURCE_CONTEXT_BULLET_CAP) -> list[str]:
+    """将原始 bullets 压缩为短摘，避免 topic_candidates.json 体积过大。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in raw_bullets:
+        if _is_noise_bullet(line) or _is_placeholder_line(line):
+            continue
+        brief = _title_from_bullet_line(line, max_len=72).strip()
+        if not brief:
+            continue
+        key = _norm_title_key(brief)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"- {brief}")
         if len(out) >= cap:
             break
     return out
@@ -904,11 +926,12 @@ def _build_topic_payload(
     if avg_score < 0.14:
         raise ValueError("topic relevance too low: 候选与用户方向相关性不足，请补充更具体方向或稍后重试")
 
+    compact_facts = _compact_source_context_bullets(raw_bullets, cap=SOURCE_CONTEXT_BULLET_CAP)
     source_context: list[str] = [
         f"【用户方向】{direction.strip()}",
         f"【ingest 关键词】{meta.get('keywords')}",
         f"【领域标签】{', '.join(domain_tags)}",
-        f"【事实摘要 markdown_summary】\n{md_trim}" if md_trim else "【事实摘要 markdown_summary】（空）",
+        ("【事实短摘】\n" + "\n".join(compact_facts)) if compact_facts else "【事实短摘】（空）",
         f"provenance: {PROVENANCE}",
     ]
     if down_notice:
@@ -937,6 +960,8 @@ def _build_topic_payload(
             "relevance_scores": scores,
             "relevance_avg": round(avg_score, 4),
             "domain_tags": domain_tags,
+            "source_context_compact": True,
+            "source_context_bullet_count": len(compact_facts),
         },
     }
 
@@ -1135,7 +1160,7 @@ def main() -> None:
             "ingest_keywords_used": kw,
             "ingest_keywords_expanded": kw_list,
             "domain_tags": domain_tags,
-            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并落盘。飞书回复固定版式：①信源状态 ②大盘行情 ③市场焦点/重点快讯 ④候选（标题+thesis+3 evidence）⑤选号指令；收敛过滤只作用于热点/候选，不得删“信源状态/大盘行情”段；禁止同一轮写大纲/逐字稿；选题确认后再 outline_refining",
+            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并落盘。飞书选题轮只回复：候选（标题+thesis+3 evidence）+ 选号指令；默认不展示信源状态/大盘/快讯摘要（除非用户显式要求回看来源）。禁止同一轮写大纲/逐字稿；选题确认后再 outline_refining",
         }
     )
 

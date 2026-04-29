@@ -43,8 +43,8 @@ read_when:
 
 当用户要**今日行情、今日热点、快讯、信源快照、全量信息**等（**未**进入带方向开稿链、**未**要求你手写复盘报告）时：
 
-1. **唯一信源形态**：在 workspace 下执行 **`python3 skills/finance-source-ingest/scripts/ingest.py run --sources market,news,social`**（参数以 `natural-language-intent.md` §4.4 为准）。
-2. **展示契约**：将 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户（可加一行采集时间）；**禁止**只贴三大指数表、**禁止**只贴财联社/板块表、**禁止**按用户口头词只跑 `market` 或 `news`、**禁止**把「行情」和「热点」拆成两条消息或两套结构。
+1. **唯一信源形态**：在 workspace 下执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`**（该脚本内部先跑 `finance-source-ingest`，再按缺口调用 Tavily）。
+2. **展示契约**：将 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户（可加一行采集时间）；**禁止**只贴三大指数表、**禁止**只贴财联社/板块表、**禁止**按用户口头词只跑 `market` 或 `news`、**禁止**把「行情」和「热点」拆成两条消息或两套结构。若存在 `websearch_required/gaps`，`markdown_summary` 应已包含 **「联网补充（Tavily 兜底）」**。
 3. **结构说明**：`markdown_summary` 已内建 **大盘与情绪（三大指数优先 → 北向资金 → 其他情绪/资金）→ 六大核心板块快讯（每条带时间戳；无最新命中时可用关键词回溯补位；新闻池仍无命中时用行情侧补充或明确暂无）→ 大事件（国家/全球/政策/地缘/峰会类）→ 金融相关今日热点 → 社媒/人气榜探测 → 中文告警**；百度热榜只展示有财经详情的条目，不再回退展示非财经标题。不要再用本文件旧版「五段式」去覆盖或删减这些块。
 4. **旧版五段式**（大盘→焦点→新闻摘要→海外→选题）**仅**保留给：用户明确要求「写一份你手搓的盘面解读/复盘」、或对标账号分析/复盘技能等 **非 ingest 快照** 场景；与 §4.1 本条 **不**混用。
 

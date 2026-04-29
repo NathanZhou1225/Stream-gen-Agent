@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
 from typing import Any
 
 from _common import compute_invariants, now_iso, truthy_env
@@ -132,6 +136,27 @@ MAJOR_EVENT_ACTOR_HINTS = (
     "制裁",
 )
 
+MAJOR_EVENT_GOV_ACTOR_HINTS = (
+    "中共中央",
+    "国务院",
+    "国家",
+    "财政部",
+    "商务部",
+    "发改委",
+    "证监会",
+    "国资委",
+    "央行",
+    "人民银行",
+    "美联储",
+    "欧盟",
+    "联合国",
+    "G7",
+    "G20",
+    "IMF",
+    "世界银行",
+    "海关",
+)
+
 MAJOR_EVENT_EXCLUDE_HINTS = (
     "午评",
     "新闻精选",
@@ -162,6 +187,36 @@ MAJOR_EVENT_EXCLUDE_HINTS = (
     "公司（",
     "表示，第一季度",
     "价格均出现",
+)
+
+MAJOR_EVENT_STRICT_INCLUDE_HINTS = (
+    "央行",
+    "美联储",
+    "财政",
+    "关税",
+    "贸易",
+    "制裁",
+    "战争",
+    "冲突",
+    "峰会",
+    "协定",
+    "条约",
+    "监管",
+    "证监会",
+    "发改委",
+    "商务部",
+    "国务院",
+    "国家数据局",
+    "国资委",
+)
+
+MAJOR_EVENT_THEME_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("黄金/央行储备", ("黄金", "央行", "ETF", "黄金需求")),
+    ("货币政策", ("央行", "美联储", "加息", "降息", "利率")),
+    ("财政与监管", ("财政", "监管", "证监会", "办法", "政策", "条例")),
+    ("贸易与关税", ("关税", "贸易", "出口", "进口", "商务部")),
+    ("地缘冲突", ("战争", "冲突", "停火", "制裁", "地缘")),
+    ("国家级会议/协定", ("峰会", "协定", "条约", "国常会", "国务院")),
 )
 
 
@@ -248,6 +303,41 @@ def _is_wire_brief(it: dict[str, Any]) -> bool:
     return ("财联社" in txt and "电，" in txt and len(txt) < 140) or len(body) < 36
 
 
+def _is_major_event_whitelisted(it: dict[str, Any]) -> bool:
+    txt = _item_text(it)
+    return any(k in txt for k in MAJOR_EVENT_STRICT_INCLUDE_HINTS)
+
+
+def _is_corporate_actor_event(it: dict[str, Any]) -> bool:
+    txt = _item_text(it)
+    if any(k in txt for k in MAJOR_EVENT_GOV_ACTOR_HINTS):
+        return False
+    corporate_hints = (
+        "公司",
+        "集团",
+        "CFO",
+        "CEO",
+        "董事会",
+        "高管",
+        "目标价",
+        "财报",
+        "业绩",
+        "梅赛德斯",
+        "特斯拉",
+        "星巴克",
+    )
+    return any(k in txt for k in corporate_hints)
+
+
+def _major_event_theme_key(it: dict[str, Any]) -> str:
+    txt = _item_text(it)
+    for theme, hints in MAJOR_EVENT_THEME_HINTS:
+        if any(h in txt for h in hints):
+            return theme
+    title = str(it.get("title") or "").strip()
+    return title[:24] if title else "other"
+
+
 def _format_major_event_digest_line(it: dict[str, Any]) -> str:
     ts_full = str(it.get("published_at") or "").strip()
     date = ts_full[:10] if len(ts_full) >= 10 else ts_full
@@ -266,7 +356,7 @@ def _select_weekly_major_lines(
     macro_items: list[dict[str, Any]],
     *,
     fetched_at: str,
-    limit: int = 8,
+    limit: int = 5,
 ) -> list[str]:
     now_dt = _parse_published_at(fetched_at) or datetime.now(timezone(timedelta(hours=8)))
     week_start = now_dt - timedelta(days=7)
@@ -306,10 +396,18 @@ def _select_weekly_major_lines(
 
     lines: list[str] = []
     seen_title: set[str] = set()
+    seen_theme: set[str] = set()
     for _, _, it in scored:
+        if not _is_major_event_whitelisted(it):
+            continue
+        if _is_corporate_actor_event(it):
+            continue
         if _is_wire_brief(it) and not any(
             k in _item_text(it) for k in ("央行", "证监会", "财政", "关税", "战争", "冲突", "制裁", "峰会", "协定")
         ):
+            continue
+        theme = _major_event_theme_key(it)
+        if theme in seen_theme:
             continue
         title = str(it.get("title") or "").strip()
         norm = title[:36]
@@ -317,6 +415,7 @@ def _select_weekly_major_lines(
             continue
         if norm:
             seen_title.add(norm)
+        seen_theme.add(theme)
         line = _format_major_event_digest_line(it)
         if line:
             lines.append(line)
@@ -368,6 +467,142 @@ def _collect_websearch_gaps(sections: dict[str, Any], errors: list[dict[str, Any
     if not any(_is_major_event(x) for x in news_items):
         gaps.append({"area": "国家/全球大事件", "reason": "财联社本轮未命中国家/全球/政策/地缘类大事件，需 WebSearch 补充近期待核验信息"})
     return gaps
+
+
+def _load_env_with_dotenv() -> dict[str, str]:
+    env = dict(os.environ)
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[3] / ".env",  # workspace root
+        here.parents[4] / ".env",  # ~/.openclaw
+        Path("/root/.openclaw/.env"),
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            raw = line.strip()
+            if not raw or raw.startswith("#") or "=" not in raw:
+                continue
+            key, value = raw.split("=", 1)
+            if key and key not in env:
+                env[key] = value
+    return env
+
+
+def _websearch_query(area: str, reason: str) -> str:
+    today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y年%m月%d日")
+    text = f"{area} {reason}"
+    if "北向" in text:
+        return f"{today} 北向资金 沪深港通 净流入 A股"
+    if "社媒" in text or "人气榜" in text or "舆情" in text:
+        return f"{today} A股 人气榜 热门股票 社媒 舆情"
+    if "泛财经" in text or "热点" in text:
+        return f"{today} 今日财经热点 A股 港股 宏观"
+    if "大事件" in text or "国家" in text or "全球" in text:
+        return "近7天 全球宏观 政策 地缘 央行 关税 金融市场 重要事件"
+    return f"{today} {area} A股 金融市场"
+
+
+def _run_tavily_search(area: str, query: str) -> dict[str, Any]:
+    here = Path(__file__).resolve()
+    tavily_script = here.parents[2] / "liang-tavily-search-1.0.1" / "scripts" / "search.mjs"
+    env = _load_env_with_dotenv()
+    if not tavily_script.exists():
+        return {"area": area, "query": query, "ok": False, "error": f"Tavily script not found: {tavily_script}"}
+    if not env.get("TAVILY_API_KEY"):
+        return {"area": area, "query": query, "ok": False, "error": "TAVILY_API_KEY not set"}
+    base_cmd = ["node", str(tavily_script), query, "-n", "3", "--json"]
+    proc = subprocess.run(
+        [*base_cmd, "--raw-content"],
+        cwd=str(here.parents[3]),
+        text=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        env=env,
+        check=False,
+    )
+    stdout_text = proc.stdout.decode("utf-8", errors="ignore")
+    stderr_text = proc.stderr.decode("utf-8", errors="ignore")
+    if proc.returncode != 0:
+        return {"area": area, "query": query, "ok": False, "error": (stderr_text or stdout_text)[-800:]}
+    try:
+        data = json.loads(stdout_text)
+    except json.JSONDecodeError:
+        retry = subprocess.run(
+            base_cmd,
+            cwd=str(here.parents[3]),
+            text=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            env=env,
+            check=False,
+        )
+        retry_stdout = retry.stdout.decode("utf-8", errors="ignore")
+        retry_stderr = retry.stderr.decode("utf-8", errors="ignore")
+        if retry.returncode != 0:
+            return {"area": area, "query": query, "ok": False, "error": (retry_stderr or retry_stdout)[-800:]}
+        try:
+            data = json.loads(retry_stdout)
+        except json.JSONDecodeError as exc2:
+            return {"area": area, "query": query, "ok": False, "error": f"Tavily JSON parse failed: {exc2}"}
+    return {"area": area, "query": query, "ok": True, "data": data}
+
+
+def _build_tavily_supplement(gaps: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    priority = ("北向资金", "社媒/人气榜/舆情", "人气榜", "泛财经热点", "国家/全球大事件")
+    ordered = sorted(gaps, key=lambda g: priority.index(g.get("area", "")) if g.get("area", "") in priority else 99)
+    planned: list[tuple[str, str]] = []
+    seen_queries: set[str] = set()
+    for gap in ordered:
+        area = str(gap.get("area") or "联网缺口")
+        query = _websearch_query(area, str(gap.get("reason") or ""))
+        if query in seen_queries:
+            continue
+        seen_queries.add(query)
+        planned.append((area, query))
+        if len(planned) >= 4:
+            break
+
+    results = [_run_tavily_search(area, query) for area, query in planned]
+    if not results:
+        return "", []
+
+    fetched_at = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+    gap_text = "、".join(str(g.get("area") or "") for g in gaps[:4] if g.get("area"))
+    lines = [
+        "",
+        "### 🔍 联网补充（Tavily 兜底）",
+        f"> 触发原因：{gap_text or '部分 API 缺口'}；以下为独立联网补充，不覆盖上方 API 数字。",
+    ]
+    for item in results:
+        area = item.get("area") or "联网补充"
+        query = item.get("query") or ""
+        lines.append(f"- **{area}**（检索时间：{fetched_at}；查询：{query}）")
+        if not item.get("ok"):
+            lines.append(f"  - 未执行成功：{item.get('error') or 'unknown error'}")
+            continue
+        rows = ((item.get("data") or {}).get("results") or [])[:2]
+        if not rows:
+            lines.append("  - 未找到可核验补充。")
+            continue
+        for row in rows:
+            title = str(row.get("title") or "").strip()
+            url = str(row.get("url") or "").strip()
+            content = str(row.get("content") or "").strip()
+            raw_content = str(row.get("raw_content") or "").strip()
+            snippet_src = content or raw_content
+            snippet = snippet_src[:220] + ("…" if len(snippet_src) > 220 else "")
+            if title and url:
+                lines.append(f"  - {title}｜{url}")
+            if snippet:
+                lines.append(f"    摘要：{snippet}")
+            elif title:
+                # 避免只剩 URL：无正文时至少给出标题级信息
+                lines.append(f"    摘要：该来源标题为“{title}”，原站未返回可截取正文。")
+    return "\n".join(lines).rstrip() + "\n", results
 
 
 def _market_sector_fallback(sec: str, market_section: dict[str, Any]) -> str:
@@ -575,7 +810,7 @@ def _build_live_stream_markdown(
         all_news_items,
         macro_sec.get("items") or [],
         fetched_at=fetched_at,
-        limit=8,
+        limit=5,
     )
     if not major_lines:
         major_lines.append("- （近 7 日未筛出足够高重要度的国家/全球/政策事件，已触发 Agent WebSearch 兜底补充）")
@@ -753,6 +988,7 @@ def build_snapshot(
 
     md = _build_live_stream_markdown(sections, errors, fetched_at)
     ok = True
+    tavily_supplements: list[dict[str, Any]] = []
 
     snapshot: dict[str, Any] = {
         "schema_version": "0.1.0",
@@ -771,4 +1007,11 @@ def build_snapshot(
         "markdown_summary": md,
         "invariants": compute_invariants(),
     }
+    if gaps:
+        supplement_md, tavily_supplements = _build_tavily_supplement(gaps)
+        if supplement_md:
+            snapshot["markdown_summary"] = str(snapshot.get("markdown_summary") or "").rstrip() + "\n\n" + supplement_md
+            snapshot["meta"]["websearch_executed"] = True
+            snapshot["meta"]["websearch_provider"] = "tavily-search"
+            snapshot["meta"]["websearch_supplements"] = tavily_supplements
     return snapshot

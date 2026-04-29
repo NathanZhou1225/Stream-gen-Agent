@@ -80,7 +80,7 @@ def _validate_profile(obj: dict[str, Any]) -> dict[str, Any]:
         obj["catchphrases"], list
     ) or not isinstance(obj["reference_texts"], list):
         raise ValueError("tone / catchphrases / reference_texts 须为数组")
-    return {
+    base = {
         "style_name": str(obj["style_name"]).strip()[:200],
         "tone": [str(x).strip() for x in obj["tone"] if str(x).strip()][:12],
         "vocabulary_level": str(obj["vocabulary_level"]).strip()[:200],
@@ -93,6 +93,15 @@ def _validate_profile(obj: dict[str, Any]) -> dict[str, Any]:
             str(x).strip() for x in obj["reference_texts"] if str(x).strip()
         ][:5],
     }
+    # T5: normalize to archive-driven style fields for deterministic downstream use.
+    base["bio"] = str(obj.get("bio") or f"{base['style_name']}创作者，偏{base['vocabulary_level']}表达。").strip()[:400]
+    base["ip_positioning"] = str(obj.get("ip_positioning") or base["style_name"]).strip()[:300]
+    base["audience"] = str(obj.get("audience") or "关注市场机会与风险拆解的投资者").strip()[:300]
+    base["taboo"] = [str(x).strip() for x in (obj.get("taboo") or []) if str(x).strip()][:12]
+    base["structure_pref"] = str(obj.get("structure_pref") or base["sentence_structure"]).strip()[:500]
+    base["visual_pref"] = str(obj.get("visual_pref") or "偏好关键数据字幕+图表辅助").strip()[:300]
+    base["evidence_pref"] = str(obj.get("evidence_pref") or "偏好可追溯数据、快讯锚点与对比论据").strip()[:300]
+    return base
 
 
 def _ark_post(

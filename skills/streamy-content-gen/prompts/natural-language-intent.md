@@ -220,6 +220,10 @@ draft_manager.py drop --draft A3F --reason "<用户说的原因或空>"
 
 **前置**：`stage = topic_picking`
 
+**topic_picking 回复边界（新增）**：
+- 在用户尚未选定候选时，回复只保留：`#<DID>` + 三个候选（标题/核心论点/3条论据）+ 选号引导。
+- 默认不附加「信源状态 / 大盘行情 / 市场焦点 / 事实依据」块；仅当用户明确要求“再看数据来源/快讯”时再补。
+
 **⚠️ 硬规则（新增，飞书展示强约束）**：
 
 在 `topic_picking` 阶段给用户展示候选时，**不得只展示“标题/切入角度”**。每个候选必须至少包含：
@@ -243,6 +247,11 @@ draft_manager.py drop --draft A3F --reason "<用户说的原因或空>"
 2. 跑 `prompts/outline-generation.md`，输入 `{chosen_topic, user_tweaks, ...}` 生成大纲 JSON
 3. `draft_manager.py update --stage outline_refining --payload-file ... --edit-note "选择候选 ②..."`
    （`update` 转阶段后 `topic_candidates.json.chosen` 的具体值对后续已无影响，不需要单独改）
+
+**回复边界（新增硬规则）**：
+- 进入 `outline_refining` 后，默认只展示「大纲 + 制作提示 + 确认指令」。
+- **不要**在同一条大纲回复里继续附加「信源状态 / 大盘行情 / 市场焦点 / 事实依据」版块。
+- 仅当用户明确要求"再看数据/来源/快讯"时，才补充事实块（建议单独一段，避免喧宾夺主）。
 
 **B. 只想记录"用户选中了 N 号候选"但不推进**（罕见，比如用户想先确认选择、延后跑 outline）：
 
@@ -295,6 +304,10 @@ draft_manager.py update --draft <DID> --stage script_refining \
 ```
 
 返回结果的 `result.compliance = {status, warnings_count, warnings}` 即是合规扫描结果，Agent **不需要**再单独调 `lite_compliance_scan.py`（v0.1.3 P0-A：内嵌 + 自动 write-back）。
+
+**回复边界（新增硬规则）**：
+- `script_refining` 回复默认只展示「逐字稿 + 制作附录 + 合规状态 + 下一步确认」。
+- **不要**重复 `topic_picking` 的市场讯息块（信源状态/大盘/快讯/候选依据）。
 
 **渲染给用户的合规状态**直接读 `result.compliance.status`：
 - `pass` → 回复结尾加 "合规扫描：🟢 通过"
@@ -423,13 +436,13 @@ draft_manager.py update --draft <focus> --stage topic_picking \
 **必须**在 workspace 下用 shell 执行（路径按部署调整）：
 
 ```bash
-python3 skills/finance-source-ingest/scripts/ingest.py run --sources market,news,social --max-items 30
+python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30
 ```
 
 - **禁止**只调 `fetch_market.py` / `fetch_hot_rank.py` 拼「半套」答复；**禁止**按用户措辞只拉 `market` 或只拉 `news`。  
 - **即使用户只说「今日行情」「今日热点」「快讯」「全量信息」之一**，也**同一动作**：仍跑 **`market,news,social` 全量**，**不得**拆成「先行情一条、再热点一条」或只渲染表格半段。  
-- **必须**将返回 JSON 中的 **`markdown_summary` 全文原样**发给用户（可加一行数据来源/时间说明），**不得**自行删减板块、不得把「行情」与「热点」拆成两次不同结构。`markdown_summary` 内部已收敛为金融相关热点，并包含「大事件」与中文告警；大盘块顺序固定为三大指数 → 北向资金 → 其他情绪/资金。  
-- **WebSearch 兜底（Agent 层硬要求）**：在 `markdown_summary` 原文之后，优先读取返回 JSON 的 `meta.websearch_required` 与 `meta.websearch_gaps`。若 `meta.websearch_required: true` 或 `meta.websearch_gaps` 非空，且当前 Agent 具备 WebSearch 能力，**必须实际调用 WebSearch 并追加结果**，不能只贴出「需/已触发 WebSearch」提示。  
+- **必须**将返回 JSON 中的 **`markdown_summary` 全文原样**发给用户（可加一行数据来源/时间说明），**不得**自行删减板块、不得把「行情」与「热点」拆成两次不同结构。`markdown_summary` 内部已收敛为金融相关热点，并包含「大事件」、中文告警，以及在有缺口时由 `query_market_facts.py` 自动追加的 **「联网补充（Tavily 兜底）」**；大盘块顺序固定为三大指数 → 北向资金 → 其他情绪/资金。  
+- **WebSearch 兜底（确定性脚本）**：纯拉数必须调用 `query_market_facts.py`，不要直接调用 `finance-source-ingest/scripts/ingest.py`。该脚本会读取返回 JSON 的 `meta.websearch_required` 与 `meta.websearch_gaps`，并在需要时直接调用 `tavily-search/scripts/search.mjs`，把联网补充拼入 `markdown_summary`；Agent 只需原样发送最终 `markdown_summary`。若用户看到缺口但无联网补充，说明命令调用错了。  
   - 搜索对象：`meta.websearch_gaps[].area` + 今日/当前日期 + A股/港股/黄金/银行/北向资金/社媒舆情等关键词；泛财经优先搜索财经热榜/当日财经大事件，而不是展示百度非财经标题；「国家/全球大事件」搜索近 3-7 天战争冲突、国家政策、峰会协定、央行/财政/贸易等可能影响金融市场的事件。  
   - 最低执行：对「北向资金」与「社媒/人气榜/舆情」这两类缺口至少各执行 1 次搜索；若还有「泛财经热点」或「国家/全球大事件」缺口，再各执行 1 次搜索；总搜索次数原则上不超过 5 次。  
   - 输出要求：每条必须含 **归属板块/泛财经 + 摘要 + 来源标题或域名 + 发布时间/检索时间**。  
@@ -508,7 +521,7 @@ Agent 看到这些**不要**走三段式，避免打扰：
 | "这个稿合规吗？给我一份全量审计" | 功能③ 深度合规，告知未实装；但**当前 Draft 的逐字稿合规**仍走本 skill 的 lite 扫描 |
 | "对标一下 XX 账号" | 功能④，告知未实装 |
 | "写个小红书图文" | 独立 skill（未建），告知 |
-| "今天大盘 / 热榜是啥" | § 4.4 `query_market_facts`：`ingest.py run --sources market,news,social`，**完整** `markdown_summary` 原样展示，不开 draft |
+| "今天大盘 / 热榜是啥" | § 4.4 `query_market_facts`：`query_market_facts.py --sources market,news,social`，**完整** `markdown_summary` 原样展示，不开 draft |
 | "你能干嘛" | `help` 意图，给简短介绍 |
 
 ---

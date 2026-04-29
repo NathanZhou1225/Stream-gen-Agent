@@ -64,6 +64,44 @@ def _fmt_role(role: Any) -> str:
     return mapping.get(key, str(role))
 
 
+def _append_appendix(lines: list[str], script_data: dict[str, Any]) -> None:
+    appendix = script_data.get("production_appendix")
+    if not isinstance(appendix, dict):
+        return
+    sections = [
+        ("镜头建议", "camera_shots"),
+        ("贴纸/特效", "stickers_effects"),
+        ("配图建议", "visual_assets"),
+        ("人物行为", "host_actions"),
+    ]
+    lines.append("附录｜详细制作指导")
+    lines.append("")
+    for title, key in sections:
+        rows = appendix.get(key)
+        if not isinstance(rows, list) or not rows:
+            continue
+        lines.append(f"【{title}】")
+        for row in rows:
+            text = str(row).strip()
+            if text:
+                lines.append(f"- {text}")
+        lines.append("")
+    adapt = script_data.get("production_style_adaptation")
+    if isinstance(adapt, dict):
+        ip = str(adapt.get("ip_style_adaptation") or "").strip()
+        tone = str(adapt.get("tone_style_adaptation") or "").strip()
+        visual = str(adapt.get("visual_style_adaptation") or "").strip()
+        if ip or tone or visual:
+            lines.append("【风格适配说明】")
+            if ip:
+                lines.append(f"- IP适配：{ip}")
+            if tone:
+                lines.append(f"- 语气适配：{tone}")
+            if visual:
+                lines.append(f"- 视觉适配：{visual}")
+            lines.append("")
+
+
 def render_script_md(script_data: dict[str, Any]) -> str:
     """按 §8.4 固定模板渲染 script.md。
 
@@ -146,6 +184,7 @@ def render_script_md(script_data: dict[str, Any]) -> str:
         lines.append(say.strip())
         lines.append("")
 
+    _append_appendix(lines, script_data)
     lines.append("────")
     lines.append("修改还是定稿？")
 

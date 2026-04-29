@@ -23,6 +23,10 @@ description: |
 
 ## 调用契约
 
+0. **stream-gen 用户侧纯拉数例外（P0）**：若当前 workspace 是 `workspace-stream-gen`，且用户只是要「拉今日信源 / 今日行情 / 今日热点 / 全量信息」并希望飞书直接看到联网补充，**不要直接调用本 skill 的 `ingest.py`**；必须改用上层包装：
+   - `python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`
+   - 该包装会调用本 skill 产出原始快照，再按 `meta.websearch_gaps` 调用 Tavily，并把 **「联网补充（Tavily 兜底）」** 拼入最终 `markdown_summary`。
+   - 本 skill 的直接 `ingest.py` 只用于底层调试、迁移、或上游已自行处理联网补充的场景。
 1. 在 workspace 下推荐路径（与 OpenClaw 软链一致）：
    - `cd $OPENCLAW_WORKSPACE`（一般为 `workspace-streamy`）
    - `.venv/bin/python skills/finance-source-ingest/scripts/ingest.py run --sources market,news,social ...`

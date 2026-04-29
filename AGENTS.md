@@ -52,11 +52,17 @@
 
 ## 行情 / 热点「只看数」（飞书常见问法）
 
-用户只要**拉行情、拉热点、信源快照、今日全量**等（**单说其中一词也算**）且**不开稿**时：见 **`skills/streamy-content-gen/prompts/natural-language-intent.md` §4.4** — 必须 **`python3 skills/finance-source-ingest/scripts/ingest.py run --sources market,news,social`**，并把 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户；禁止拆成只跑 `fetch_market.py`、禁止按用户措辞只拉 `market` 或 `news`、禁止拆成两条消息各贴一半。
+用户只要**拉行情、拉热点、信源快照、今日全量**等（**单说其中一词也算**）且**不开稿**时：见 **`skills/streamy-content-gen/prompts/natural-language-intent.md` §4.4** — 必须 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`**，并把 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户；禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后结束，禁止拆成只跑 `fetch_market.py`、禁止按用户措辞只拉 `market` 或 `news`、禁止拆成两条消息各贴一半。
+
+## 开稿阶段回复边界（新增）
+
+- 进入带方向开稿后，`topic_picking` 默认只回：`#<DID>` + 候选（标题/核心论点/3条论据）+ 选号提示。
+- 进入 `outline_refining` / `script_refining` 后，只回当前阶段产物与确认动作。
+- 除非用户明确要求“回看数据/快讯来源”，否则不再拼接「信源状态/大盘行情/市场焦点/事实依据」块。
 
 ### WebSearch 兜底（Agent 层，不属于 ingest）
 
-`finance-source-ingest` 只产出可迁移的 API 快照；若 JSON 顶层 `meta.websearch_required: true` 或 `meta.websearch_gaps` 非空，**具备 WebSearch 能力的 Agent 必须实际调用 WebSearch**，并在 **`markdown_summary` 原文之后**追加一段 **「联网补充（Agent WebSearch 兜底）」**。触发条件：
+`finance-source-ingest` 只产出可迁移的 API 快照；用户侧纯拉数一律通过 `query_market_facts.py` 包装脚本执行。该脚本会在 JSON 顶层 `meta.websearch_required: true` 或 `meta.websearch_gaps` 非空时直接调用 Tavily，并在 **`markdown_summary` 原文之后**追加一段 **「联网补充（Tavily 兜底）」**。触发条件：
 
 - 六大板块中任一板块只有「行情侧补充 / 暂无」而无财联社正文；
 - 百度热榜或泛财经条目为空、无可用财经 `detail`，或 `meta.websearch_gaps` 标出「泛财经热点」；

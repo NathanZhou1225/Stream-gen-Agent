@@ -165,7 +165,38 @@
 
 ---
 
+## 7.5 T6 最小守门：事实/观点区分（必须）
+
+- 对 `argument_* / argument / turn / scene / conflict / result / action` 段，必须补：
+  - `claim_kind`: `fact` / `opinion` / `mixed`
+  - 若为 `fact` 或 `mixed`，还要补：
+    - `evidence_source_type`: `market|news_flash|announcement|hotlist|inference|user_judgement`
+    - `evidence_source_ref`: 简短来源引用（例：`财联社 14:56`、`tushare:index_daily`）
+- `hook` 与 `cta` 可不填该组字段。
+
+---
+
+## 7.6 T8 附录模板个性化（按 user-style 微调，必须）
+
+- 当 `user_style_context` 非空时，除 `production_appendix` 外，必须补充：
+  - `production_style_adaptation.ip_style_adaptation`
+  - `production_style_adaptation.tone_style_adaptation`
+  - `production_style_adaptation.visual_style_adaptation`
+- 这三项用于说明「同主题下为何这版更贴合该 IP」，避免不同风格输出同质化。
+
+---
+
 ## 8. 输出契约（**严格对齐 `script.schema.json`** · v0.1.3 简化）
+
+### 8.0 T4 新增：详细制作附录（必须）
+
+- payload 顶层新增 `production_appendix`，固定 4 个块：
+  - `camera_shots`（镜头建议）
+  - `stickers_effects`（贴纸/特效）
+  - `visual_assets`（配图建议）
+  - `host_actions`（人物行为）
+- 每块必须 **3-5 条**，且为可执行短句（不要空话）。
+- 这些内容会渲染到 `script.md` 末尾附录，供主播与剪辑直接执行。
 
 ### 8.1 落盘调用（**一条命令搞定**）
 
@@ -212,6 +243,9 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
       "time": "0:04-0:16",
       "role": "argument_1",
       "say": "我拉了 2008 到 2023 这 10 次降准，后面 30 天上证的涨跌幅。中位数是涨 2.1%，但——注意这个'但'——有 3 次是跌的，最深跌了 6%。",
+      "claim_kind": "fact",
+      "evidence_source_type": "market",
+      "evidence_source_ref": "tushare:index_daily",
       "visual": ["配图:柱状图:历次降准 30 日涨跌"],
       "cta_hint": null
     },
@@ -219,6 +253,9 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
       "time": "0:16-0:29",
       "role": "argument_2",
       "say": "涨的那几次和跌的那几次，有个共同点：宏观背景完全不一样。2015 年央行放水的时候，汇率稳的；2022 年那次，人民币一直在贬。",
+      "claim_kind": "mixed",
+      "evidence_source_type": "announcement",
+      "evidence_source_ref": "央行公告/宏观口径对比",
       "visual": ["配图:对比图:2015 vs 2022 宏观"],
       "cta_hint": null
     },
@@ -233,6 +270,7 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
       "time": "0:39-0:51",
       "role": "action",
       "say": "所以别急着抄作业。盯住三个东西：DR007 看钱贵不贵，北上资金看外资怎么看，中美利差看人民币压力。这三个指标联动变化，才是真信号。",
+      "claim_kind": "opinion",
       "visual": ["配图:指标三件套图"],
       "cta_hint": null
     },
@@ -248,6 +286,36 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
     "type": "add_wechat",
     "position": "ending",
     "phrasing": "想要的，评论区扣'1'，我私信发"
+  },
+  "production_appendix": {
+    "camera_shots": [
+      "Hook 用近景，数字句读到“2.1%”时推近",
+      "论据段切中景，图表出现时主播让开右侧",
+      "转折段轻推镜，关键词出现在左上角",
+      "CTA 回到近景，停顿 0.5 秒再说动作指令"
+    ],
+    "stickers_effects": [
+      "Hook 叠加“惊叹”贴纸+轻微震屏",
+      "论据1用箭头贴纸标高低点",
+      "转折段上“注意这个但”黄底字幕",
+      "CTA 段加向下箭头指向评论区"
+    ],
+    "visual_assets": [
+      "柱状图：10 次降准后 30 日涨跌分布",
+      "对比图：2015 vs 2022 汇率与流动性环境",
+      "指标卡：DR007/北上资金/中美利差三联表"
+    ],
+    "host_actions": [
+      "Hook 说到“骗了很多人”时抬眉停顿",
+      "讲三个指标时右手比 1/2/3",
+      "转折句前微摇头，强化反差",
+      "CTA 句末手指屏幕下方评论区"
+    ]
+  },
+  "production_style_adaptation": {
+    "ip_style_adaptation": "围绕“逃顶抄底+双重验证”组织段落，先结论后信号拆解",
+    "tone_style_adaptation": "用直接短句和“看好了”式口头禅，减少空泛修辞",
+    "visual_style_adaptation": "蓝白财经风，关键数字与信号词高亮，镜头切换跟随信号段落"
   },
   "compliance": {
     "status": "pending",
@@ -275,11 +343,23 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
 | `segments[i].time` | ✅ | `M:SS-M:SS` 格式，不留 gap 不重叠 |
 | `segments[i].role` | ✅ | `hook` / `argument_N` / `turn` / `scene` / `conflict` / `result` / `action` / `cta` |
 | `segments[i].say` | ✅ | 可直接口播的句子，口语化（见 §4） |
+| `segments[i].claim_kind` | ✅* | T6：事实/观点标签；分析段必填（hook/cta 可省略） |
+| `segments[i].evidence_source_type` | ✅* | T6：`fact/mixed` 段必填来源类型 |
+| `segments[i].evidence_source_ref` | ✅* | T6：`fact/mixed` 段必填来源引用 |
 | `segments[i].visual[]` | ✅ | 至少 1 项，按 §5 的 4 类 |
 | `segments[i].cta_hint` | ⬜ | 若该段埋 CTA 钩子（暗示 / 预热），写内容；否则 `null` |
 | `cta.type` | ✅ | `add_wechat` / `comment_reply` / `follow_series` |
 | `cta.position` | ✅ | `ending` / `triple`（三段都出现）|
 | `cta.phrasing` | ✅ | 与最后一段的 say 一致 |
+| `production_appendix` | ✅ | 详细制作附录（固定 4 块） |
+| `production_appendix.camera_shots` | ✅ | 镜头建议，3-5 条 |
+| `production_appendix.stickers_effects` | ✅ | 贴纸/特效，3-5 条 |
+| `production_appendix.visual_assets` | ✅ | 配图建议，3-5 条 |
+| `production_appendix.host_actions` | ✅ | 人物行为，3-5 条 |
+| `production_style_adaptation` | ✅* | T8：有 `user_style_context` 时必填 |
+| `production_style_adaptation.ip_style_adaptation` | ✅* | 解释 IP 定位如何落在本稿结构 |
+| `production_style_adaptation.tone_style_adaptation` | ✅* | 解释语气/句式如何贴合该风格 |
+| `production_style_adaptation.visual_style_adaptation` | ✅* | 解释视觉建议如何贴合该风格 |
 | `compliance.status` | ✅ | 初生成时填 `pending`，扫描后 `pass` / `warn` |
 | `compliance.warnings` | ✅ | 扫描后数组 |
 | `source.topic` | ✅ | 从 meta.topic 带过来 |
@@ -309,6 +389,36 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
 [0:51-0:58 · CTA · 贴纸:箭头 / 动作:手指屏幕]
 我把这 10 次降准的完整复盘，做成一张 Excel 了。想要的，评论区扣'1'，我私信发。
 
+附录｜详细制作指导
+
+【镜头建议】
+- Hook 用近景，数字句读到“2.1%”时推近
+- 论据段切中景，图表出现时主播让开右侧
+- 转折段轻推镜，关键词出现在左上角
+- CTA 回到近景，停顿 0.5 秒再说动作指令
+
+【贴纸/特效】
+- Hook 叠加“惊叹”贴纸+轻微震屏
+- 论据1用箭头贴纸标高低点
+- 转折段上“注意这个但”黄底字幕
+- CTA 段加向下箭头指向评论区
+
+【配图建议】
+- 柱状图：10 次降准后 30 日涨跌分布
+- 对比图：2015 vs 2022 汇率与流动性环境
+- 指标卡：DR007/北上资金/中美利差三联表
+
+【人物行为】
+- Hook 说到“骗了很多人”时抬眉停顿
+- 讲三个指标时右手比 1/2/3
+- 转折句前微摇头，强化反差
+- CTA 句末手指屏幕下方评论区
+
+【风格适配说明】
+- IP适配：围绕“逃顶抄底+双重验证”组织段落，先结论后信号拆解
+- 语气适配：用直接短句和“看好了”式口头禅，减少空泛修辞
+- 视觉适配：蓝白财经风，关键数字与信号词高亮，镜头切换跟随信号段落
+
 ────
 修改还是定稿？
 ```
@@ -316,6 +426,7 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
 **渲染原则**（由工具保证，Agent 了解即可）：
 
 - 每段格式：`[时间 · role · 视觉简写]` + 换行 + say 原文
+- 若有 `production_appendix`，在正文后追加固定四块附录（镜头/贴纸特效/配图/人物行为）
 - **不会**把合规扫描状态塞进 `script.md`。合规状态走对话实时展示（Agent 从 `update` 返回的 `result.compliance` 读），持久化到 `script.json.compliance`。`script.md` 是录制用的文案稿，只放录制人要念的内容
 - 末尾必带**动作提示**（修改 / 定稿）
 
@@ -367,6 +478,17 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
   ],
   "cta": {"type": "comment_reply", "position": "triple",
           "phrasing": "评论区扣'3'，我私发给你"},
+  "production_appendix": {
+    "camera_shots": ["...3-5条..."],
+    "stickers_effects": ["...3-5条..."],
+    "visual_assets": ["...3-5条..."],
+    "host_actions": ["...3-5条..."]
+  },
+  "production_style_adaptation": {
+    "ip_style_adaptation": "...",
+    "tone_style_adaptation": "...",
+    "visual_style_adaptation": "..."
+  },
   "compliance": {"status": "pending", "warnings": []},
   "source": {"topic": "AI 算力是不是泡沫", "data_sources": []}
 }
@@ -381,9 +503,12 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
 - [ ] Hook 在前 5 秒完成？
 - [ ] 每段 ≤ 20 秒？
 - [ ] 每段 `visual[]` 至少 1 项？
+- [ ] 分析段是否标注 `claim_kind`？`fact/mixed` 是否补了来源类型与引用？
 - [ ] 每段 `say` 10 秒能读完？
 - [ ] CTA 合规（送的是方法论不是荐股）？
 - [ ] §7 的 7 类合规默扫过？
+- [ ] `production_appendix` 四个块都在，且每块 3-5 条可执行建议？
+- [ ] 若有 `user_style_context`，是否补齐 `production_style_adaptation` 三字段？
 - [ ] `compliance.status` 填了 `pending`（`update --stage script_refining` 会自动刷 `pass`/`warn`）？
 - [ ] payload 里**没有** `display_markdown` 字段？（v0.1.3 禁字段，工具自动渲染）
 
@@ -392,3 +517,5 @@ python3 scripts/lite_compliance_scan.py --from-draft <DID> --write-back
 ## 12. 在飞书里把逐字稿「读给用户」时（v0.1.7.2+）
 
 `script.md` 落盘后，若 `read` 到全文再贴进聊天，**不要**用三反引号 ` ``` ` 把**整段**口播包成**代码块**（飞书会显示成等宽+深底+行号）。用 **`####` 小标题** + **加粗**时间轴行 + **普通段落**即可，与 `feishu-channel-rules` / `SKILL.md` 铁律 8 飞书子条一致。
+
+同时保持阶段边界：`script_refining` 回复默认只发逐字稿主体、制作附录与合规状态，**不要**重复 `topic_picking` 的信源/行情/快讯/候选依据块（除非用户显式要求回看来源）。

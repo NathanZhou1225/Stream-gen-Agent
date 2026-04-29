@@ -1,0 +1,72 @@
+{
+  "version": "outline_schema_v1",
+  "generated_at": "2026-04-29T15:45:00+08:00",
+  "topic": "**行业强弱 Top**：能源金属 (+5.81%)、小金属 (+4.87%)、电池 (+4.64%)、贵金属…",
+  "direction": "AI算力板块今天到底是机会还是风险",
+  "user_style_context": "## User style (RAG block)\n- **style_id**: `bcd67fba-392d-40fb-96b9-357dbad51895`\n- **style_name**: 测试风\n- **tags**: test\n\n### Profile (machine fields)\n{\n  \"tone\": [\n    \"直接\"\n  ],\n  \"vocabulary_level\": \"口语\",\n  \"sentence_structure\": \"短句\",\n  \"catchphrases\": [\n    \"看好了\"\n  ],\n  \"call_to_action\": \"无\",\n  \"style_name\": \"测试风\"\n}\n\n### Few-shot reference excerpts (do not paraphrase for facts)\n#### Ref 1\n第一段样例\n\n#### Ref 2\n第二段样例\n\n---\n在生成口播/大纲/逐字稿时，**语气和句式**应贴近以上画像与引用；**事实与数据**仍以当前 topic 的 source_context / evidence 为准，不得用风格块覆盖事实。",
+  "points": [
+    {
+      "id": "hook",
+      "title": "开场钩子",
+      "time_range": "0-10秒",
+      "content": "看好了！今天能源金属暴涨5.81%，但AI算力板块才是真正的机会与风险并存的地方。",
+      "purpose": "吸引注意力，点明主题",
+      "production_hint": "语气直接，语速稍快，强调\"看好了\""
+    },
+    {
+      "id": "facts",
+      "title": "盘面事实",
+      "time_range": "10-30秒",
+      "content": "先看数据：上证指数涨0.71%，创业板指涨2.51%，能源金属、小金属、电池板块领涨。但芯片、半导体、算力依然是市场热词。",
+      "purpose": "摆出客观数据，建立可信度",
+      "production_hint": "陈述语气，数据部分稍作停顿"
+    },
+    {
+      "id": "thesis",
+      "title": "核心论点",
+      "time_range": "30-50秒",
+      "content": "今天有两个关键消息：一是RISC-V车规芯片专委会正式成立，二是美国暂停向华虹供应半导体设备。这一正一反，正好把算力板块的机会和风险都摆出来了。",
+      "purpose": "提出核心分析框架",
+      "production_hint": "分点讲述，\"一正一反\"加重语气"
+    },
+    {
+      "id": "opportunity",
+      "title": "机会分析",
+      "time_range": "50-70秒",
+      "content": "机会在哪？国产替代！RISC-V是中国芯片换道超车的机会，汽车芯片需求爆发，这是长期利好。",
+      "purpose": "分析机会面",
+      "production_hint": "设问语气，\"国产替代\"加重强调"
+    },
+    {
+      "id": "risk",
+      "title": "风险提示与结尾",
+      "time_range": "70-90秒",
+      "content": "风险呢？美国制裁升级，设备断供，短期肯定有压力。记住，算力板块今天不是单边行情，是结构性机会，选对方向才是关键。",
+      "purpose": "提示风险，总结收尾",
+      "production_hint": "设问+总结，结尾有力"
+    }
+  ],
+  "source_context_ref": [
+    "三大指数：上证指数4107.51 (+0.71%) / 深证成指15120.92 (+1.96%) / 创业板指3687.17 (+2.51%)",
+    "行业强弱Top：能源金属 (+5.81%)、小金属 (+4.87%)、电池 (+4.64%)、贵金属 (+3.80%)、光伏设备 (+3.13%)",
+    "中国汽车芯片联盟RISC-V车规芯片专委会正式成立",
+    "美国暂停向华虹供应半导体设备，外交部回应"
+  ],
+  "evidence_used": [
+    {
+      "point": "行业强弱Top：能源金属 (+5.81%)、小金属 (+4.87%)、电池 (+4.64%)、贵金属 (+3.80%)、光伏设备 (+3.13%)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary"
+    },
+    {
+      "point": "RISC-V车规芯片专委会在北京车展中国芯展区正式成立",
+      "source_type": "news_flash",
+      "source_ref": "ingest_markdown_summary"
+    },
+    {
+      "point": "美国暂停向华虹半导体发货，外交部回应",
+      "source_type": "news_flash",
+      "source_ref": "ingest_markdown_summary"
+    }
+  ]
+}

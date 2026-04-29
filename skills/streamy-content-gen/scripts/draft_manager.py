@@ -64,6 +64,19 @@ STAGE_ORDER = [
     STAGE_OUTLINE,
     STAGE_SCRIPT]
 VALID_EVIDENCE_CONFIDENCE = {'high', 'medium', 'low'}
+MAX_OUTLINE_PRODUCTION_HINT_LEN = 36
+SCRIPT_APPENDIX_SECTIONS = (
+    'camera_shots',
+    'stickers_effects',
+    'visual_assets',
+    'host_actions',
+)
+SCRIPT_APPENDIX_MIN_ITEMS = 3
+SCRIPT_APPENDIX_MAX_ITEMS = 5
+SCRIPT_STYLE_ADAPT_KEYS = ('ip_style_adaptation', 'tone_style_adaptation', 'visual_style_adaptation')
+SCRIPT_CLAIM_KINDS = {'fact', 'opinion', 'mixed'}
+SCRIPT_EVIDENCE_SOURCE_TYPES = {'market', 'news_flash', 'announcement', 'hotlist', 'inference', 'user_judgement'}
+SCRIPT_FACT_ROLES = {'argument_1', 'argument_2', 'argument_3', 'argument', 'turn', 'scene', 'conflict', 'result', 'action'}
 
 def _forward_artifact_files(target_stage: str) -> list[str]:
     '''返回目标阶段之后所有阶段的产物文件名（rewind 时待清理）。'''
@@ -153,6 +166,123 @@ def _assert_topic_candidates_schema(body: dict[str, Any]) -> None:
                     f'candidates[{idx}].evidence[{j}].confidence 必须是 high/medium/low。',
                     got=conf or None,
                 )
+
+
+def _assert_outline_schema(body: dict[str, Any]) -> None:
+    """T3 guard: outline 每段必须有轻量制作提示。"""
+    points = body.get('points')
+    if not isinstance(points, list) or not points:
+        emit_error(
+            'payload',
+            'OUTLINE_POINTS_MISSING',
+            'outline_refining payload 缺少 points[] 或为空。',
+        )
+    for idx, point in enumerate(points, start=1):
+        if not isinstance(point, dict):
+            emit_error('payload', 'OUTLINE_POINT_INVALID', f'points[{idx}] 不是 JSON object。')
+        hint = point.get('production_hint')
+        if not isinstance(hint, str) or not hint.strip():
+            emit_error(
+                'payload',
+                'OUTLINE_PRODUCTION_HINT_REQUIRED',
+                f'points[{idx}] 缺少 production_hint（轻量制作提示）。',
+            )
+        normalized = hint.strip()
+        if len(normalized) > MAX_OUTLINE_PRODUCTION_HINT_LEN:
+            emit_error(
+                'payload',
+                'OUTLINE_PRODUCTION_HINT_TOO_LONG',
+                f'points[{idx}].production_hint 过长（>{MAX_OUTLINE_PRODUCTION_HINT_LEN} 字），请精简为一行拍摄/剪辑提示。',
+                got=normalized,
+            )
+
+
+def _assert_script_appendix_schema(body: dict[str, Any]) -> None:
+    """T4 guard: script 附录必须包含固定 4 块，且每块 3-5 条。"""
+    appendix = body.get('production_appendix')
+    if not isinstance(appendix, dict):
+        emit_error(
+            'payload',
+            'SCRIPT_APPENDIX_REQUIRED',
+            'script_refining payload 缺少 production_appendix（详细制作附录）。',
+        )
+    for section in SCRIPT_APPENDIX_SECTIONS:
+        rows = appendix.get(section)
+        if not isinstance(rows, list):
+            emit_error(
+                'payload',
+                'SCRIPT_APPENDIX_SECTION_REQUIRED',
+                f'production_appendix.{section} 必须是数组。',
+            )
+        if not (SCRIPT_APPENDIX_MIN_ITEMS <= len(rows) <= SCRIPT_APPENDIX_MAX_ITEMS):
+            emit_error(
+                'payload',
+                'SCRIPT_APPENDIX_ITEMS_INVALID',
+                f'production_appendix.{section} 条目数必须为 {SCRIPT_APPENDIX_MIN_ITEMS}-{SCRIPT_APPENDIX_MAX_ITEMS}。',
+                got=len(rows),
+            )
+        for idx, row in enumerate(rows, start=1):
+            if not isinstance(row, str) or not row.strip():
+                emit_error(
+                    'payload',
+                    'SCRIPT_APPENDIX_ITEM_INVALID',
+                    f'production_appendix.{section}[{idx}] 必须是非空字符串。',
+                )
+
+
+def _assert_script_fact_opinion_schema(body: dict[str, Any]) -> None:
+    """T6 guard: script 段落需标注事实/观点，并给最小证据来源类型。"""
+    segments = body.get('segments')
+    if not isinstance(segments, list) or not segments:
+        emit_error('payload', 'SCRIPT_SEGMENTS_MISSING', 'script_refining payload 缺少 segments[] 或为空。')
+    for idx, seg in enumerate(segments, start=1):
+        if not isinstance(seg, dict):
+            emit_error('payload', 'SCRIPT_SEGMENT_INVALID', f'segments[{idx}] 不是 JSON object。')
+        role = str(seg.get('role') or '').strip()
+        claim_kind = str(seg.get('claim_kind') or '').strip().lower()
+        if role in SCRIPT_FACT_ROLES:
+            if claim_kind not in SCRIPT_CLAIM_KINDS:
+                emit_error(
+                    'payload',
+                    'SCRIPT_CLAIM_KIND_REQUIRED',
+                    f'segments[{idx}] 缺少 claim_kind，必须为 fact/opinion/mixed。',
+                )
+            source_type = str(seg.get('evidence_source_type') or '').strip()
+            if claim_kind in ('fact', 'mixed'):
+                if source_type not in SCRIPT_EVIDENCE_SOURCE_TYPES:
+                    emit_error(
+                        'payload',
+                        'SCRIPT_EVIDENCE_SOURCE_TYPE_REQUIRED',
+                        f'segments[{idx}] 为 {claim_kind} 时，evidence_source_type 必须为 {sorted(SCRIPT_EVIDENCE_SOURCE_TYPES)} 之一。',
+                    )
+                source_ref = str(seg.get('evidence_source_ref') or '').strip()
+                if not source_ref:
+                    emit_error(
+                        'payload',
+                        'SCRIPT_EVIDENCE_SOURCE_REF_REQUIRED',
+                        f'segments[{idx}] 为 {claim_kind} 时，evidence_source_ref 不能为空。',
+                    )
+
+
+def _assert_script_style_adaptation(body: dict[str, Any]) -> None:
+    """T8 guard: 有 user_style_context 时，附录需给出结构化风格适配说明。"""
+    if not str(body.get('user_style_context') or '').strip():
+        return
+    adapt = body.get('production_style_adaptation')
+    if not isinstance(adapt, dict):
+        emit_error(
+            'payload',
+            'SCRIPT_STYLE_ADAPTATION_REQUIRED',
+            '存在 user_style_context 时，必须提供 production_style_adaptation。',
+        )
+    for k in SCRIPT_STYLE_ADAPT_KEYS:
+        v = str(adapt.get(k) or '').strip()
+        if not v:
+            emit_error(
+                'payload',
+                'SCRIPT_STYLE_ADAPTATION_FIELD_REQUIRED',
+                f'production_style_adaptation.{k} 不能为空。',
+            )
 
 def _load_meta_or_fail(user_id: str, draft_id: str) -> tuple[Path, dict[str, Any]]:
     draft_dir = get_active_draft_dir(user_id, draft_id)
@@ -481,6 +611,41 @@ def cmd_update(args: argparse.Namespace) -> None:
     body = {k: v for k, v in payload.items() if k != 'display_markdown'}
     if stage == STAGE_TOPIC:
         _assert_topic_candidates_schema(body)
+    if stage == STAGE_OUTLINE:
+        _assert_outline_schema(body)
+    if stage == STAGE_SCRIPT:
+        _assert_script_appendix_schema(body)
+        _assert_script_fact_opinion_schema(body)
+    # T5: auto-inject archive-driven style context for outline/script when style is bound.
+    style_id = meta.get('style_id')
+    if stage in (STAGE_OUTLINE, STAGE_SCRIPT) and style_id and not str(body.get('user_style_context') or '').strip():
+        workspace_root = Path(__file__).parent.parent.parent
+        style_cli = workspace_root / 'skills' / 'user-style-manager' / 'scripts' / 'style_cli.py'
+        if style_cli.exists():
+            try:
+                cp = subprocess.run(
+                    [
+                        sys.executable,
+                        str(style_cli),
+                        'get-context',
+                        '--style-id',
+                        str(style_id),
+                        '--format',
+                        'json',
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    cwd=str(workspace_root),
+                )
+                if cp.returncode == 0 and (cp.stdout or '').strip():
+                    ctx_obj = json.loads(cp.stdout)
+                    if isinstance(ctx_obj, dict) and ctx_obj.get('ok') and isinstance(ctx_obj.get('context_markdown'), str):
+                        body['user_style_context'] = ctx_obj['context_markdown']
+            except Exception:  # noqa: BLE001
+                pass
+    if stage == STAGE_SCRIPT:
+        _assert_script_style_adaptation(body)
     deprecation_warnings: list[dict[str, str]] = []
     json_target = draft_dir / artifact_cfg['json']
     write_json_atomic(json_target, body)

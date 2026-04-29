@@ -159,6 +159,90 @@ def cmd_extract(args: argparse.Namespace) -> None:
     _emit(out)
 
 
+def _read_many(paths: list[str]) -> list[str]:
+    rows: list[str] = []
+    for p in paths:
+        pp = Path(p)
+        if not pp.is_file():
+            continue
+        txt = _read_text_file(pp).strip()
+        if txt:
+            rows.append(txt)
+    return rows
+
+
+def cmd_archive_extract(args: argparse.Namespace) -> None:
+    """T5: 资料驱动建档（个人介绍 + 网络资料 + 历史样本）。"""
+    uid = args.user_id or get_user_id()
+    chunks: list[str] = []
+    source_items: list[str] = []
+
+    bio_file = (args.bio_file or "").strip()
+    if bio_file:
+        p = Path(bio_file)
+        if p.is_file():
+            chunks.append(f"【个人介绍】\n{_read_text_file(p).strip()}")
+            source_items.append(str(p))
+
+    materials = _read_many(args.material_file or [])
+    for idx, txt in enumerate(materials, start=1):
+        chunks.append(f"【网络资料#{idx}】\n{txt}")
+    source_items.extend(args.material_file or [])
+
+    sample_files = list(args.sample_file or [])
+    sample_dir = (args.sample_dir or "").strip()
+    if sample_dir:
+        d = Path(sample_dir)
+        if d.is_dir():
+            for p in sorted(d.glob("*.md"))[:20]:
+                sample_files.append(str(p))
+    sample_texts = _read_many(sample_files)
+    for idx, txt in enumerate(sample_texts, start=1):
+        chunks.append(f"【历史样本#{idx}】\n{txt}")
+    source_items.extend(sample_files)
+
+    merged = "\n\n".join([c for c in chunks if c.strip()]).strip()
+    if len(merged) < 80:
+        _emit({"ok": False, "error": "资料不足：请至少提供 bio/material/sample 中的一类有效文本", "code": "ARCHIVE_INPUT_TOO_SHORT"})
+        return
+
+    try:
+        ex = extract_from_text(merged)
+    except Exception as e:  # noqa: BLE001
+        _emit({"ok": False, "error": str(e), "code": "ARCHIVE_EXTRACT_FAILED"})
+        return
+
+    prof = ex["profile"]
+    style_name = (args.style_name or "").strip() or prof.get("style_name") or "资料建档风格"
+    prof["style_name"] = style_name
+    refs = prof.get("reference_texts") or []
+    prof_for_db = {k: v for k, v in prof.items() if k != "reference_texts"}
+    tags = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
+    note_parts = []
+    if args.source_note:
+        note_parts.append(str(args.source_note).strip())
+    note_parts.append("archive_extract_sources=" + ",".join(source_items[:60]))
+    sid = style_store.insert_style(
+        user_id=uid,
+        style_name=style_name,
+        style_profile=prof_for_db,
+        reference_texts=refs,
+        tags=tags or None,
+        source_note=" | ".join([x for x in note_parts if x]),
+    )
+    out = {
+        "ok": True,
+        "style_id": sid,
+        "user_id": uid,
+        "style_name": style_name,
+        "profile": prof,
+        "source_count": len(source_items),
+    }
+    if args.include_raw:
+        out["raw_model"] = ex.get("raw_model")
+    _emit(out)
+
+
 def _build_context_block(row: style_store.StyleRow) -> str:
     p = row.style_profile
     lines = [
@@ -168,6 +252,24 @@ def _build_context_block(row: style_store.StyleRow) -> str:
     ]
     if row.tags:
         lines.append(f"- **tags**: {', '.join(row.tags)}")
+    lines.append("")
+    lines.append("### Archive style fields (T5)")
+    lines.append(
+        json.dumps(
+            {
+                "bio": p.get("bio"),
+                "ip_positioning": p.get("ip_positioning"),
+                "audience": p.get("audience"),
+                "tone": p.get("tone"),
+                "taboo": p.get("taboo"),
+                "structure_pref": p.get("structure_pref"),
+                "visual_pref": p.get("visual_pref"),
+                "evidence_pref": p.get("evidence_pref"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     lines.append("")
     lines.append("### Profile (machine fields)")
     lines.append(json.dumps(p, ensure_ascii=False, indent=2))
@@ -317,6 +419,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-raw", action="store_true", help="在 JSON 输出附 raw 模型片段"
     )
     p_ex.set_defaults(func=cmd_extract)
+
+    p_ax = sub.add_parser(
+        "archive-extract",
+        help="T5 资料驱动建档：个人介绍+网络资料+历史样本 -> 一条 style",
+    )
+    p_ax.add_argument("--bio-file", default=None, help="个人介绍文本文件")
+    p_ax.add_argument("--material-file", action="append", default=[], help="可重复传入网络资料文本文件")
+    p_ax.add_argument("--sample-file", action="append", default=[], help="可重复传入历史样本文稿文件")
+    p_ax.add_argument("--sample-dir", default=None, help="历史样本目录（自动读取 *.md）")
+    p_ax.add_argument("--user-id", default=None)
+    p_ax.add_argument("--style-name", default=None, help="覆盖模型给出的 style_name")
+    p_ax.add_argument("--tags", default=None, help="逗号分隔")
+    p_ax.add_argument("--source-note", default=None)
+    p_ax.add_argument("--include-raw", action="store_true")
+    p_ax.set_defaults(func=cmd_archive_extract)
 
     p_rf = sub.add_parser(
         "refine",

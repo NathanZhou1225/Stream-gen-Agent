@@ -107,6 +107,12 @@
 
 ## 6. 输出契约（**这是硬指标**）
 
+### 6.0 T3 新增：每段轻量制作提示（必须）
+
+- `points[]` 每一段新增 `production_hint`（**必须**）。
+- 只写一行可执行提示，不复述正文观点，控制在 **36 字内**。
+- 提示优先落在拍摄/剪辑动作，例如：`镜头中景+手势强调数字`、`叠加K线截图并高亮拐点`。
+
 ### 6.1 落盘调用
 
 ```bash
@@ -131,6 +137,7 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
       "role": "argument",
       "headline": "10 次降准后 30 日涨跌分布",
       "evidence": "tushare: 2008/2011/2015/... 历史分位",
+      "production_hint": "中景口播+右侧叠加涨跌分布图",
       "duration_sec": 12
     },
     {
@@ -138,6 +145,7 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
       "role": "turn",
       "headline": "这次和过去有两点不一样",
       "evidence": "汇率压力 + 通胀位置 + 地缘",
+      "production_hint": "切换近景，关键词做黄底字幕",
       "duration_sec": 10
     },
     {
@@ -145,6 +153,7 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
       "role": "action",
       "headline": "该看哪几个指标判断后续",
       "evidence": "3 个宏观跟踪指标",
+      "production_hint": "三分屏列指标，结尾停留2秒",
       "duration_sec": 12
     }
   ],
@@ -166,9 +175,13 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
 ```
 ──── 大纲 #<DID> ────
 [Hook · 3s]  过去 10 次降准，A 股平均 30 天涨 2.1%——但这个数据骗了很多人
+[制作提示]   开场近景+数字弹字
 [论据 1]     10 次降准后 30 日涨跌分布
+[制作提示]   中景口播+叠加分布图
 [转折]       这次和过去有两点不一样
+[制作提示]   关键词黄底字幕+轻推镜
 [行动启发]   该看哪几个指标判断后续
+[制作提示]   三分屏列指标+停留2秒
 [CTA]        领取《历次降准复盘表》
 ────
 合计时长：约 57 秒
@@ -179,6 +192,8 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
 - 只给"标题层"，不展开证据（证据在 json 里）
 - 每行 ≤ 25 字（飞书 / 微信窄屏友好）
 - 末尾必带合计时长
+- 每个主段后补一行 `[制作提示]`（一行、短句、不可展开成长段）
+- 当前阶段为 `outline_refining` 时，回复中不要拼接 `topic_picking` 的市场讯息块（如信源状态/大盘/快讯/事实依据）；除非用户明确要求回看数据来源
 
 ### 6.4 字段说明
 
@@ -192,6 +207,7 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
 | `points[i].role` | ✅ | `argument` / `turn` / `action` / `scene` / `conflict` / `result` 之一 |
 | `points[i].headline` | ✅ | 一句话标题，不是段落 |
 | `points[i].evidence` | ✅ | 靠什么支撑，**尽量具体**（数据源 / 指标名 / 对比对象） |
+| `points[i].production_hint` | ✅ | 轻量制作提示，一行短句（≤36 字），只写拍摄/剪辑执行动作 |
 | `points[i].duration_sec` | ✅ | 每段 8-15 秒 |
 | `cta.type` | ✅ | `add_wechat` / `comment_reply` / `follow_series` |
 | `cta.headline` | ✅ | CTA 的钩子标题，逐字稿阶段展开 |
@@ -229,13 +245,13 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
   "hook": {"text": "过去 10 次降准，A 股平均 30 天涨 2.1%——但这个数据骗了很多人", "duration_sec": 3},
   "points": [
     {"order": 1, "role": "argument", "headline": "10 次降准的 30 日涨跌分布",
-     "evidence": "tushare index_daily 2008-2023 降准后 30 个交易日涨跌幅", "duration_sec": 12},
+     "evidence": "tushare index_daily 2008-2023 降准后 30 个交易日涨跌幅", "production_hint": "中景口播+柱状图逐列高亮", "duration_sec": 12},
     {"order": 2, "role": "argument", "headline": "涨跌分化的根源：宏观背景",
-     "evidence": "对比 2015 vs 2022 两次降准时的 CPI / 汇率 / 外部流动性", "duration_sec": 13},
+     "evidence": "对比 2015 vs 2022 两次降准时的 CPI / 汇率 / 外部流动性", "production_hint": "左右分屏做年份对比", "duration_sec": 13},
     {"order": 3, "role": "turn", "headline": "这次和过去有两点关键不同",
-     "evidence": "美联储加息周期 + 人民币汇率位置", "duration_sec": 10},
+     "evidence": "美联储加息周期 + 人民币汇率位置", "production_hint": "近景停顿后上关键不同字幕", "duration_sec": 10},
     {"order": 4, "role": "action", "headline": "3 个后续跟踪指标",
-     "evidence": "DR007 / 北上资金 / 中美利差", "duration_sec": 12}
+     "evidence": "DR007 / 北上资金 / 中美利差", "production_hint": "三分屏列指标并加箭头动效", "duration_sec": 12}
   ],
   "cta": {"type": "add_wechat", "headline": "领取《历次降准复盘表》"},
   "total_duration_sec": 57,
@@ -258,13 +274,13 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
   "hook": {"text": "说 AI 算力是泡沫的人，可能搞错了两件事", "duration_sec": 4},
   "points": [
     {"order": 1, "role": "scene", "headline": "大家以为的'算力泡沫'",
-     "evidence": "市场主流担忧：英伟达 PE 高 / 需求可能不持续", "duration_sec": 10},
+     "evidence": "市场主流担忧：英伟达 PE 高 / 需求可能不持续", "production_hint": "先黑底白字抛常见质疑", "duration_sec": 10},
     {"order": 2, "role": "conflict", "headline": "真相：算力是'基础设施'不是'终端产品'",
-     "evidence": "类比 1870s 铁路 / 2000 互联网基建", "duration_sec": 15},
+     "evidence": "类比 1870s 铁路 / 2000 互联网基建", "production_hint": "历史素材快切+时间轴叠加", "duration_sec": 15},
     {"order": 3, "role": "result", "headline": "下一轮泡沫在应用层，不在算力层",
-     "evidence": "应用层 vs 硬件层的估值 / 现金流 / 商业化进度对比", "duration_sec": 15},
+     "evidence": "应用层 vs 硬件层的估值 / 现金流 / 商业化进度对比", "production_hint": "双列对比卡片+红绿标识", "duration_sec": 15},
     {"order": 4, "role": "action", "headline": "该关注什么：三个信号",
-     "evidence": "应用付费率 / 算力利用率 / 头部厂商资本开支", "duration_sec": 10}
+     "evidence": "应用付费率 / 算力利用率 / 头部厂商资本开支", "production_hint": "三条清单逐条弹出收尾", "duration_sec": 10}
   ],
   "cta": {"type": "comment_reply", "headline": "评论区扣 '3' 我发对比表"},
   "total_duration_sec": 57,
@@ -285,3 +301,4 @@ python3 scripts/draft_manager.py update --draft <DID> --stage outline_refining \
 - [ ] 合规三红线（无具体股票 / 数据带时间 / 行动止于方法）都过？
 - [ ] `display_markdown` 每行 ≤ 25 字？
 - [ ] 没有把证据写进 `display_markdown`（证据只在 json）？
+- [ ] 回复是否保持阶段边界（只给大纲，不重复市场讯息块）？

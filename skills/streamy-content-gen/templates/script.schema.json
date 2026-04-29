@@ -5,7 +5,7 @@
   "description": "逐字稿阶段 script.json 结构。落盘为 draft 目录下 script.json；合规扫描后由工具写回 compliance.*",
   "type": "object",
   "additionalProperties": true,
-  "required": ["draft_id", "duration_sec", "segments"],
+  "required": ["draft_id", "duration_sec", "segments", "production_appendix"],
   "properties": {
     "draft_id": {
       "type": "string",
@@ -30,6 +30,8 @@
       "items": { "$ref": "#/definitions/segment" }
     },
     "cta": { "$ref": "#/definitions/cta" },
+    "production_appendix": { "$ref": "#/definitions/production_appendix" },
+    "production_style_adaptation": { "$ref": "#/definitions/production_style_adaptation" },
     "compliance": { "$ref": "#/definitions/compliance" },
     "source": { "$ref": "#/definitions/source" }
   },
@@ -62,6 +64,20 @@
           ]
         },
         "say": { "type": "string", "description": "本段口播正文" },
+        "claim_kind": {
+          "type": "string",
+          "enum": ["fact", "opinion", "mixed"],
+          "description": "T6：区分事实陈述/观点判断/混合（hook/cta 可省略）"
+        },
+        "evidence_source_type": {
+          "type": "string",
+          "enum": ["market", "news_flash", "announcement", "hotlist", "inference", "user_judgement"],
+          "description": "T6：事实或混合段的证据来源类型"
+        },
+        "evidence_source_ref": {
+          "type": "string",
+          "description": "T6：事实或混合段的来源引用（如 财联社14:56 / tushare:index_daily）"
+        },
         "visual": {
           "type": "array",
           "items": { "type": "string" },
@@ -98,6 +114,60 @@
         "phrasing": { "type": "string" }
       },
       "additionalProperties": true
+    },
+    "production_appendix": {
+      "type": "object",
+      "required": ["camera_shots", "stickers_effects", "visual_assets", "host_actions"],
+      "additionalProperties": false,
+      "properties": {
+        "camera_shots": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5,
+          "items": { "type": "string" },
+          "description": "镜头建议（3-5 条）"
+        },
+        "stickers_effects": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5,
+          "items": { "type": "string" },
+          "description": "贴纸/特效建议（3-5 条）"
+        },
+        "visual_assets": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5,
+          "items": { "type": "string" },
+          "description": "配图建议（3-5 条）"
+        },
+        "host_actions": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5,
+          "items": { "type": "string" },
+          "description": "人物行为建议（3-5 条）"
+        }
+      }
+    },
+    "production_style_adaptation": {
+      "type": "object",
+      "required": ["ip_style_adaptation", "tone_style_adaptation", "visual_style_adaptation"],
+      "additionalProperties": false,
+      "properties": {
+        "ip_style_adaptation": {
+          "type": "string",
+          "description": "T8：本稿如何贴合 IP 定位（方法论/结构/节奏）"
+        },
+        "tone_style_adaptation": {
+          "type": "string",
+          "description": "T8：本稿语气与表达风格如何落地（口头禅/句式/力度）"
+        },
+        "visual_style_adaptation": {
+          "type": "string",
+          "description": "T8：镜头/贴纸/配图如何贴合该风格"
+        }
+      }
     },
     "compliance": {
       "type": "object",

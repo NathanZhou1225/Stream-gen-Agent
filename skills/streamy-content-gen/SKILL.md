@@ -2,7 +2,7 @@
 name: streamy-content-gen
 description: |
   Streamy 短视频/口播：Draft 多阶段（topic_picking → outline_refining → script_refining）与合规闸；支持 finance-source-ingest 事实管道。
-  带明确方向开稿：须先 preflight_topic.py；topic_picking 当轮须展示 feishu_digest_bullets，再展示候选（每条必须含标题+核心论点+3条论据）；draft_id 须为 draft_manager 三字符 + active/default 目录；禁止同轮越级输出大纲/逐字稿/分镜成稿。
+  带明确方向开稿：须先 preflight_topic.py；topic_picking 当轮仅展示候选（每条必须含标题+核心论点+3条论据）；draft_id 须为 draft_manager 三字符 + active/default 目录；禁止同轮越级输出大纲/逐字稿/分镜成稿。
 ---
 
 # streamy-content-gen
@@ -22,22 +22,19 @@ description: |
 
 3. **单次回复边界（带方向开稿路径）**  
    执行完 `preflight_topic.py` 的 **同一轮** 助手工作中：允许 **shell 跑脚本** + **`draft_manager update --stage topic_picking` 一次** + 对用户的 **短回复**。  
-  短回复 **必须** 依次包含（固定版式，不得删段）：  
-   - **① 信源状态**（可用/降级/不可用）；  
-   - **② 大盘行情**（至少三大指数 + 北向/南向其一）；  
-   - **③ 市场焦点 / 重点快讯**（可按收敛板块过滤）；  
-   - **④ 可选选题方向**（`candidates`：每条含标题 + 核心论点 + 3 条论据）；  
-   - **⑤** 一句「请回复序号选定选题后再进大纲」。  
-   **收敛过滤仅作用于“热点/候选”信息，不得删除“信源状态/大盘行情”等固定段落。**  
-   **事实/热点摘要**来源（优先级）：stdout 顶层 **`feishu_digest_bullets`**（脚本已抽好的 `- ` 行，**原样或略排版为 Markdown 无序列表**）；若缺失则从 **`topic_payload.source_context`** 里「事实摘要」段落 **摘 3～8 条短句**，总字数建议 **≤ 600**，**禁止**整段粘贴完整 `markdown_summary`、禁止贴完整 JSON。  
-   **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/natural-language-intent.md` §4.4**：必须 **`ingest.py run --sources market,news,social`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
-   **WebSearch 兜底（Agent 层硬要求）**：纯拉数场景若 `markdown_summary` 已原样展示但返回 JSON 的 `meta.websearch_required: true` 或 `meta.websearch_gaps` 非空（如北向资金为空/0、社媒或人气榜为空、泛财经无详情、板块无正文、国家/全球大事件不足），必须按 `natural-language-intent.md` §4.4 实际调用联网工具并追加 **「联网补充（Agent WebSearch 兜底）」**；`web_search` 若报 `missing_brave_api_key`，**同轮**改用 **`tavily-search`** 的 `scripts/search.mjs`（见 §4.4）。此补充不得写入 `finance-source-ingest` 原始 JSON，不得覆盖 API 数字；若仍失败须写明原因，不得只建议用户自行联网。  
+  短回复仅保留：  
+   - **① 可选选题方向**（`candidates`：每条含标题 + 核心论点 + 3 条论据）；  
+   - **②** 一句「请回复序号选定选题后再进大纲」。  
+  默认**不展示**信源状态/大盘行情/市场焦点/事实摘要（除非用户显式要求回看数据来源）。  
+   **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/natural-language-intent.md` §4.4**：必须执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
+   **联网补充（确定性脚本）**：`query_market_facts.py` 会先调用 `finance-source-ingest`，再依据 `meta.websearch_required/gaps` 直接调用 **`tavily-search`** 的 `scripts/search.mjs`，并把 **「联网补充（Tavily 兜底）」** 拼入 `markdown_summary`。纯拉数场景禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后把 Tavily 留给模型自行决定。  
    **禁止**仅用三条候选标题复述用户原话却 **不展示** 任何 ingest 事实锚点（用户会误以为未拉信源）。  
    **同一轮内不得**再调用模型写 `outline_refining` / `script_refining` 内容，也不得在聊天里预写大纲/逐字稿「代替」落盘。
 
 4. **何时才能写大纲 / 逐字稿**  
    - **大纲**：仅当 `topic_picking` 已完成 **选题确认**（如 `set_chosen` 或 Playbook 规定的等价动作）之后，执行 **`draft_manager update --stage outline_refining`**。  
    - **逐字稿**：仅当 `outline_refining` 已落盘且用户/流程允许进入口播阶段后，执行 **`draft_manager update --stage script_refining`**。
+   - **回复收敛（新增）**：一旦进入 `outline_refining` 或 `script_refining`，默认**不再**重复输出「信源状态 / 大盘行情 / 市场焦点 / 事实依据」整块。除非用户明确要求「再看快讯/再看数据来源」，否则只回复当前阶段产物（大纲或逐字稿）与必要确认指令。
 
 ## 带方向开稿（契约 · P0）
 
@@ -49,8 +46,8 @@ cd skills/streamy-content-gen
 python3 scripts/preflight_topic.py --direction '用户的自然语言方向'
 ```
 
-- 脚本 **stdout** 为 **单一 JSON**：成功时 `ok: true` 且含 **`topic_payload`**（内含 `source_context[]` 与 `candidates[]`：`evidence_anchor` 绑定 **不同** 列表行，`title` 为 **可区分的规则钩子**（快讯/指数/讲述视角组合，**非**「用户原句 + ·解读/·影响」）；以及 **`feishu_digest_bullets`**（**飞书选题轮必须展示**）；失败时 `ok: false` 且含 **`error`**（`code` / `message` / `hint`），**不会输出整段 Python Traceback**。
-- **后续步骤（仅此一步，禁止同轮续写大纲）**：将返回体中的 **`topic_payload`** 作为 **`draft_manager update --stage topic_picking`** 的 JSON 体（字段对齐：`source_context`、`candidates`），**写入 `drafts/`**。对用户侧回复须含 **热点摘要 + draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**（详见上文「单次回复边界」），**不得**在同一轮继续生成大纲或逐字稿。
+- 脚本 **stdout** 为 **单一 JSON**：成功时 `ok: true` 且含 **`topic_payload`**（内含 `source_context[]` 与 `candidates[]`：`evidence_anchor` 绑定 **不同** 列表行，`title` 为 **可区分的规则钩子**（快讯/指数/讲述视角组合，**非**「用户原句 + ·解读/·影响」）；失败时 `ok: false` 且含 **`error`**（`code` / `message` / `hint`），**不会输出整段 Python Traceback**。
+- **后续步骤（仅此一步，禁止同轮续写大纲）**：将返回体中的 **`topic_payload`** 作为 **`draft_manager update --stage topic_picking`** 的 JSON 体（字段对齐：`source_context`、`candidates`），**写入 `drafts/`**。对用户侧回复仅给 **draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**（详见上文「单次回复边界」），**不得**在同一轮继续生成大纲或逐字稿。
 - **弱耦合**：脚本通过 **subprocess** 调用相邻技能 `finance-source-ingest/scripts/ingest.py`（默认同级目录 `../finance-source-ingest`）；若部署布局不同，使用 `--finance-root` 指向该技能根目录。
 
 ## Draft ID 与目录契约（P0）
