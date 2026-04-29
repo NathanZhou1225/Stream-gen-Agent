@@ -29,13 +29,19 @@ description: |
    - 或在 `skills/finance-source-ingest/scripts/` 内：`../.venv/bin/python ingest.py run ...`（venv 建在 skill 根目录时）
 2. **stdout 为单个 JSON 对象**，含 `sections`、`errors`、`markdown_summary`。
 3. **事实以 `sections` 与 `errors` 为准**；`markdown_summary` 仅辅助阅读，不得从中补造数字。
+4. **`markdown_summary` 结构**：大盘与情绪（三大指数优先 → 北向资金 → 其他情绪/资金）→ 六大板块财联社摘要（**每条带时间**；板块内不足时优先用更宽财联社池做关键词回溯；仍无新闻时用行情侧补充或明确暂无）→ 大事件（国家/全球/政策/地缘/峰会类，不放公司业绩/午评/涨停分析）→ 今日热点讯息（仅金融相关）→ 社媒/人气榜探测 → 中文告警；百度实时热榜只展示有财经详情的条目，不展示非财经或无详情标题。与上游 Agent 的「只发指数表」类输出**不**同义。
+5. **缺口暴露**：当北向资金为空/返回 0、六大板块无财联社正文、泛财经无可展示详情、社媒/人气榜为空或接口失败、国家/全球大事件未命中时，顶层 `meta.websearch_required: true` 与 `meta.websearch_gaps` 会列出应由 Agent 联网补充的 `area` 与 `reason`。
+6. **WebSearch 边界**：本 skill 为可迁移 API 信源层，**不调用 Agent WebSearch**、不依赖 Cursor 工具。若上游 Agent 具备 WebSearch，必须读取本 JSON 的 `meta.websearch_required` / `meta.websearch_gaps` / `markdown_summary` 中的缺口，在用户回复里追加独立「联网补充」；该补充不得写回本 skill 的原始快照，也不得覆盖 `sections` 中的数值事实。
 
 ## 铁律
 
 - 不写 `drafts/`，不调 `draft_manager.py`。
-- 行情主源为 **AkShare**；海外新浪块仅当 `FINANCE_SOURCE_OVERSEAS_STUB=1`。
+- **指数主路径**：新浪财经 `hq.sinajs.cn` 三大指数；在此之后**默认仍会尝试** AkShare 探测北向/行业/涨跌停/情绪（失败则字段为空并记入 `errors`，不静默跳过）。若部署机对东财 **WAF 极严** 可设 **`FINANCE_SOURCE_SKIP_AKSHARE_PROBE=1`** 关闭扩展探测（仅指数）。
+- 海外新浪块仅当 `FINANCE_SOURCE_OVERSEAS_STUB=1`。
 - 社媒自爬 v0.1 不可用；无 `FINANCE_SOURCE_SOCIAL_API_URL` 时使用 **微博热搜 + AkShare** 多级降级；自爬仍仅占位。
 
 ## 与 streamy-content-gen
 
 v0.1 **不自动串联**；后续由集成方案定义（例如在 topic 阶段 shell 调用本 CLI 并将 JSON 注入 `source_context`）。
+
+上游 Agent 迁移时建议成套迁移：`finance-source-ingest` 负责原始信源；`AGENTS.md` / `MEMORY.md` / `streamy-content-gen/prompts/natural-language-intent.md` 负责 WebSearch 兜底展示协议。这样保持本 skill 可单独部署，同时保留飞书侧“信息不足则联网补充”的体验。

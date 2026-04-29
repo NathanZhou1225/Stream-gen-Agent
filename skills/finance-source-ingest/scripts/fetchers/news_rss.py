@@ -5,11 +5,13 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from urllib import request as urlrequest
 
 from _common import get_config_dir, now_iso
+
+from .sector_keywords import SECTOR_KEYWORDS, SECTOR_ORDER, group_by_sector, tag_news_items
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,8 @@ def _fetch_url(url: str, timeout: int = 12) -> bytes:
 
 
 def _news_cap(max_items: int) -> int:
-    return max(1, min(int(max_items), 10))
+    """单轮输出条数上限（六大板块优先）；默认最多 48 条。"""
+    return max(1, min(int(max_items), 48))
 
 
 def _try_stock_telegraph_cls_with_focus(ak: Any) -> tuple[Any | None, str]:
@@ -74,10 +77,48 @@ def _fetch_stock_info_global_cls(ak: Any, symbol: str) -> Any:
     return ak.stock_info_global_cls(symbol=symbol)
 
 
+def _fetch_cls_nodeapi_dataframe(pd: Any, *, rn: int = 100) -> Any:
+    url = f"https://www.cls.cn/nodeapi/telegraphList?app=CailianpressWeb&os=web&refresh_type=1&rn={rn}&sv=8.4.6"
+    raw = _fetch_url(url, timeout=12)
+    data = json.loads(raw.decode("utf-8", errors="replace"))
+    rows = (((data or {}).get("data") or {}).get("roll_data")) or []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or "").strip()
+        content = str(row.get("content") or row.get("brief") or title).strip()
+        ctime = row.get("ctime")
+        try:
+            dt = datetime.utcfromtimestamp(int(ctime)) + timedelta(hours=8)
+        except Exception:  # noqa: BLE001
+            dt = datetime.now()
+        if title or content:
+            out.append(
+                {
+                    "标题": title or content,
+                    "内容": content or title,
+                    "发布日期": dt.date(),
+                    "发布时间": dt.time().replace(microsecond=0),
+                }
+            )
+    df = pd.DataFrame(out)
+    if not df.empty:
+        df.sort_values(["发布日期", "发布时间"], inplace=True)
+        df.reset_index(inplace=True, drop=True)
+    return df
+
+
 def _load_cls_dataframe(ak: Any, errors: list[dict[str, Any]]) -> tuple[Any, str, str]:
+    frames: list[Any] = []
+    tags: list[str] = []
+    symbols: list[str] = []
+
     df, tag = _try_stock_telegraph_cls_with_focus(ak)
     if df is not None and not getattr(df, "empty", True):
-        return df, tag, "telegraph_cls"
+        frames.append(df)
+        tags.append(tag or "stock_telegraph_cls")
+        symbols.append("telegraph_cls")
 
     df_z = None
     try:
@@ -86,19 +127,64 @@ def _load_cls_dataframe(ak: Any, errors: list[dict[str, Any]]) -> tuple[Any, str
         logger.warning("stock_info_global_cls(重点) 失败: %s", repr(e))
 
     if df_z is not None and not getattr(df_z, "empty", True):
-        return df_z, "stock_info_global_cls(symbol=重点)", "重点"
+        frames.append(df_z)
+        tags.append("stock_info_global_cls(symbol=重点)")
+        symbols.append("重点")
 
-    df_all = _fetch_stock_info_global_cls(ak, "全部")
-    errors.append(
-        {
-            "source": "news",
-            "stage": "akshare_cls_telegraph",
-            "code": "CLS_TELEGRAPH_FOCUS_FALLBACK",
-            "message": "财联社「重点」无数据或不可用，已使用「全部」",
-            "hint": "stock_info_global_cls(symbol=全部)",
-        }
-    )
-    return df_all, "stock_info_global_cls(symbol=全部)", "全部"
+    df_all = None
+    try:
+        df_all = _fetch_stock_info_global_cls(ak, "全部")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("stock_info_global_cls(全部) 失败: %s", repr(e))
+        if not frames:
+            raise
+        errors.append(
+            {
+                "source": "news",
+                "stage": "akshare_cls_telegraph",
+                "code": "CLS_TELEGRAPH_ALL_FAILED",
+                "message": repr(e),
+                "hint": "已使用财联社重点池；六大板块补位可能不足",
+            }
+        )
+
+    if df_all is not None and not getattr(df_all, "empty", True):
+        frames.append(df_all)
+        tags.append("stock_info_global_cls(symbol=全部)")
+        symbols.append("全部")
+
+    import pandas as pd  # noqa: PLC0415
+
+    try:
+        df_node = _fetch_cls_nodeapi_dataframe(pd, rn=100)
+        if df_node is not None and not getattr(df_node, "empty", True):
+            frames.append(df_node)
+            tags.append("cls_nodeapi(rn=100)")
+            symbols.append("nodeapi")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("cls nodeapi 宽池失败: %s", repr(e))
+        if not frames:
+            errors.append(
+                {
+                    "source": "news",
+                    "stage": "cls_nodeapi",
+                    "code": "CLS_NODEAPI_FAILED",
+                    "message": repr(e),
+                    "hint": "https://www.cls.cn/nodeapi/telegraphList",
+                }
+            )
+
+    if not frames:
+        return _fetch_stock_info_global_cls(ak, "全部"), "stock_info_global_cls(symbol=全部)", "全部"
+
+    if len(frames) == 1:
+        return frames[0], tags[0], symbols[0]
+
+    merged = pd.concat(frames, ignore_index=True)
+    dedup_cols = [c for c in ("标题", "发布日期", "发布时间") if c in merged.columns]
+    if dedup_cols:
+        merged = merged.drop_duplicates(subset=dedup_cols, keep="last")
+    return merged, "+".join(tags), "+".join(symbols)
 
 
 def _format_published_at(row: Any, pd: Any) -> str:
@@ -173,6 +259,81 @@ def _keyword_or_match(item: dict[str, Any], keywords: list[str]) -> bool:
     return any(k.strip().lower() in blob for k in keywords if k.strip())
 
 
+def _parse_published_ts(val: Any) -> datetime | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if len(s) < 10:
+        return None
+    s19 = s[:19] if len(s) >= 19 else s
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(s19, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _enrich_sector_buckets(
+    all_tagged: list[dict[str, Any]],
+    *,
+    max_per_sector: int,
+    min_fill: int,
+) -> tuple[dict[str, list[dict[str, Any]]], bool]:
+    """
+    六大板块各凑满展示位：优先正式标签命中；不足时用宽池内「板块关键词」回溯最近快讯（非最新也可）。
+    返回 (buckets, relax_used)。
+    """
+    buckets: dict[str, list[dict[str, Any]]] = {s: [] for s in SECTOR_ORDER}
+    def item_key(it: dict[str, Any]) -> tuple[str, str]:
+        return (str(it.get("title") or ""), str(it.get("published_at") or ""))
+
+    sorted_items = sorted(
+        [x for x in all_tagged if isinstance(x, dict)],
+        key=lambda x: _parse_published_ts(x.get("published_at")) or datetime.min,
+        reverse=True,
+    )
+
+    def dedup_append(sec: str, it: dict[str, Any], source: str) -> None:
+        cur = buckets[sec]
+        if len(cur) >= max_per_sector:
+            return
+        k = item_key(it)
+        if any(item_key(x) == k for x in cur):
+            return
+        neo = dict(it)
+        neo["sector_line_source"] = source
+        cur.append(neo)
+
+    for it in sorted_items:
+        for sec in it.get("sector_tags") or []:
+            if sec in buckets:
+                dedup_append(sec, it, "tagged")
+
+    for sec in SECTOR_ORDER:
+        if len(buckets[sec]) >= min_fill:
+            continue
+        kws = SECTOR_KEYWORDS.get(sec, ())
+        for it in sorted_items:
+            if len(buckets[sec]) >= max_per_sector:
+                break
+            blob = f"{it.get('title') or ''}{it.get('clean_text') or ''}"
+            if not any(k and (k in blob) for k in kws):
+                continue
+            if any(item_key(it) == item_key(x) for x in buckets[sec]):
+                continue
+            tags = it.get("sector_tags") or []
+            src = "recent_keyword" if sec not in tags else "tagged_catchup"
+            dedup_append(sec, it, src)
+
+    relax_used = any(
+        x.get("sector_line_source") in ("recent_keyword", "tagged_catchup")
+        for lst in buckets.values()
+        for x in lst
+    )
+    return buckets, relax_used
+
+
 def _build_items_from_df(
     df: Any,
     col_title: str,
@@ -181,8 +342,17 @@ def _build_items_from_df(
     keywords: list[str],
     cap: int,
     errors: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], bool]:
-    pool_n = min(len(df), max(cap * 8, 24, cap + 5))
+) -> tuple[
+    list[dict[str, Any]],
+    bool,
+    dict[str, list[dict[str, Any]]],
+    list[dict[str, Any]],
+    bool,
+    list[dict[str, Any]],
+    bool,
+]:
+    """宽池打标签 → 主列表 + 六大板块分桶（含关键词回溯填桶）。"""
+    pool_n = min(len(df), max(520, cap * 22, cap + 48))
     tail = df.tail(pool_n) if pool_n else df.iloc[0:0]
     newest_first = list(tail.iloc[::-1].iterrows())
     raw_items: list[dict[str, Any]] = []
@@ -196,23 +366,59 @@ def _build_items_from_df(
     if kws:
         filtered = [x for x in raw_items if _keyword_or_match(x, kws)]
         if filtered:
-            out = filtered[:cap]
+            working = filtered
         else:
-            out = raw_items[:3]
+            working = raw_items[: max(cap, 12)]
             keyword_fallback = True
             errors.append(
                 {
                     "source": "news",
                     "stage": "keywords",
                     "code": "NEWS_KEYWORD_FALLBACK",
-                    "message": "关键词 OR 过滤无命中，已退回最新 3 条原文",
+                    "message": "关键词 OR 过滤无命中，已退回宽池原文再打板块标签",
                     "hint": str(kws[:12]),
                 }
             )
     else:
-        out = raw_items[:cap]
+        working = raw_items
 
-    return out[:cap], keyword_fallback
+    full_tagged = tag_news_items(raw_items)
+    tagged = tag_news_items(working)
+    sector_hits = [x for x in tagged if x.get("sector_tags")]
+    sector_filter_fallback = False
+
+    if sector_hits:
+        out = sector_hits[:cap]
+    else:
+        out = tagged[: min(5, cap)]
+        sector_filter_fallback = True
+        errors.append(
+            {
+                "source": "news",
+                "stage": "sector_filter",
+                "code": "SECTOR_FILTER_EMPTY",
+                "message": "本轮快讯未命中六大板块关键词，已降级展示最新若干条原文",
+                "hint": "科技/新能源/港股/黄金/有色/银行",
+            }
+        )
+
+    items_by_sector, sector_relax_used = _enrich_sector_buckets(
+        full_tagged,
+        max_per_sector=max(4, min(8, cap // 2 or 4)),
+        min_fill=1,
+    )
+    _, unclassified = group_by_sector(out)
+    other_flash = [x for x in full_tagged if isinstance(x, dict) and not (x.get("sector_tags") or [])][:28]
+
+    return (
+        out[:cap],
+        keyword_fallback,
+        items_by_sector,
+        unclassified,
+        sector_filter_fallback,
+        other_flash,
+        sector_relax_used,
+    )
 
 
 def fetch_news_section(
@@ -241,6 +447,11 @@ def fetch_news_section(
             "sources_used": [],
             "source_primary": "akshare:cls_telegraph",
             "keyword_fallback": False,
+            "items_by_sector": {},
+            "sector_filter_fallback": False,
+            "items_unclassified": [],
+            "items_other_flash": [],
+            "sector_relax_backfill": False,
         }, errors
 
     try:
@@ -262,6 +473,11 @@ def fetch_news_section(
             "sources_used": [],
             "source_primary": "akshare:cls_telegraph",
             "keyword_fallback": False,
+            "items_by_sector": {},
+            "sector_filter_fallback": False,
+            "items_unclassified": [],
+            "items_other_flash": [],
+            "sector_relax_backfill": False,
         }, errors
 
     try:
@@ -282,6 +498,11 @@ def fetch_news_section(
                 "source_primary": f"akshare:{api_tag}",
                 "cls_symbol": cls_symbol,
                 "keyword_fallback": False,
+                "items_by_sector": {},
+                "sector_filter_fallback": False,
+                "items_unclassified": [],
+                "items_other_flash": [],
+                "sector_relax_backfill": False,
             }, errors
 
         col_title = "标题" if "标题" in df.columns else None
@@ -303,11 +524,22 @@ def fetch_news_section(
                 "source_primary": f"akshare:{api_tag}",
                 "cls_symbol": cls_symbol,
                 "keyword_fallback": False,
+                "items_by_sector": {},
+                "sector_filter_fallback": False,
+                "items_unclassified": [],
+                "items_other_flash": [],
+                "sector_relax_backfill": False,
             }, errors
 
-        items, keyword_fallback = _build_items_from_df(
-            df, col_title, col_body, pd, keywords, cap, errors
-        )
+        (
+            items,
+            keyword_fallback,
+            items_by_sector,
+            items_unclassified,
+            sector_filter_fallback,
+            items_other_flash,
+            sector_relax_used,
+        ) = _build_items_from_df(df, col_title, col_body, pd, keywords, cap, errors)
 
         return {
             "as_of": now_iso(),
@@ -316,6 +548,11 @@ def fetch_news_section(
             "source_primary": f"akshare:{api_tag}",
             "cls_symbol": cls_symbol,
             "keyword_fallback": keyword_fallback,
+            "items_by_sector": items_by_sector,
+            "sector_filter_fallback": sector_filter_fallback,
+            "items_unclassified": items_unclassified,
+            "items_other_flash": items_other_flash,
+            "sector_relax_backfill": sector_relax_used,
         }, errors
     except Exception as e:  # noqa: BLE001
         logger.warning("财联社电报解析失败: %s", repr(e))
@@ -334,4 +571,9 @@ def fetch_news_section(
             "sources_used": ["财联社电报"],
             "source_primary": "akshare:cls_telegraph",
             "keyword_fallback": False,
+            "items_by_sector": {},
+            "sector_filter_fallback": False,
+            "items_unclassified": [],
+            "items_other_flash": [],
+            "sector_relax_backfill": False,
         }, errors

@@ -30,6 +30,8 @@ description: |
    - **⑤** 一句「请回复序号选定选题后再进大纲」。  
    **收敛过滤仅作用于“热点/候选”信息，不得删除“信源状态/大盘行情”等固定段落。**  
    **事实/热点摘要**来源（优先级）：stdout 顶层 **`feishu_digest_bullets`**（脚本已抽好的 `- ` 行，**原样或略排版为 Markdown 无序列表**）；若缺失则从 **`topic_payload.source_context`** 里「事实摘要」段落 **摘 3～8 条短句**，总字数建议 **≤ 600**，**禁止**整段粘贴完整 `markdown_summary`、禁止贴完整 JSON。  
+   **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/natural-language-intent.md` §4.4**：必须 **`ingest.py run --sources market,news,social`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
+   **WebSearch 兜底（Agent 层硬要求）**：纯拉数场景若 `markdown_summary` 已原样展示但返回 JSON 的 `meta.websearch_required: true` 或 `meta.websearch_gaps` 非空（如北向资金为空/0、社媒或人气榜为空、泛财经无详情、板块无正文、国家/全球大事件不足），必须按 `natural-language-intent.md` §4.4 实际调用联网工具并追加 **「联网补充（Agent WebSearch 兜底）」**；`web_search` 若报 `missing_brave_api_key`，**同轮**改用 **`tavily-search`** 的 `scripts/search.mjs`（见 §4.4）。此补充不得写入 `finance-source-ingest` 原始 JSON，不得覆盖 API 数字；若仍失败须写明原因，不得只建议用户自行联网。  
    **禁止**仅用三条候选标题复述用户原话却 **不展示** 任何 ingest 事实锚点（用户会误以为未拉信源）。  
    **同一轮内不得**再调用模型写 `outline_refining` / `script_refining` 内容，也不得在聊天里预写大纲/逐字稿「代替」落盘。
 
@@ -75,6 +77,7 @@ drafts/active/default/<draft_id>/topic_candidates.json   # topic_picking 起
 
 - `preflight_topic.py` 默认 `--out-dir /tmp/finance_data/`，并读取其中 **`snapshot.json`** 的 **`markdown_summary`** 折叠进 `source_context`（超长截断以降低 Token）。
 - 完整「ingest → FactSnapshot → 手写 payload」高阶管道仍以 `adapter_ingest_to_fact_snapshot.py` 等为准；**带方向开稿** 优先走本脚本的 **轻量闭环**。
+- `finance-source-ingest` 保持可迁移、脚本内不调用 Agent WebSearch；若迁移到具备 WebSearch 的 Agent，需同时迁移 `AGENTS.md` / `MEMORY.md` / `natural-language-intent.md` 中的兜底协议。WebSearch 补充优先依据 `meta.websearch_required` / `meta.websearch_gaps` 触发，只可作为 **标注来源的辅助事实**，不得伪装为 ingest 原始信源。
 
 ## 个性化风格（user-style-manager，可选）
 

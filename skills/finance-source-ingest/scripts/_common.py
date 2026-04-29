@@ -53,7 +53,7 @@ def compute_invariants() -> list[str]:
     return [
         "FACTS_FROM_JSON: 数值与条目以 sections + errors 为准，不以 markdown_summary 补数",
         "NO_DRAFTS: 本 skill 不写 drafts/，不与 draft_manager 耦合",
-        "MARKET_PRIMARY_AKSHARE: 梯队一主源为 AkShare；海外块仅 FINANCE_SOURCE_OVERSEAS_STUB=1",
+        "MARKET_INDICES_SINA: A 股三大指数主路径为新浪 hq；北向/行业/涨跌停/情绪默认尽力 AkShare 探测（可 FINANCE_SOURCE_SKIP_AKSHARE_PROBE=1）；海外块仅 FINANCE_SOURCE_OVERSEAS_STUB=1",
     ]
 
 

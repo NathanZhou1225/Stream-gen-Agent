@@ -90,6 +90,11 @@ A_SHARE_SINA_FALLBACK_SPECS: list[dict[str, str]] = [
     {"sina_code": "s_sz399001", "name": "深证成指", "code": "399001"},
     {"sina_code": "s_sz399006", "name": "创业板指", "code": "399006"},
 ]
+HK_SINA_INDEX_SPECS: list[dict[str, str]] = [
+    {"sina_code": "rt_hkHSI", "name": "恒生指数", "code": "HSI"},
+    {"sina_code": "rt_hkHSTECH", "name": "恒生科技指数", "code": "HSTECH"},
+    {"sina_code": "rt_hkHSCEI", "name": "恒生中国企业指数", "code": "HSCEI"},
+]
 
 
 def _sina_fetch(codes: list[str], *, timeout: float = 8.0) -> dict[str, list[str]]:
@@ -175,6 +180,25 @@ def _fetch_a_share_indices_from_sina_trinity(*, timeout: float = 8.0) -> list[di
                 name=str(payload[0] or spec["name"]),
                 close=_to_float(payload[1]),
                 pct_change=_to_float(payload[3]),
+            )
+        )
+    return items
+
+
+def _fetch_hk_indices_from_sina(*, timeout: float = 8.0) -> list[dict[str, Any]]:
+    raw = _sina_fetch([s["sina_code"] for s in HK_SINA_INDEX_SPECS], timeout=timeout)
+    items: list[dict[str, Any]] = []
+    for spec in HK_SINA_INDEX_SPECS:
+        payload = raw.get(spec["sina_code"], [])
+        name = payload[1] if len(payload) > 1 and payload[1] else spec["name"]
+        close = _to_float(payload[6]) if len(payload) > 6 else None
+        pct = _to_float(payload[8]) if len(payload) > 8 else None
+        items.append(
+            normalize_index_item(
+                code=spec["code"],
+                name=str(name),
+                close=close,
+                pct_change=pct,
             )
         )
     return items
@@ -348,54 +372,234 @@ def fetch_commodities() -> dict[str, Any]:
     return {"source": "sina:hq.sinajs.cn", "items": items}
 
 
-def fetch_market_section(overseas_stub_enabled: bool) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    errors: list[dict[str, Any]] = []
-    out: dict[str, Any] = {
-        "source_primary": "akshare",
-        "as_of": now_iso(),
-        "a_share_indices": None,
-        "northbound": None,
-        "industry_rank": None,
-        "market_temperature": None,
-        "overseas_stub": None,
+def _skip_akshare_probe() -> bool:
+    """设为 1 时跳过东财/AkShare 探测（仅新浪指数），用于极端离线/WAF 环境。"""
+    return os.environ.get("FINANCE_SOURCE_SKIP_AKSHARE_PROBE", "0").strip() == "1"
+
+
+def _akshare_probe_timeout_sec() -> float:
+    raw = os.environ.get("FINANCE_SOURCE_AKSHARE_PROBE_TIMEOUT", "14").strip() or "14"
+    try:
+        t = float(raw)
+    except ValueError:
+        return 14.0
+    return max(3.0, min(t, 45.0))
+
+
+def _ak_pool_call(fn: Callable[[], Any], *, timeout_sec: float) -> Any:
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(fn)
+        return fut.result(timeout=timeout_sec)
+
+
+def _probe_northbound_hsgt(ak: Any, errors: list[dict[str, Any]]) -> dict[str, Any] | None:
+    import pandas as pd  # noqa: PLC0415
+
+    fn = getattr(ak, "stock_hsgt_fund_flow_summary_em", None)
+    if not callable(fn):
+        return None
+    try:
+        df = _ak_pool_call(fn, timeout_sec=_akshare_probe_timeout_sec())
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "northbound_probe",
+                "code": "NORTHBOUND_PROBE_FAILED",
+                "message": repr(e),
+                "hint": "AkShare stock_hsgt_fund_flow_summary_em",
+            }
+        )
+        return None
+    if df is None or getattr(df, "empty", True):
+        return None
+    if "资金方向" not in df.columns or "板块" not in df.columns:
+        return None
+    work = df[(df["资金方向"] == "北向") & (df["板块"].isin(["沪股通", "深股通"]))]
+    if work.empty:
+        return None
+    col = "资金净流入" if "资金净流入" in work.columns else None
+    if not col:
+        return None
+    total = pd.to_numeric(work[col], errors="coerce").sum()
+    if pd.isna(total):
+        return None
+    return {
+        "source": "akshare:stock_hsgt_fund_flow_summary_em",
+        "aggregate_net_buy_yi": float(round(float(total), 4)),
+        "note": "北向资金为沪股通+深股通「资金净流入」行汇总（AkShare 东财口径）",
     }
 
+
+def _probe_industry_rank(ak: Any, errors: list[dict[str, Any]]) -> dict[str, Any] | None:
+    fn = getattr(ak, "stock_fund_flow_industry", None)
+    if not callable(fn):
+        return None
+    try:
+        df = _ak_pool_call(
+            lambda: _call_with_retries(lambda: fn(), attempts=2),
+            timeout_sec=_akshare_probe_timeout_sec(),
+        )
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "industry_rank_probe",
+                "code": "INDUSTRY_RANK_PROBE_FAILED",
+                "message": repr(e),
+                "hint": "AkShare stock_fund_flow_industry",
+            }
+        )
+        return None
+    if df is None or getattr(df, "empty", True):
+        return None
+    name_col = "行业" if "行业" in df.columns else None
+    pct_col = "行业-涨跌幅" if "行业-涨跌幅" in df.columns else None
+    if not name_col or not pct_col:
+        return None
+    items: list[dict[str, Any]] = []
+    for _, row in df.head(8).iterrows():
+        items.append(
+            {
+                "name": str(row.get(name_col, "") or "").strip(),
+                "pct_change": _to_float(row.get(pct_col)),
+            }
+        )
+    return {"source": "akshare:stock_fund_flow_industry", "items": items}
+
+
+def _probe_market_temperature(ak: Any, errors: list[dict[str, Any]]) -> dict[str, Any]:
+    """涨跌停池 + 行业主力净流入 Top（尽力而为，失败保留字段与 None）。"""
+    import pandas as pd  # noqa: PLC0415
+
+    out: dict[str, Any] = {
+        "source": "akshare:zt_dt_industry_probe",
+        "top_inflow_sectors": [],
+        "limit_up_count": None,
+        "limit_down_count": None,
+    }
+    retries = max(1, min(_akshare_retry_count(), 4))
+    for fn_name in ("stock_zt_pool_em", "stock_dt_pool_em"):
+        fn = getattr(ak, fn_name, None)
+        if not callable(fn):
+            continue
+        try:
+            df = _ak_pool_call(
+                lambda f=fn: _call_with_retries(lambda: f(), attempts=retries),
+                timeout_sec=_akshare_probe_timeout_sec(),
+            )
+            n = int(len(df)) if df is not None and not getattr(df, "empty", True) else 0
+            if fn_name == "stock_zt_pool_em":
+                out["limit_up_count"] = n
+            else:
+                out["limit_down_count"] = n
+        except Exception as e:  # noqa: BLE001
+            errors.append(
+                {
+                    "source": "market",
+                    "stage": fn_name,
+                    "code": "TEMPERATURE_POOL_PROBE_FAILED",
+                    "message": repr(e),
+                    "hint": fn_name,
+                }
+            )
+    ff = getattr(ak, "stock_fund_flow_industry", None)
+    if callable(ff):
+        try:
+            df2 = _ak_pool_call(
+                lambda: _call_with_retries(lambda: ff(), attempts=2),
+                timeout_sec=_akshare_probe_timeout_sec(),
+            )
+            if df2 is not None and not getattr(df2, "empty", True):
+                net_col = "净额" if "净额" in df2.columns else None
+                name_col = "行业" if "行业" in df2.columns else None
+                if net_col and name_col:
+                    work = df2.copy()
+                    work["_n"] = pd.to_numeric(work[net_col], errors="coerce")
+                    work = work.dropna(subset=["_n"]).sort_values("_n", ascending=False).head(3)
+                    secs: list[dict[str, Any]] = []
+                    for _, row in work.iterrows():
+                        nm = str(row.get(name_col, "") or "").strip()
+                        if nm:
+                            secs.append({"name": nm, "main_net_inflow_yi": _to_float(row.get(net_col))})
+                    out["top_inflow_sectors"] = secs
+        except Exception as e:  # noqa: BLE001
+            errors.append(
+                {
+                    "source": "market",
+                    "stage": "temperature_fund_flow",
+                    "code": "INFLOW_SECTOR_PROBE_FAILED",
+                    "message": repr(e),
+                    "hint": "stock_fund_flow_industry",
+                }
+            )
+    return out
+
+
+def _fill_akshare_market_extensions(out: dict[str, Any], errors: list[dict[str, Any]]) -> None:
+    """在新浪三大指数就绪后，尽力探测北向/行业/涨跌停（失败不抛异常，只记 errors）。"""
+    if _skip_akshare_probe():
+        errors.append(
+            {
+                "source": "market",
+                "stage": "akshare_probe",
+                "code": "AKSHARE_PROBE_SKIPPED",
+                "message": "FINANCE_SOURCE_SKIP_AKSHARE_PROBE=1，已跳过东财/AkShare 扩展探测",
+                "hint": "需要北向/行业/涨跌停时请 unset 该变量",
+            }
+        )
+        return
     try:
         import akshare as ak  # noqa: PLC0415
-        import pandas as pd  # noqa: PLC0415
     except ImportError as e:
         errors.append(
             {
                 "source": "market",
-                "stage": "import",
+                "stage": "akshare_probe",
                 "code": "AKSHARE_IMPORT_ERROR",
                 "message": str(e),
-                "hint": "请在本 skill 目录执行: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+                "hint": "无法 import akshare，扩展行情字段保持为空",
             }
         )
-        try:
-            fb = _fetch_a_share_indices_from_sina_trinity(timeout=8.0)
-            if _fallback_indices_usable(fb):
-                out["a_share_indices"] = {
-                    "source": "sina:hq.sinajs.cn,list=s_sh000001,s_sz399001,s_sz399006",
-                    "items": fb,
-                }
-                errors.append(
-                    {
-                        "source": "market",
-                        "stage": "a_share_indices",
-                        "code": "A_SHARE_INDICES_FALLBACK_SINA",
-                        "message": "AkShare 未安装，已仅用新浪三大指数",
-                        "hint": "items 结构与主链路一致；安装 AkShare 后可走东财主链路",
-                    }
-                )
-            else:
-                out["a_share_indices"] = {
-                    "source": "sina:placeholder",
-                    "items": _placeholder_trinity_items(),
-                }
-        except Exception as ex:  # noqa: BLE001
-            logger.warning("AkShare 缺失且新浪三大指数降级失败: %s", repr(ex))
+        return
+    nb = _probe_northbound_hsgt(ak, errors)
+    if nb:
+        out["northbound"] = nb
+    ir = _probe_industry_rank(ak, errors)
+    if ir:
+        out["industry_rank"] = ir
+    out["market_temperature"] = _probe_market_temperature(ak, errors)
+
+
+def fetch_market_section(overseas_stub_enabled: bool) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    行情：新浪三大指数（主路径）+ **尽力** AkShare 探测北向/行业/涨跌停（可 `FINANCE_SOURCE_SKIP_AKSHARE_PROBE=1` 全关）。
+    """
+    errors: list[dict[str, Any]] = []
+    out: dict[str, Any] = {
+        "source_primary": "sina_native+akshare_probe",
+        "as_of": now_iso(),
+        "a_share_indices": None,
+        "hong_kong_indices": None,
+        "northbound": None,
+        "industry_rank": None,
+        "market_temperature": {
+            "source": "pending",
+            "top_inflow_sectors": [],
+            "limit_up_count": None,
+            "limit_down_count": None,
+        },
+        "overseas_stub": None,
+    }
+
+    try:
+        fb = _fetch_a_share_indices_from_sina_trinity(timeout=10.0)
+        if _fallback_indices_usable(fb):
+            out["a_share_indices"] = {
+                "source": "sina:hq.sinajs.cn,list=s_sh000001,s_sz399001,s_sz399006",
+                "items": fb,
+            }
+        else:
             out["a_share_indices"] = {
                 "source": "sina:placeholder",
                 "items": _placeholder_trinity_items(),
@@ -403,104 +607,48 @@ def fetch_market_section(overseas_stub_enabled: bool) -> tuple[dict[str, Any], l
             errors.append(
                 {
                     "source": "market",
-                    "stage": "a_share_indices_sina_fallback",
-                    "code": "SINA_TRINITY_FAILED",
-                    "message": repr(ex),
-                    "hint": "无 AkShare 且新浪接口不可用",
+                    "stage": "a_share_indices",
+                    "code": "SINA_TRINITY_EMPTY",
+                    "message": "新浪三大指数无有效收盘价",
+                    "hint": "检查出网或新浪接口是否变更",
                 }
             )
-        if overseas_stub_enabled:
-            try:
-                out["overseas_stub"] = {
-                    "overseas": fetch_overseas_indices_and_vix(),
-                    "commodities": fetch_commodities(),
-                }
-            except (URLError, OSError, ValueError, KeyError, IndexError) as ex:
-                errors.append(
-                    {
-                        "source": "market",
-                        "stage": "overseas_stub",
-                        "code": "SINA_HQ_FAILED",
-                        "message": str(ex),
-                        "hint": "检查网络或新浪接口是否变更",
-                    }
-                )
-        return out, errors
-
-    retries = _akshare_retry_count()
-
-    # --- A 股主要指数（AkShare 短超时主链路 + 新浪三大指数 urllib 降级）---
-    _collect_a_share_indices(ak, out, errors)
-
-    # --- 北向资金（当日汇总表）---
-    try:
-        df = _call_with_retries(lambda: ak.stock_hsgt_fund_flow_summary_em(), attempts=retries)
-        nb = df[df["资金方向"] == "北向"]
-        net_series = pd.to_numeric(nb["成交净买额"], errors="coerce")
-        net = float(net_series.sum()) if len(net_series) else None
-        rows = []
-        for _, row in nb.iterrows():
-            rows.append(
-                {
-                    "board": str(row.get("板块", "") or ""),
-                    "net_buy_yi": _to_float(row.get("成交净买额")),
-                    "flow_net_yi": _to_float(row.get("资金净流入")),
-                }
-            )
-        out["northbound"] = {
-            "source": "akshare:stock_hsgt_fund_flow_summary_em",
-            "aggregate_net_buy_yi": net,
-            "rows": rows,
-        }
     except Exception as e:  # noqa: BLE001
+        logger.warning("新浪三大指数失败: %s", repr(e))
+        out["a_share_indices"] = {
+            "source": "sina:placeholder",
+            "items": _placeholder_trinity_items(),
+        }
         errors.append(
             {
                 "source": "market",
-                "stage": "akshare_northbound",
-                "code": "AKSHARE_CALL_FAILED",
+                "stage": "a_share_indices_sina_fallback",
+                "code": "SINA_TRINITY_FAILED",
                 "message": repr(e),
-                "hint": "可增大 FINANCE_SOURCE_AKSHARE_RETRIES 或稍后重试",
+                "hint": "urllib 请求新浪 list 接口失败",
             }
         )
 
-    # --- 行业涨跌幅 Top5（按今日涨跌幅降序）---
     try:
-        df = _call_with_retries(
-            lambda: ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流"),
-            attempts=retries,
-        )
-        work = df.copy()
-        work["_pct"] = pd.to_numeric(work["今日涨跌幅"], errors="coerce")
-        work = work.sort_values("_pct", ascending=False).head(5)
-        items = []
-        for _, row in work.iterrows():
-            items.append(
-                {
-                    "name": str(row.get("名称", "") or ""),
-                    "pct_change": _to_float(row.get("今日涨跌幅")),
-                    "main_net_inflow": _to_float(row.get("今日主力净流入-净额")),
-                }
-            )
-        out["industry_rank"] = {
-            "source": "akshare:stock_sector_fund_flow_rank",
-            "sort": "今日涨跌幅_desc",
-            "items": items,
-        }
+        hk_items = _fetch_hk_indices_from_sina(timeout=8.0)
+        if any(x.get("close") is not None for x in hk_items):
+            out["hong_kong_indices"] = {
+                "source": "sina:hq.sinajs.cn,list=rt_hkHSI,rt_hkHSTECH,rt_hkHSCEI",
+                "items": hk_items,
+            }
     except Exception as e:  # noqa: BLE001
+        logger.warning("新浪港股指数失败: %s", repr(e))
         errors.append(
             {
                 "source": "market",
-                "stage": "akshare_industry",
-                "code": "AKSHARE_CALL_FAILED",
+                "stage": "hong_kong_indices_sina",
+                "code": "SINA_HK_INDICES_FAILED",
                 "message": repr(e),
-                "hint": "可增大 FINANCE_SOURCE_AKSHARE_RETRIES 或稍后重试",
+                "hint": "urllib 请求新浪港股指数失败",
             }
         )
 
-    # --- 市场温度：资金风向 + 赚钱效应 ---
-    temp_data, temp_errs = fetch_market_temperature()
-    out["market_temperature"] = temp_data
-    errors.extend(temp_errs)
+    _fill_akshare_market_extensions(out, errors)
 
     if overseas_stub_enabled:
         try:
@@ -528,279 +676,127 @@ def fetch_market_data(overseas_stub_enabled: bool = False) -> tuple[dict[str, An
 
 
 def fetch_market_temperature() -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """新增探针：资金风向 + 赚钱效应（涨跌停）。"""
+    """独立入口：与 ``fetch_market_section`` 内探测逻辑一致（供单测/脚本）。"""
     errors: list[dict[str, Any]] = []
-    out: dict[str, Any] = {
-        "source": "akshare",
-        "top_inflow_sectors": [],
-        "limit_up_count": None,
-        "limit_down_count": None,
-    }
-
+    if _skip_akshare_probe():
+        return (
+            {
+                "source": "skipped:FINANCE_SOURCE_SKIP_AKSHARE_PROBE",
+                "top_inflow_sectors": [],
+                "limit_up_count": None,
+                "limit_down_count": None,
+            },
+            errors,
+        )
     try:
         import akshare as ak  # noqa: PLC0415
-        import pandas as pd  # noqa: PLC0415
     except ImportError as e:
-        errors.append(
-            {
-                "source": "market",
-                "stage": "market_temperature_import",
-                "code": "AKSHARE_IMPORT_ERROR",
-                "message": str(e),
-                "hint": "AkShare 不可用，市场温度探针将输出空结构",
-            }
+        errors.append({"source": "market", "stage": "temperature_import", "code": "AKSHARE_IMPORT_ERROR", "message": str(e)})
+        return (
+            {"source": "none", "top_inflow_sectors": [], "limit_up_count": None, "limit_down_count": None},
+            errors,
         )
-        return out, errors
-
-    retries = _akshare_retry_count()
-
-    # 1) 资金风向：优先取行业主力净流入。
-    try:
-        if hasattr(ak, "stock_fund_flow_industry"):
-            df = _call_with_retries(lambda: ak.stock_fund_flow_industry(), attempts=retries)
-            source = "akshare:stock_fund_flow_industry"
-            name_col = "名称" if "名称" in df.columns else "行业名称"
-            inflow_col = "今日主力净流入-净额" if "今日主力净流入-净额" in df.columns else "今日主力净流入"
-        else:
-            df = _call_with_retries(
-                lambda: ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流"),
-                attempts=retries,
-            )
-            source = "akshare:stock_sector_fund_flow_rank"
-            name_col = "名称"
-            inflow_col = "今日主力净流入-净额"
-
-        work = df.copy()
-        work["_inflow"] = pd.to_numeric(work[inflow_col], errors="coerce")
-        work = work.dropna(subset=["_inflow"]).sort_values("_inflow", ascending=False).head(3)
-        sectors: list[dict[str, Any]] = []
-        for _, row in work.iterrows():
-            name = str(row.get(name_col, "") or "").strip()
-            inflow = _to_float(row.get(inflow_col))
-            if not name:
-                continue
-            sectors.append({"name": name, "main_net_inflow_yi": inflow})
-        out["top_inflow_sectors"] = sectors
-        out["source"] = source
-    except Exception as e:  # noqa: BLE001
-        errors.append(
-            {
-                "source": "market",
-                "stage": "market_temperature_fund_flow",
-                "code": "AKSHARE_CALL_FAILED",
-                "message": repr(e),
-                "hint": "行业资金流接口失败，已降级为空列表",
-            }
-        )
-
-    # 2) 赚钱效应：优先涨停池/跌停池，失败后由全市场涨跌幅估算。
-    limit_up: int | None = None
-    limit_down: int | None = None
-    try:
-        zt_df = _call_with_retries(lambda: ak.stock_zt_pool_em(), attempts=retries)
-        limit_up = int(len(zt_df))
-    except Exception as e:  # noqa: BLE001
-        errors.append(
-            {
-                "source": "market",
-                "stage": "market_temperature_limit_up",
-                "code": "AKSHARE_CALL_FAILED",
-                "message": repr(e),
-                "hint": "涨停池接口失败，将尝试全市场估算",
-            }
-        )
-
-    try:
-        dt_df = _call_with_retries(lambda: ak.stock_dt_pool_em(), attempts=retries)
-        limit_down = int(len(dt_df))
-    except Exception as e:  # noqa: BLE001
-        errors.append(
-            {
-                "source": "market",
-                "stage": "market_temperature_limit_down",
-                "code": "AKSHARE_CALL_FAILED",
-                "message": repr(e),
-                "hint": "跌停池接口失败，将尝试全市场估算",
-            }
-        )
-
-    if limit_up is None or limit_down is None:
-        try:
-            spot_df = _call_with_retries(lambda: ak.stock_zh_a_spot_em(), attempts=retries)
-            pct = pd.to_numeric(spot_df.get("涨跌幅"), errors="coerce")
-            if limit_up is None:
-                limit_up = int((pct >= 9.8).sum())
-            if limit_down is None:
-                limit_down = int((pct <= -9.8).sum())
-            errors.append(
-                {
-                    "source": "market",
-                    "stage": "market_temperature_fallback_spot",
-                    "code": "MARKET_TEMPERATURE_ESTIMATED",
-                    "message": "涨跌停池部分不可用，已用全市场涨跌幅阈值估算",
-                    "hint": "估算阈值: 涨停>=9.8%, 跌停<=-9.8%",
-                }
-            )
-        except Exception as e:  # noqa: BLE001
-            errors.append(
-                {
-                    "source": "market",
-                    "stage": "market_temperature_fallback_spot",
-                    "code": "AKSHARE_CALL_FAILED",
-                    "message": repr(e),
-                    "hint": "全市场估算也失败，赚钱效应字段保持为空",
-                }
-            )
-
-    out["limit_up_count"] = limit_up
-    out["limit_down_count"] = limit_down
-    return out, errors
+    return _probe_market_temperature(ak, errors), errors
 
 
 def fetch_market_sentiment() -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """
-    模块 1（V2 平滑替换版）：市场情绪热点探针
-    - 主数据源 1：ak.stock_hot_tgb() 淘股吧热门帖子 → 提取标题作为热词（自带高频热词）
-    - 主数据源 2：ak.stock_hot_rank_wc() 同花顺问财人气股 → Top3 人气股
-    - 东财接口降级为兜底备选（云服务器 IP 限制时自动跳过）
-    - 所有接口独立容灾，失败不阻塞主流程，返回结构保持不变
-    """
-    import re  # 内置模块，无需 try-except
+    """市场情绪：依次尝试淘股吧、同花顺问财、东财人气/热词（单项失败不阻塞）。"""
+    import re
 
     errors: list[dict[str, Any]] = []
+    out: dict[str, Any] = {"hot_keywords": [], "top_hot_stocks": [], "disabled": False, "note": ""}
+    if _skip_akshare_probe():
+        out["note"] = "FINANCE_SOURCE_SKIP_AKSHARE_PROBE=1，跳过情绪热榜探测"
+        return out, errors
+    try:
+        import akshare as ak  # noqa: PLC0415
+    except ImportError as e:
+        errors.append({"source": "market", "stage": "sentiment_import", "code": "AKSHARE_IMPORT_ERROR", "message": str(e)})
+        out["note"] = "akshare 不可用"
+        return out, errors
+
     hot_keywords: list[str] = []
     top_hot_stocks: list[dict[str, str]] = []
 
     try:
-        import akshare as ak  # noqa: PLC0415
-    except ImportError as e:
-        errors.append(
-            {
-                "source": "market",
-                "stage": "market_sentiment_import",
-                "code": "AKSHARE_IMPORT_ERROR",
-                "message": str(e),
-                "hint": "无法导入 AkShare，市场情绪探针不可用",
-            }
-        )
-        return {"hot_keywords": [], "top_hot_stocks": []}, errors
-
-    # ========== 主数据源 1：淘股吧热帖（优先级 > 东财热词）==========
-    try:
-        df_tgb = ak.stock_hot_tgb()
-        if not df_tgb.empty and "标题" in df_tgb.columns:
-            raw_titles = df_tgb["标题"].head(5).tolist()
-            cleaned_titles = []
-            for title in raw_titles:
+        tgb_fn = getattr(ak, "stock_hot_tgb", None)
+        if not callable(tgb_fn):
+            raise AttributeError("akshare has no stock_hot_tgb")
+        df_tgb = _ak_pool_call(lambda: tgb_fn(), timeout_sec=_akshare_probe_timeout_sec())
+        if df_tgb is not None and not getattr(df_tgb, "empty", True) and "标题" in df_tgb.columns:
+            for title in df_tgb["标题"].head(5).tolist():
                 title_str = str(title).strip()
-                # 基础清洗：去除前后缀标记，截断超长文本
-                title_str = re.sub(r"^\d+\s*", "", title_str)  # 去除开头数字序号
-                title_str = re.sub(r"\s*\d+\s*$", "", title_str)  # 去除尾部点击量数字
-                title_str = title_str.replace("股吧", "").replace("淘股吧", "")  # 去除平台名水印
-                title_str = title_str.strip()
-
-                # 截断超长标题，保证可读性
-                if len(title_str) > 25:
-                    title_str = title_str[:25] + "…"
-
-                if title_str and len(title_str) >= 4:  # 过滤掉过短无意义内容
-                    cleaned_titles.append(title_str)
-
-            hot_keywords = cleaned_titles[:5]
+                title_str = re.sub(r"^\d+\s*", "", title_str)
+                title_str = re.sub(r"\s*\d+\s*$", "", title_str)
+                title_str = title_str.replace("股吧", "").replace("淘股吧", "").strip()
+                if len(title_str) > 28:
+                    title_str = title_str[:28] + "…"
+                if title_str and len(title_str) >= 4:
+                    hot_keywords.append(title_str)
     except Exception as e:  # noqa: BLE001
-        errors.append(
-            {
-                "source": "market",
-                "stage": "market_sentiment_tgb",
-                "code": "TGB_HOT_FAILED",
-                "message": repr(e),
-                "hint": "淘股吧热帖获取失败，将继续尝试东财接口作为兜底",
-            }
-        )
-        hot_keywords = []
+        errors.append({"source": "market", "stage": "sentiment_tgb", "code": "TGB_HOT_FAILED", "message": repr(e)})
 
-    # ========== 东财热词：降级为兜底备选（云服务器 IP 限制时自动跳过） ==========
-    if not hot_keywords:  # 淘股吧失败了才尝试东财
+    if not hot_keywords:
         try:
-            df_keywords = ak.stock_hot_keyword_em()
-            if not df_keywords.empty and "关键词" in df_keywords.columns:
+            kw_fn = getattr(ak, "stock_hot_keyword_em", None)
+            if not callable(kw_fn):
+                raise AttributeError("akshare has no stock_hot_keyword_em")
+            df_kw = _ak_pool_call(lambda: kw_fn(), timeout_sec=_akshare_probe_timeout_sec())
+            if df_kw is not None and not getattr(df_kw, "empty", True) and "关键词" in df_kw.columns:
                 hot_keywords = [
                     str(k).strip()
-                    for k in df_keywords["关键词"].head(5).tolist()
+                    for k in df_kw["关键词"].head(5).tolist()
                     if str(k).strip()
                 ]
         except Exception as e:  # noqa: BLE001
-            errors.append(
-                {
-                    "source": "market",
-                    "stage": "market_sentiment_em_fallback",
-                    "code": "EM_KEYWORDS_FALLBACK_SKIPPED",
-                    "message": repr(e),
-                    "hint": "东财热词接口 IP 受限，已静默跳过，无需处理",
-                }
-            )
+            errors.append({"source": "market", "stage": "sentiment_em_kw", "code": "EM_KEYWORDS_FAILED", "message": repr(e)})
 
-    # ========== 主数据源 2：同花顺问财人气股（优先级 > 东财人气股）==========
     try:
-        df_wc = ak.stock_hot_rank_wc()
-        # 兼容同花顺问财不同版本的返回字段（常见字段组合）
-        code_col = None
-        name_col = None
-        for col_name in ["代码", "股票代码", "code", "Code"]:
-            if col_name in df_wc.columns:
-                code_col = col_name
-                break
-        for col_name in ["名称", "股票简称", "name", "Name"]:
-            if col_name in df_wc.columns:
-                name_col = col_name
-                break
-
-        if not df_wc.empty and code_col and name_col:
+        wc_fn = getattr(ak, "stock_hot_rank_wc", None)
+        if not callable(wc_fn):
+            raise AttributeError("akshare has no stock_hot_rank_wc")
+        df_wc = _ak_pool_call(lambda: wc_fn(), timeout_sec=_akshare_probe_timeout_sec())
+        code_col = name_col = None
+        if df_wc is not None and not getattr(df_wc, "empty", True):
+            for col_name in ("代码", "股票代码", "code", "Code"):
+                if col_name in df_wc.columns:
+                    code_col = col_name
+                    break
+            for col_name in ("名称", "股票简称", "name", "Name"):
+                if col_name in df_wc.columns:
+                    name_col = col_name
+                    break
+        if df_wc is not None and code_col and name_col:
             for _, row in df_wc.head(3).iterrows():
-                code = str(row.get(code_col, "") or "").strip()
-                name = str(row.get(name_col, "") or "").strip()
-                # 清洗：去除代码前后的非数字字符，名称去水印
-                code = re.sub(r"\D", "", code)[:6]
-                name = name.replace("同花顺", "").replace("问财", "").strip()
+                code = re.sub(r"\D", "", str(row.get(code_col, "") or ""))[:6]
+                name = str(row.get(name_col, "") or "").strip().replace("同花顺", "").replace("问财", "").strip()
                 if code and name:
                     top_hot_stocks.append({"name": name, "code": code})
     except Exception as e:  # noqa: BLE001
-        errors.append(
-            {
-                "source": "market",
-                "stage": "market_sentiment_wc",
-                "code": "WC_RANK_FAILED",
-                "message": repr(e),
-                "hint": "同花顺问财人气股获取失败，将继续尝试东财接口作为兜底",
-            }
-        )
-        top_hot_stocks = []
+        errors.append({"source": "market", "stage": "sentiment_wc", "code": "WC_RANK_FAILED", "message": repr(e)})
 
-    # ========== 东财人气股：降级为兜底备选 ==========
-    if not top_hot_stocks:  # 同花顺失败了才尝试东财
+    if not top_hot_stocks:
         try:
-            df_rank = ak.stock_hot_rank_em()
-            if not df_rank.empty and "代码" in df_rank.columns and "名称" in df_rank.columns:
+            rank_fn = getattr(ak, "stock_hot_rank_em", None)
+            if not callable(rank_fn):
+                raise AttributeError("akshare has no stock_hot_rank_em")
+            df_rank = _ak_pool_call(lambda: rank_fn(), timeout_sec=_akshare_probe_timeout_sec())
+            if df_rank is not None and not getattr(df_rank, "empty", True) and "代码" in df_rank.columns and "名称" in df_rank.columns:
                 for _, row in df_rank.head(3).iterrows():
                     code = str(row.get("代码", "") or "").strip()
                     name = str(row.get("名称", "") or "").strip()
                     if code and name:
                         top_hot_stocks.append({"name": name, "code": code})
         except Exception as e:  # noqa: BLE001
-            errors.append(
-                {
-                    "source": "market",
-                    "stage": "market_sentiment_em_rank_fallback",
-                    "code": "EM_RANK_FALLBACK_SKIPPED",
-                    "message": repr(e),
-                    "hint": "东财人气股接口 IP 受限，已静默跳过",
-                }
-            )
+            errors.append({"source": "market", "stage": "sentiment_em_rank", "code": "EM_RANK_FAILED", "message": repr(e)})
 
-    return {
-        "hot_keywords": hot_keywords,
-        "top_hot_stocks": top_hot_stocks,
-    }, errors
+    out["hot_keywords"] = hot_keywords[:8]
+    out["top_hot_stocks"] = top_hot_stocks[:5]
+    if not hot_keywords and not top_hot_stocks:
+        out["note"] = "情绪热榜各源均未返回可用数据"
+    else:
+        out["note"] = ""
+    return out, errors
 
 
 def extract_keywords_from_news(news_items: list[dict[str, Any]]) -> list[str]:
