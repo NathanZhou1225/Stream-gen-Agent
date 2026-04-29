@@ -7,6 +7,95 @@ from typing import Any
 from _common import compute_invariants, now_iso, truthy_env
 from fetchers import market, news_rss, social_api, social_scrape_stub
 
+FOCUS_SECTOR_KEYWORDS = ("科技", "新能源", "港股", "黄金", "银行", "有色")
+FOCUS_ALIAS_MAP = {
+    "人工智能": "科技",
+    "AI": "科技",
+    "半导体": "科技",
+    "芯片": "科技",
+    "算力": "科技",
+    "锂电": "新能源",
+    "光伏": "新能源",
+    "风电": "新能源",
+    "储能": "新能源",
+    "COMEX 黄金": "黄金",
+    "黄金ETF": "黄金",
+    "贵金属": "黄金",
+    "稀土": "有色",
+    "铜": "有色",
+    "铝": "有色",
+}
+
+
+def _normalize_focus_label(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    for k, v in FOCUS_ALIAS_MAP.items():
+        if k in s:
+            return v
+    for x in FOCUS_SECTOR_KEYWORDS:
+        if x in s:
+            return x
+    return ""
+
+
+def _is_focus_related(raw: str) -> bool:
+    s = str(raw or "").strip()
+    if not s:
+        return False
+    if _normalize_focus_label(s):
+        return True
+    return any(k in s for k in [*FOCUS_SECTOR_KEYWORDS, *FOCUS_ALIAS_MAP.keys()])
+
+
+def _pick_focus_sectors(market_section: dict[str, Any]) -> list[str]:
+    rank = (market_section.get("industry_rank") or {}).get("items") or []
+    if not isinstance(rank, list):
+        return []
+    picked: list[str] = []
+    for row in rank:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        label = _normalize_focus_label(name)
+        if label:
+            pct = row.get("pct_change")
+            if isinstance(pct, (int, float)):
+                picked.append(f"{label}:{name}({pct:+.2f}%)")
+            else:
+                picked.append(f"{label}:{name}")
+    return picked[:6]
+
+
+def _pick_focus_sectors_from_sentiment(market_section: dict[str, Any]) -> list[str]:
+    sentiment = (market_section.get("market_sentiment") or {}).get("hot_keywords") or []
+    if not isinstance(sentiment, list):
+        return []
+    out: list[str] = []
+    for kw in sentiment:
+        label = _normalize_focus_label(str(kw))
+        if label and label not in out:
+            out.append(label)
+    return out[:6]
+
+
+def _pick_focus_sectors_from_news(news_section: dict[str, Any]) -> list[str]:
+    items = news_section.get("items") or []
+    if not isinstance(items, list):
+        return []
+    out: list[str] = []
+    for it in items[:20]:
+        if not isinstance(it, dict):
+            continue
+        blob = f"{it.get('title') or ''} {it.get('clean_text') or ''}"
+        label = _normalize_focus_label(blob)
+        if label and label not in out:
+            out.append(label)
+    return out[:6]
+
 
 def _build_markdown_with_resonance(
     sections: dict[str, Any],
@@ -25,13 +114,19 @@ def _build_markdown_with_resonance(
     resonance_text = "今日资金焦点分散，暂未发现与突发快讯强绑定的单一主线。"
     market_sentiment = m.get("market_sentiment") or {}
     hot_keywords = market_sentiment.get("hot_keywords", [])
+    hot_keywords_focus = [kw for kw in hot_keywords if _is_focus_related(str(kw))]
     top_hot_stocks = market_sentiment.get("top_hot_stocks", [])
 
     # 遍历热词，与新闻标题/正文匹配，命中第一个最强共振点即退出
     news_items = n.get("items") or []
-    for keyword in hot_keywords:
+    focus_news_items = [
+        it for it in news_items if isinstance(it, dict) and _is_focus_related(f"{it.get('title') or ''} {it.get('clean_text') or ''}")
+    ]
+    resonance_pool = focus_news_items if focus_news_items else news_items
+    resonance_keywords = hot_keywords_focus if hot_keywords_focus else hot_keywords
+    for keyword in resonance_keywords:
         keyword_lower = str(keyword).lower()
-        for news_item in news_items:
+        for news_item in resonance_pool:
             title = str(news_item.get("title") or "").lower()
             clean_text = str(news_item.get("clean_text") or "").lower()
             if keyword_lower in title or keyword_lower in clean_text:
@@ -64,8 +159,10 @@ def _build_markdown_with_resonance(
         nb_line = "**北向资金**：暂无数据"
 
     # 热词展示
-    if hot_keywords:
-        keywords_display = "、".join(hot_keywords)
+    if hot_keywords_focus:
+        keywords_display = "、".join(hot_keywords_focus[:6])
+    elif hot_keywords:
+        keywords_display = "、".join(hot_keywords[:4]) + "（其余已按优先板块收敛）"
     else:
         keywords_display = "暂无数据"
 
@@ -74,14 +171,63 @@ def _build_markdown_with_resonance(
         stocks_display = "、".join([f"{s['name']}({s['code']})" for s in top_hot_stocks])
     else:
         stocks_display = "暂无数据"
+    focus_rank = _pick_focus_sectors(m)
+    focus_sent = _pick_focus_sectors_from_sentiment(m)
+    focus_news = _pick_focus_sectors_from_news(n)
+    merged_focus: list[str] = []
+    for x in [*focus_rank, *focus_sent, *focus_news]:
+        if not x:
+            continue
+        if x not in merged_focus:
+            merged_focus.append(x)
+    focus_sector_line = "、".join(merged_focus[:6]) if merged_focus else "暂无命中（优先关注：科技/新能源/港股/黄金/银行/有色）"
+
+    # 市场温度与资金风向
+    mt = m.get("market_temperature") or {}
+    inflow = mt.get("top_inflow_sectors") or []
+    inflow = [
+        row for row in inflow if isinstance(row, dict) and _normalize_focus_label(str(row.get("name") or ""))
+    ]
+    if inflow:
+        sector_parts = []
+        for row in inflow[:3]:
+            name = str(row.get("name") or "").strip()
+            val = row.get("main_net_inflow_yi")
+            if not name:
+                continue
+            if isinstance(val, (int, float)):
+                sector_parts.append(f"{name}({val:+.2f}亿)")
+            else:
+                sector_parts.append(name)
+        inflow_line = "、".join(sector_parts) if sector_parts else "主力资金流向数据暂缺"
+    else:
+        inflow_line = "优先板块主力资金流向暂缺"
+
+    lu = mt.get("limit_up_count")
+    ld = mt.get("limit_down_count")
+    if isinstance(lu, int) and isinstance(ld, int):
+        if lu > 80:
+            temp_line = f"赚钱效应偏强（涨停 {lu} 家，跌停 {ld} 家），情绪偏亢奋，注意高位分歧。"
+        elif ld > 50:
+            temp_line = f"风险偏好偏弱（涨停 {lu} 家，跌停 {ld} 家），市场接近冰点，控制节奏。"
+        else:
+            temp_line = f"情绪中性分化（涨停 {lu} 家，跌停 {ld} 家），关注结构性机会。"
+    else:
+        temp_line = "赚钱效应数据暂缺（涨跌停统计不可用）。"
 
     # ---------- 财联社快讯列表 ----------
     news_lines = []
-    for it in news_items[:10]:
+    for it in focus_news_items[:10]:
         hh = news_rss.news_hhmm_for_markdown(str(it.get("published_at") or ""))
         t = (it.get("title") or "").strip()
         if t:
             news_lines.append(f"- [{hh}] {t}")
+    if not news_lines and news_items:
+        for it in news_items[:3]:
+            hh = news_rss.news_hhmm_for_markdown(str(it.get("published_at") or ""))
+            t = (it.get("title") or "").strip()
+            if t:
+                news_lines.append(f"- [{hh}] {t}")
 
     # ---------- 告警（如有） ----------
     error_lines = []
@@ -97,9 +243,15 @@ def _build_markdown_with_resonance(
 - {index_line}
 - {nb_line}
 ---
+### 🌡️ 市场温度与资金风向
+- **主力资金风向：** {inflow_line}
+- **赚钱效应：** {temp_line}
+---
 ### 🔥 市场情绪与主线焦点
+- **收敛过滤：** 优先展示科技/新能源/港股/黄金/银行/有色相关信息
 - **资金热搜榜：** {keywords_display}
 - **焦点人气股：** {stocks_display}
+- **重点板块跟踪：** {focus_sector_line}
 - **🎯 主线共振逻辑：** {resonance_text}
 ---
 ### 📰 财联社最新快讯
@@ -134,6 +286,9 @@ def build_snapshot(
         errors.extend(errs)
         if data.get("a_share_indices") or data.get("northbound") or data.get("industry_rank"):
             sources_ok.append("market")
+        mt = data.get("market_temperature") or {}
+        if mt.get("top_inflow_sectors") or mt.get("limit_up_count") is not None or mt.get("limit_down_count") is not None:
+            sources_ok.append("market.temperature")
         if data.get("overseas_stub"):
             sources_ok.append("market.overseas_stub")
 

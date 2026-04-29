@@ -63,6 +63,7 @@ STAGE_ORDER = [
     STAGE_TOPIC,
     STAGE_OUTLINE,
     STAGE_SCRIPT]
+VALID_EVIDENCE_CONFIDENCE = {'high', 'medium', 'low'}
 
 def _forward_artifact_files(target_stage: str) -> list[str]:
     '''返回目标阶段之后所有阶段的产物文件名（rewind 时待清理）。'''
@@ -104,6 +105,54 @@ def _extract_topic_preview(
     if is_rewind:
         return None
     return current
+
+
+def _assert_topic_candidates_schema(body: dict[str, Any]) -> None:
+    """P0 guard: topic_picking 必须携带 thesis + 3 条 evidence。"""
+    candidates = body.get('candidates')
+    if not isinstance(candidates, list) or not candidates:
+        emit_error(
+            'payload',
+            'TOPIC_CANDIDATES_MISSING',
+            'topic_picking payload 缺少 candidates[] 或为空。',
+        )
+    for idx, c in enumerate(candidates, start=1):
+        if not isinstance(c, dict):
+            emit_error('payload', 'TOPIC_CANDIDATE_INVALID', f'candidates[{idx}] 不是 JSON object。')
+        thesis = c.get('thesis')
+        if not isinstance(thesis, str) or not thesis.strip():
+            emit_error(
+                'payload',
+                'TOPIC_THESIS_REQUIRED',
+                f'candidates[{idx}] 缺少 thesis（核心论点）。',
+            )
+        ev = c.get('evidence')
+        if not isinstance(ev, list) or len(ev) != 3:
+            emit_error(
+                'payload',
+                'TOPIC_EVIDENCE_REQUIRED',
+                f'candidates[{idx}] evidence 必须固定 3 条。',
+            )
+        for j, row in enumerate(ev, start=1):
+            if not isinstance(row, dict):
+                emit_error('payload', 'TOPIC_EVIDENCE_ITEM_INVALID', f'candidates[{idx}].evidence[{j}] 不是 JSON object。')
+            point = row.get('point')
+            source_type = row.get('source_type')
+            source_ref = row.get('source_ref')
+            conf = str(row.get('confidence') or '').strip().lower()
+            if not isinstance(point, str) or not point.strip():
+                emit_error('payload', 'TOPIC_EVIDENCE_POINT_REQUIRED', f'candidates[{idx}].evidence[{j}].point 不能为空。')
+            if not isinstance(source_type, str) or not source_type.strip():
+                emit_error('payload', 'TOPIC_EVIDENCE_SOURCE_TYPE_REQUIRED', f'candidates[{idx}].evidence[{j}].source_type 不能为空。')
+            if not isinstance(source_ref, str) or not source_ref.strip():
+                emit_error('payload', 'TOPIC_EVIDENCE_SOURCE_REF_REQUIRED', f'candidates[{idx}].evidence[{j}].source_ref 不能为空。')
+            if conf not in VALID_EVIDENCE_CONFIDENCE:
+                emit_error(
+                    'payload',
+                    'TOPIC_EVIDENCE_CONFIDENCE_INVALID',
+                    f'candidates[{idx}].evidence[{j}].confidence 必须是 high/medium/low。',
+                    got=conf or None,
+                )
 
 def _load_meta_or_fail(user_id: str, draft_id: str) -> tuple[Path, dict[str, Any]]:
     draft_dir = get_active_draft_dir(user_id, draft_id)
@@ -430,6 +479,8 @@ def cmd_update(args: argparse.Namespace) -> None:
     artifact_cfg = STAGE_ARTIFACTS[stage]
     display_md = payload.get('display_markdown')
     body = {k: v for k, v in payload.items() if k != 'display_markdown'}
+    if stage == STAGE_TOPIC:
+        _assert_topic_candidates_schema(body)
     deprecation_warnings: list[dict[str, str]] = []
     json_target = draft_dir / artifact_cfg['json']
     write_json_atomic(json_target, body)

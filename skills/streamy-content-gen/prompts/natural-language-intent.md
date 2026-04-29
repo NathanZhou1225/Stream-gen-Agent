@@ -220,6 +220,16 @@ draft_manager.py drop --draft A3F --reason "<用户说的原因或空>"
 
 **前置**：`stage = topic_picking`
 
+**⚠️ 硬规则（新增，飞书展示强约束）**：
+
+在 `topic_picking` 阶段给用户展示候选时，**不得只展示“标题/切入角度”**。每个候选必须至少包含：
+
+1. `title`（标题）
+2. `thesis`（核心论点，一句话）
+3. `evidence` 三条（论据 1/2/3，可精简展示）
+
+若 payload 已包含 `thesis/evidence` 但回复中省略，视为流程违规；必须重发本轮候选展示。
+
 | 用户表述 | 举例 | 解析 |
 |---|---|---|
 | 序号选 | "就 ②" · "选第二个" · "2" · "选 B" | `selected_index = 2` |

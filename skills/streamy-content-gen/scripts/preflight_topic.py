@@ -25,7 +25,8 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = Path(__file__).resolve().parent
 # 与 finance-source-ingest 为同 skills/ 下兄弟目录（可迁移：仅依赖此相对布局）
 DEFAULT_FINANCE_SIBLING = SKILL_ROOT.parent / "finance-source-ingest"
-DEFAULT_OUT_DIR = Path("/tmp/finance_data")
+# 默认写入 workspace 内，避免沙箱/权限导致的 /tmp 写入失败
+DEFAULT_OUT_DIR = SKILL_ROOT.parent.parent / "tmp" / "finance_data"
 PROVENANCE = "finance-source-ingest|preflight_topic.py"
 # markdown 注入 source_context 时的软上限，利于降 Token
 MAX_MD_CHARS = 8000
@@ -34,6 +35,18 @@ FEISHU_DIGEST_MAX = 8
 FEISHU_DIGEST_LINE_CHARS = 220
 HOTLIST_DOWN_NOTICE = "⚠️ 弱舆情热榜信号暂不可用（两路来源均失败），本轮选题基于行情/快讯/公告生成。"
 CST = timezone(timedelta(hours=8))
+HOT_RANK_RETRY = 2
+
+DOMAIN_LEXICON: dict[str, tuple[str, ...]] = {
+    "ai": ("人工智能", "AI", "算力", "芯片", "服务器", "大模型", "智算", "GPU", "半导体"),
+    "macro_policy": ("政策", "政治局", "发改委", "央行", "货币", "财政", "基建", "会议"),
+    "market_sentiment": ("情绪", "节前", "缩量", "成交额", "热点", "主线", "风险偏好", "避险"),
+    "energy_new": ("新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩"),
+    "healthcare": ("医药", "医疗", "创新药", "器械", "医保", "集采"),
+    "military": ("军工", "国防", "航天", "导弹", "卫星", "船舶"),
+    "teacher_focus": ("科技", "新能源", "港股", "黄金", "银行", "有色"),
+}
+STRICT_DOMAIN_TAGS = set()
 
 
 def _now_iso() -> str:
@@ -63,6 +76,37 @@ def _keywords_from_direction(direction: str) -> str:
     if not parts:
         return raw[:48] if raw else "市场"
     return " ".join(parts)
+
+
+def _detect_domain_tags(direction: str) -> list[str]:
+    d = direction or ""
+    tags: list[str] = []
+    for tag, kws in DOMAIN_LEXICON.items():
+        if any(k in d for k in kws):
+            tags.append(tag)
+    if "teacher_focus" not in tags:
+        tags.append("teacher_focus")
+    if not tags:
+        tags.append("market_sentiment")
+    return tags
+
+
+def _expand_keywords(direction: str) -> tuple[str, list[str], list[str]]:
+    base = _keywords_from_direction(direction)
+    tags = _detect_domain_tags(direction)
+    expanded = []
+    for t in tags:
+        expanded.extend(DOMAIN_LEXICON.get(t, ()))
+    seed = [x for x in base.split() if x.strip()]
+    all_kw: list[str] = []
+    for x in [*seed, *expanded]:
+        if x and x not in all_kw:
+            all_kw.append(x)
+        if len(all_kw) >= 14:
+            break
+    if not all_kw:
+        all_kw = ["市场"]
+    return " ".join(all_kw), tags, all_kw
 
 
 def _feishu_digest_bullets(md_summary: str, max_items: int = FEISHU_DIGEST_MAX) -> list[str]:
@@ -144,6 +188,9 @@ def _is_index_or_flow_bullet(line: str) -> bool:
             "三大指数",
             "恒生",
             "道琼斯",
+            "主力资金",
+            "涨停",
+            "跌停",
         )
     )
 
@@ -168,6 +215,12 @@ def _is_noise_bullet(line: str) -> bool:
     ):
         return True
     return s.startswith("- [") and ("超时" in s or "失败" in s or "error" in low)
+
+
+def _is_placeholder_line(line: str) -> bool:
+    s = line.strip()
+    low = s.lower()
+    return any(x in s for x in ("暂无数据", "接口异常", "未获取到数据")) or ("not_available" in low)
 
 
 def _title_from_bullet_line(line: str, max_len: int = 56) -> str:
@@ -210,6 +263,14 @@ def _bullet_touches_direction(line: str, direction: str) -> bool:
     return any(t in line for t in toks)
 
 
+def _relevance_score(text: str, direction: str) -> float:
+    toks = _direction_tokens(direction)
+    if not toks:
+        return 1.0
+    hit = sum(1 for t in toks if t in (text or ""))
+    return hit / max(1, len(toks))
+
+
 def _three_distinct_candidates(direction: str, raw_bullets: list[str]) -> list[dict[str, str]]:
     """
     三条候选须在标题上可区分：优先用不同快讯/事实行；不足时用「行情 / 对照 / 讲述结构」模板。
@@ -236,9 +297,9 @@ def _three_distinct_candidates(direction: str, raw_bullets: list[str]) -> list[d
             pack(direction_short, f"{direction_short}：三个节奏误区一次说清", angles[2]),
         ]
 
-    clean = [b for b in raw_bullets if not _is_noise_bullet(b)]
+    clean = [b for b in raw_bullets if (not _is_noise_bullet(b) and not _is_placeholder_line(b))]
     if not clean:
-        clean = list(raw_bullets)
+        clean = [b for b in raw_bullets if not _is_noise_bullet(b)] or list(raw_bullets)
     news = [b for b in clean if not _is_index_or_flow_bullet(b)]
     idx = [b for b in clean if _is_index_or_flow_bullet(b)]
 
@@ -344,8 +405,48 @@ def _source_ref_from_line(line: str) -> str:
     return "ingest_markdown_summary"
 
 
-def _build_evidence(raw_bullets: list[str], weak_sentiment: dict[str, Any] | None) -> list[dict[str, str]]:
-    picked = [x for x in raw_bullets if not _is_noise_bullet(x)][:3]
+def _build_evidence_for_candidate(
+    raw_bullets: list[str],
+    weak_sentiment: dict[str, Any] | None,
+    anchor_line: str,
+    direction: str,
+    domain_lines: list[str] | None = None,
+) -> list[dict[str, str]]:
+    pool = [x for x in raw_bullets if (not _is_noise_bullet(x) and not _is_placeholder_line(x))]
+    if not pool:
+        pool = [x for x in raw_bullets if not _is_noise_bullet(x)]
+    domain_pool = [x for x in (domain_lines or []) if (not _is_noise_bullet(x) and not _is_placeholder_line(x))]
+    touched = [x for x in pool if _bullet_touches_direction(x, direction)]
+    picked: list[str] = []
+    if anchor_line and (not _is_placeholder_line(anchor_line)):
+        picked.append(anchor_line)
+    for line in domain_pool + touched + pool:
+        if len(picked) >= 3:
+            break
+        key = _norm_title_key(line)
+        if any(_norm_title_key(x) == key for x in picked):
+            continue
+        picked.append(line)
+
+    non_index_pool = [x for x in (domain_pool + touched + pool) if not _is_index_or_flow_bullet(x)]
+    non_index_count = sum(1 for x in picked if not _is_index_or_flow_bullet(x))
+    if non_index_count < 2 and non_index_pool:
+        for line in non_index_pool:
+            if non_index_count >= 2:
+                break
+            if any(_norm_title_key(x) == _norm_title_key(line) for x in picked):
+                continue
+            if len(picked) < 3:
+                picked.append(line)
+                non_index_count += 1
+                continue
+            # 用非指数条替换掉末尾指数/北向等通用条，降低论据同质化
+            for i in range(len(picked) - 1, -1, -1):
+                if _is_index_or_flow_bullet(picked[i]):
+                    picked[i] = line
+                    non_index_count += 1
+                    break
+
     out: list[dict[str, str]] = []
     for line in picked:
         point = _title_from_bullet_line(line, max_len=88)
@@ -377,6 +478,163 @@ def _build_evidence(raw_bullets: list[str], weak_sentiment: dict[str, Any] | Non
             }
         )
     return out[:3]
+
+
+def _domain_specific_line(raw_bullets: list[str], tags: list[str]) -> str | None:
+    pool = [x for x in raw_bullets if (not _is_noise_bullet(x) and not _is_placeholder_line(x))]
+    if not pool:
+        return None
+    domain_words: list[str] = []
+    for t in tags:
+        domain_words.extend(DOMAIN_LEXICON.get(t, ()))
+    for line in pool:
+        if any(w in line for w in domain_words):
+            return line
+    return None
+
+
+def _collect_domain_lines(snapshot: dict[str, Any], raw_bullets: list[str], tags: list[str]) -> list[str]:
+    domain_words: list[str] = []
+    for t in tags:
+        domain_words.extend(DOMAIN_LEXICON.get(t, ()))
+    domain_words = [w for w in domain_words if w]
+    if not domain_words:
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _push(line: str) -> None:
+        s = (line or "").strip()
+        if not s:
+            return
+        if _is_noise_bullet(s) or _is_placeholder_line(s):
+            return
+        key = _norm_title_key(s)
+        if key in seen:
+            return
+        if any(w in s for w in domain_words):
+            seen.add(key)
+            out.append(s)
+
+    for b in raw_bullets:
+        _push(b)
+
+    news_items = (((snapshot.get("sections") or {}).get("news") or {}).get("items") or [])
+    if isinstance(news_items, list):
+        for it in news_items:
+            if not isinstance(it, dict):
+                continue
+            title = str(it.get("title") or "").strip()
+            if not title:
+                continue
+            _push(f"- {title}")
+
+    return out
+
+
+def _domain_enhanced_bullets(snapshot: dict[str, Any], tags: list[str]) -> list[str]:
+    """从结构化快照抽领域细节，补齐 markdown 摘要遗漏。"""
+    domain_words: list[str] = []
+    for t in tags:
+        domain_words.extend(DOMAIN_LEXICON.get(t, ()))
+    domain_words = [w for w in domain_words if w]
+    if not domain_words:
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _push(line: str) -> None:
+        s = (line or "").strip()
+        if not s:
+            return
+        if _is_noise_bullet(s) or _is_placeholder_line(s):
+            return
+        key = _norm_title_key(s)
+        if not key or key in seen:
+            return
+        if any(w in s for w in domain_words):
+            seen.add(key)
+            out.append(s[:280])
+
+    sections = snapshot.get("sections") or {}
+    market = sections.get("market") or {}
+
+    rank_items = ((market.get("industry_rank") or {}).get("items") or [])
+    if isinstance(rank_items, list):
+        for row in rank_items[:8]:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            if not name:
+                continue
+            pct = row.get("pct_change")
+            inflow = row.get("main_net_inflow")
+            msg = f"- 行业资金：{name}"
+            if isinstance(pct, (int, float)):
+                msg += f" 涨跌幅 {pct:+.2f}%"
+            if isinstance(inflow, (int, float)):
+                msg += f"，主力净流入 {inflow:+.2f} 亿"
+            _push(msg)
+
+    temp_items = ((market.get("market_temperature") or {}).get("top_inflow_sectors") or [])
+    if isinstance(temp_items, list):
+        for row in temp_items[:6]:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            if not name:
+                continue
+            val = row.get("main_net_inflow_yi")
+            msg = f"- 资金风向：{name}"
+            if isinstance(val, (int, float)):
+                msg += f" 主力净流入 {val:+.2f} 亿"
+            _push(msg)
+
+    news_items = ((sections.get("news") or {}).get("items") or [])
+    if isinstance(news_items, list):
+        for it in news_items[:20]:
+            if not isinstance(it, dict):
+                continue
+            title = str(it.get("title") or "").strip()
+            if title:
+                _push(f"- {title}")
+            clean = str(it.get("clean_text") or "").strip()
+            if clean:
+                _push(f"- 快讯要点：{clean[:90].rstrip('，、； ')}")
+
+    return out[:24]
+
+
+def _focus_sector_bullets(snapshot: dict[str, Any]) -> list[str]:
+    rank_items = (((snapshot.get("sections") or {}).get("market") or {}).get("industry_rank") or {}).get("items") or []
+    if not isinstance(rank_items, list):
+        return []
+    out: list[str] = []
+    for row in rank_items:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        if not any(k in name for k in DOMAIN_LEXICON.get("teacher_focus", ())):
+            continue
+        pct = row.get("pct_change")
+        if isinstance(pct, (int, float)):
+            out.append(f"- 重点板块：{name} 今日涨跌幅 {pct:+.2f}%")
+        else:
+            out.append(f"- 重点板块：{name}")
+    return out[:6]
+
+
+def _candidate_relevance(c: dict[str, Any], direction: str) -> float:
+    title = str(c.get("title") or "")
+    thesis = str(c.get("thesis") or "")
+    ev = c.get("evidence") or []
+    ev_text = " ".join(str((x or {}).get("point") or "") for x in ev if isinstance(x, dict))
+    base = f"{title} {thesis} {ev_text}".strip()
+    return _relevance_score(base, direction)
 
 
 def _pick_tophub_signal(hot_rank: dict[str, Any]) -> dict[str, Any] | None:
@@ -461,42 +719,205 @@ def _build_hotlist_context(hot_rank: dict[str, Any], snapshot: dict[str, Any]) -
     )
 
 
+def _classify_failure(reason_or_code: str) -> str:
+    s = (reason_or_code or "").lower()
+    if any(x in s for x in ("name or service not known", "gaierror", "dns", "nodename nor servname")):
+        return "DNS_FAIL"
+    if any(x in s for x in ("ip 受限", "forbidden", "403", "access denied")):
+        return "IP_LIMIT"
+    if any(x in s for x in ("attributeerror", "schema", "no attribute")):
+        return "API_SCHEMA_CHANGE"
+    if any(x in s for x in ("empty", "无数据", "not_available", "返回空")):
+        return "EMPTY_DATA"
+    if any(x in s for x in ("timeout", "timed out")):
+        return "TIMEOUT"
+    return "UNKNOWN"
+
+
+def _first_error_by_source(snapshot: dict[str, Any], source: str) -> dict[str, Any] | None:
+    errs = snapshot.get("errors") or []
+    if not isinstance(errs, list):
+        return None
+    for e in errs:
+        if isinstance(e, dict) and str(e.get("source") or "") == source:
+            return e
+    return None
+
+
+def _pick_tophub_error(hot_rank: dict[str, Any]) -> dict[str, Any] | None:
+    errs = hot_rank.get("errors") or []
+    if not isinstance(errs, list):
+        return None
+    for e in errs:
+        if isinstance(e, dict):
+            return e
+    return None
+
+
+def _build_source_availability(snapshot: dict[str, Any], hot_rank: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    sections = snapshot.get("sections") or {}
+    market_ok = bool(((sections.get("market") or {}).get("a_share_indices") or {}).get("items"))
+    news_ok = bool((sections.get("news") or {}).get("items"))
+    social_ok = bool((sections.get("social") or {}).get("items"))
+    tophub_ok = bool(hot_rank.get("lists"))
+
+    available: list[str] = []
+    degraded: list[dict[str, str]] = []
+    unavailable: list[dict[str, str]] = []
+
+    if market_ok:
+        available.append("market")
+        e = _first_error_by_source(snapshot, "market")
+        if isinstance(e, dict):
+            raw = f"{e.get('code') or ''} {e.get('message') or ''}"
+            degraded.append({"source": "market", "failure_type": _classify_failure(raw), "detail": str(e.get("code") or "market_degraded")})
+    else:
+        e = _first_error_by_source(snapshot, "market") or {}
+        raw = f"{e.get('code') or ''} {e.get('message') or ''}"
+        unavailable.append({"source": "market", "failure_type": _classify_failure(raw), "detail": str(e.get("code") or "market_unavailable")})
+
+    if news_ok:
+        available.append("news")
+        e = _first_error_by_source(snapshot, "news")
+        if isinstance(e, dict):
+            raw = f"{e.get('code') or ''} {e.get('message') or ''}"
+            degraded.append({"source": "news", "failure_type": _classify_failure(raw), "detail": str(e.get("code") or "news_degraded")})
+    else:
+        e = _first_error_by_source(snapshot, "news") or {}
+        raw = f"{e.get('code') or ''} {e.get('message') or ''}"
+        unavailable.append({"source": "news", "failure_type": _classify_failure(raw), "detail": str(e.get("code") or "news_unavailable")})
+
+    if social_ok:
+        available.append("social")
+        e = _first_error_by_source(snapshot, "social")
+        if isinstance(e, dict):
+            raw = f"{e.get('code') or ''} {e.get('message') or ''}"
+            degraded.append({"source": "social", "failure_type": _classify_failure(raw), "detail": str(e.get("code") or "social_degraded")})
+    else:
+        e = _first_error_by_source(snapshot, "social") or {}
+        raw = f"{e.get('code') or ''} {e.get('message') or ''}"
+        unavailable.append({"source": "social", "failure_type": _classify_failure(raw), "detail": str(e.get("code") or "social_unavailable")})
+
+    if tophub_ok:
+        available.append("tophub")
+        e = _pick_tophub_error(hot_rank)
+        if isinstance(e, dict):
+            raw = f"{e.get('item') or ''} {e.get('reason') or ''}"
+            degraded.append({"source": "tophub", "failure_type": _classify_failure(raw), "detail": str(e.get("item") or "tophub_degraded")})
+    else:
+        e = _pick_tophub_error(hot_rank) or {}
+        raw = f"{e.get('item') or ''} {e.get('reason') or ''}"
+        unavailable.append({"source": "tophub", "failure_type": _classify_failure(raw), "detail": str(e.get("item") or "tophub_unavailable")})
+
+    avail_text = "、".join(available) if available else "无"
+    unavail_text = (
+        "、".join(f"{x['source']}({x['failure_type']})" for x in unavailable)
+        if unavailable
+        else "无"
+    )
+    degraded_text = (
+        "、".join(f"{x['source']}({x['failure_type']})" for x in degraded)
+        if degraded
+        else "无"
+    )
+    feishu_notice = f"🔎 信源状态：可用[{avail_text}]；降级[{degraded_text}]；不可用[{unavail_text}]。"
+    return {"available": available, "degraded": degraded, "unavailable": unavailable}, feishu_notice
+
+
 def _build_topic_payload(
     direction: str,
     snapshot: dict[str, Any],
     md_summary: str,
     hot_rank: dict[str, Any],
+    domain_tags: list[str],
 ) -> dict[str, Any]:
     """将 ingest 快照压成 topic_picking 所需最小契约（与 draft_manager P0-B 对齐）。"""
     md_trim = (md_summary or "")[:MAX_MD_CHARS].strip()
     meta = snapshot.get("meta") or {}
     raw_bullets = _markdown_bullet_lines(md_trim)
+    raw_bullets.extend(_focus_sector_bullets(snapshot))
+    domain_enhanced = _domain_enhanced_bullets(snapshot, domain_tags)
+    raw_bullets.extend(domain_enhanced)
     base_candidates = _three_distinct_candidates(direction, raw_bullets)
     hotlist_meta, weak_sentiment, down_notice = _build_hotlist_context(hot_rank, snapshot)
+    source_availability, source_notice = _build_source_availability(snapshot, hot_rank)
     direction_short = (direction or "").strip()[:32] or "本期方向"
+    domain_lines = _collect_domain_lines(snapshot, raw_bullets, domain_tags)
+    domain_hint = domain_lines[0] if domain_lines else None
     candidates: list[dict[str, Any]] = []
     for c in base_candidates:
         title = str(c.get("title") or "").strip()
+        anchor = str(c.get("evidence_anchor") or "")
         thesis = f"{direction_short}相关讨论与盘面事实正在共振，优先围绕「{title[:24]}」展开。"
         candidates.append(
             {
                 "title": title,
                 "angle": c.get("angle"),
                 "thesis": thesis[:88],
-                "evidence": _build_evidence(raw_bullets, weak_sentiment),
+                "evidence": _build_evidence_for_candidate(raw_bullets, weak_sentiment, anchor, direction, domain_lines=domain_lines),
                 "weak_sentiment": weak_sentiment,
-                "evidence_anchor": c.get("evidence_anchor"),
+                "evidence_anchor": anchor,
             }
         )
+    # T2c: 每个候选至少补 1 条同域专属论据（若可命中）
+    domain_line = _domain_specific_line(raw_bullets, domain_tags) or domain_hint
+    if domain_line:
+        for c in candidates:
+            ev = c.get("evidence") or []
+            if not isinstance(ev, list) or not ev:
+                continue
+            if any(any(k in str((x or {}).get("point") or "") for k in DOMAIN_LEXICON.get(t, ())) for x in ev for t in domain_tags):
+                continue
+            ev[0] = {
+                "point": _title_from_bullet_line(domain_line, max_len=88),
+                "source_type": _source_type_from_line(domain_line),
+                "source_ref": _source_ref_from_line(domain_line),
+                "confidence": _confidence_for_source(_source_type_from_line(domain_line)),
+            }
+    # 严格领域（当前可按需开启）若完全没有同域证据，阻断选题输出，避免“泛盘面硬凑”
+    if STRICT_DOMAIN_TAGS and any(t in STRICT_DOMAIN_TAGS for t in domain_tags):
+        has_domain_evidence = False
+        for c in candidates:
+            ev = c.get("evidence") or []
+            if not isinstance(ev, list):
+                continue
+            txt = " ".join(str((x or {}).get("point") or "") for x in ev if isinstance(x, dict))
+            if any(any(w in txt for w in DOMAIN_LEXICON.get(t, ())) for t in domain_tags):
+                has_domain_evidence = True
+                break
+        if not has_domain_evidence:
+            raise ValueError(
+                "domain evidence insufficient: 当前信源未命中该方向的同域事实（如 AI/算力/芯片）。已阻断候选输出，请补充更具体领域线索或稍后重试。"
+            )
+
+    # T2b: 方向相关性守门（低相关则重写为方向前缀并二次校验）
+    scores = [_candidate_relevance(x, direction) for x in candidates]
+    avg_score = sum(scores) / max(1, len(scores))
+    if avg_score < 0.20:
+        for i, c in enumerate(candidates, start=1):
+            title = str(c.get("title") or "")
+            if _relevance_score(title, direction) < 0.20:
+                c["title"] = f"{direction_short}｜{title[:42]}".strip("｜")
+            c["thesis"] = f"围绕「{direction_short}」给出第{i}条可执行讲法，论据与当日盘面/快讯保持同域。"
+        scores = [_candidate_relevance(x, direction) for x in candidates]
+        avg_score = sum(scores) / max(1, len(scores))
+    if avg_score < 0.14:
+        raise ValueError("topic relevance too low: 候选与用户方向相关性不足，请补充更具体方向或稍后重试")
 
     source_context: list[str] = [
         f"【用户方向】{direction.strip()}",
         f"【ingest 关键词】{meta.get('keywords')}",
+        f"【领域标签】{', '.join(domain_tags)}",
         f"【事实摘要 markdown_summary】\n{md_trim}" if md_trim else "【事实摘要 markdown_summary】（空）",
         f"provenance: {PROVENANCE}",
     ]
     if down_notice:
         source_context.append(f"【弱舆情提示】{down_notice}")
+    source_context.append(f"【信源状态】{source_notice}")
+    if domain_hint:
+        source_context.append(f"【领域证据】{_title_from_bullet_line(domain_hint, max_len=88)}")
+    if domain_enhanced:
+        source_context.append(f"【领域增强来源】共抽取 {len(domain_enhanced)} 条同域细节（行业/资金风向/快讯要点）")
 
     return {
         "version": "topic_schema_v1",
@@ -511,6 +932,11 @@ def _build_topic_payload(
             "ingest_fetched_at": meta.get("fetched_at"),
             "markdown_truncated": len(md_summary or "") > MAX_MD_CHARS,
             "feishu_notice": down_notice,
+            "feishu_source_notice": source_notice,
+            "source_availability": source_availability,
+            "relevance_scores": scores,
+            "relevance_avg": round(avg_score, 4),
+            "domain_tags": domain_tags,
         },
     }
 
@@ -555,7 +981,7 @@ def main() -> None:
             }
         )
 
-    kw = _keywords_from_direction(direction)
+    kw, domain_tags, kw_list = _expand_keywords(direction)
     out_dir: Path = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -655,33 +1081,36 @@ def main() -> None:
     hot_rank_py = _resolve_hot_rank_fetcher()
     hot_rank: dict[str, Any] = {"ok": False, "lists": [], "errors": [{"item": "hot_rank_script", "reason": "missing"}]}
     if hot_rank_py.is_file():
-        try:
-            hr = subprocess.run(
-                [sys.executable, str(hot_rank_py), "--sites", "微博,抖音,百度,知乎", "--top", "10"],
-                cwd=str(SCRIPTS_DIR.resolve()),
-                capture_output=True,
-                text=True,
-                timeout=25,
-                check=False,
-            )
-            if hr.returncode == 0 and (hr.stdout or "").strip():
-                hot_rank = json.loads(hr.stdout)
-            else:
-                hot_rank = {
-                    "ok": False,
-                    "lists": [],
-                    "errors": [{"item": "hot_rank_script", "reason": (hr.stderr or hr.stdout or "").strip()[:300] or "nonzero_exit"}],
-                }
-        except Exception as e:  # noqa: BLE001
+        last_reason = "unknown"
+        for i in range(HOT_RANK_RETRY + 1):
+            try:
+                hr = subprocess.run(
+                    [sys.executable, str(hot_rank_py), "--sites", "微博,抖音,百度,知乎", "--top", "10"],
+                    cwd=str(SCRIPTS_DIR.resolve()),
+                    capture_output=True,
+                    text=True,
+                    timeout=25 + i * 8,
+                    check=False,
+                )
+                if hr.returncode == 0 and (hr.stdout or "").strip():
+                    hot_rank = json.loads(hr.stdout)
+                    if hot_rank.get("lists"):
+                        break
+                    last_reason = "empty_lists"
+                else:
+                    last_reason = (hr.stderr or hr.stdout or "").strip()[:300] or "nonzero_exit"
+            except Exception as e:  # noqa: BLE001
+                last_reason = f"{type(e).__name__}: {e}"
+        if not hot_rank.get("lists"):
             hot_rank = {
                 "ok": False,
                 "lists": [],
-                "errors": [{"item": "hot_rank_script", "reason": f"{type(e).__name__}: {e}"}],
+                "errors": [{"item": "hot_rank_script", "reason": last_reason, "retry_count": HOT_RANK_RETRY}],
             }
 
     md_summary = str(snapshot.get("markdown_summary") or "")
     try:
-        payload = _build_topic_payload(direction, snapshot, md_summary, hot_rank)
+        payload = _build_topic_payload(direction, snapshot, md_summary, hot_rank, domain_tags)
     except Exception as e:  # noqa: BLE001
         _exit_ok(
             {
@@ -701,9 +1130,12 @@ def main() -> None:
             "topic_payload": payload,
             "feishu_digest_bullets": digest,
             "feishu_notice": payload.get("preflight_meta", {}).get("feishu_notice"),
+            "feishu_source_notice": payload.get("preflight_meta", {}).get("feishu_source_notice"),
             "snapshot_path": str(snap_path),
             "ingest_keywords_used": kw,
-            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并落盘。飞书回复须先展示 feishu_digest_bullets（Markdown 列表），再列候选标题；禁止同一轮写大纲/逐字稿；选题确认后再 outline_refining",
+            "ingest_keywords_expanded": kw_list,
+            "domain_tags": domain_tags,
+            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并落盘。飞书回复固定版式：①信源状态 ②大盘行情 ③市场焦点/重点快讯 ④候选（标题+thesis+3 evidence）⑤选号指令；收敛过滤只作用于热点/候选，不得删“信源状态/大盘行情”段；禁止同一轮写大纲/逐字稿；选题确认后再 outline_refining",
         }
     )
 

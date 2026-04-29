@@ -127,6 +127,9 @@ python3 scripts/draft_manager.py update --draft <DID> --stage topic_picking \
 | `candidates[i].angle_summary` | ✅ | 1-2 句说明这条能讲出什么新东西 |
 | `candidates[i].evidence_anchor` | ✅ | 靠什么支撑（数据源 / 案例 / 逻辑框架） |
 | `candidates[i].risk_flag` | ⬜ | 有合规风险时写一句提示，否则 `null` |
+| `candidates[i].thesis` | ✅ | 核心论点 1 句（便于飞书首屏就看懂“为什么讲”） |
+| `candidates[i].evidence` | ✅ | 固定 3 条论据数组；每条含 `point/source_type/source_ref/confidence(high/medium/low)` |
+| `candidates[i].weak_sentiment` | ⬜ | 弱舆情信号；双源失败时填 `null` |
 | `chosen` | ✅ | 初生成时永远填 `null`（用户选完后你再 update） |
 | `topic` | ✅ | 主题的一句话概括（用户指定用它；用户没指定用你总结） |
 | `source_context` | ⬜ | 数据源 ID 数组（供 v2 追踪） |
@@ -145,14 +148,26 @@ python3 scripts/draft_manager.py update --draft <DID> --stage topic_picking \
 
 ```
 围绕"{topic}"，3 个方向：
-① 【{type_1}】{title_1}
-② 【{type_2}】{title_2}
-③ 【{type_3}】{title_3}
+① {title_1}
+   - 核心论点：{thesis_1}
+   - 论据1：{evidence_1_1}
+   - 论据2：{evidence_1_2}
+   - 论据3：{evidence_1_3}
+② {title_2}
+   - 核心论点：{thesis_2}
+   - 论据1：{evidence_2_1}
+   - 论据2：{evidence_2_2}
+   - 论据3：{evidence_2_3}
+③ {title_3}
+   - 核心论点：{thesis_3}
+   - 论据1：{evidence_3_1}
+   - 论据2：{evidence_3_2}
+   - 论据3：{evidence_3_3}
 
 选 ①/②/③，或告诉我想怎么改。
 ```
 
-只展示 `type` + `title` —— 简短够用。用户想看 `angle_summary` 再说 "详细说说 ②"。
+`angle_summary` 可作为补充说明，但**不得省略核心论点与 3 条论据**（业务默认需要首屏看到信息量）。
 
 ---
 

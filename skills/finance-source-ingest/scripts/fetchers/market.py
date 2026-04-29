@@ -356,6 +356,7 @@ def fetch_market_section(overseas_stub_enabled: bool) -> tuple[dict[str, Any], l
         "a_share_indices": None,
         "northbound": None,
         "industry_rank": None,
+        "market_temperature": None,
         "overseas_stub": None,
     }
 
@@ -496,6 +497,11 @@ def fetch_market_section(overseas_stub_enabled: bool) -> tuple[dict[str, Any], l
             }
         )
 
+    # --- 市场温度：资金风向 + 赚钱效应 ---
+    temp_data, temp_errs = fetch_market_temperature()
+    out["market_temperature"] = temp_data
+    errors.extend(temp_errs)
+
     if overseas_stub_enabled:
         try:
             out["overseas_stub"] = {
@@ -519,6 +525,136 @@ def fetch_market_section(overseas_stub_enabled: bool) -> tuple[dict[str, Any], l
 def fetch_market_data(overseas_stub_enabled: bool = False) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """拉取行情区块（与 ``fetch_market_section`` 等价，便于脚本/文档统一命名）。"""
     return fetch_market_section(overseas_stub_enabled)
+
+
+def fetch_market_temperature() -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """新增探针：资金风向 + 赚钱效应（涨跌停）。"""
+    errors: list[dict[str, Any]] = []
+    out: dict[str, Any] = {
+        "source": "akshare",
+        "top_inflow_sectors": [],
+        "limit_up_count": None,
+        "limit_down_count": None,
+    }
+
+    try:
+        import akshare as ak  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+    except ImportError as e:
+        errors.append(
+            {
+                "source": "market",
+                "stage": "market_temperature_import",
+                "code": "AKSHARE_IMPORT_ERROR",
+                "message": str(e),
+                "hint": "AkShare 不可用，市场温度探针将输出空结构",
+            }
+        )
+        return out, errors
+
+    retries = _akshare_retry_count()
+
+    # 1) 资金风向：优先取行业主力净流入。
+    try:
+        if hasattr(ak, "stock_fund_flow_industry"):
+            df = _call_with_retries(lambda: ak.stock_fund_flow_industry(), attempts=retries)
+            source = "akshare:stock_fund_flow_industry"
+            name_col = "名称" if "名称" in df.columns else "行业名称"
+            inflow_col = "今日主力净流入-净额" if "今日主力净流入-净额" in df.columns else "今日主力净流入"
+        else:
+            df = _call_with_retries(
+                lambda: ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流"),
+                attempts=retries,
+            )
+            source = "akshare:stock_sector_fund_flow_rank"
+            name_col = "名称"
+            inflow_col = "今日主力净流入-净额"
+
+        work = df.copy()
+        work["_inflow"] = pd.to_numeric(work[inflow_col], errors="coerce")
+        work = work.dropna(subset=["_inflow"]).sort_values("_inflow", ascending=False).head(3)
+        sectors: list[dict[str, Any]] = []
+        for _, row in work.iterrows():
+            name = str(row.get(name_col, "") or "").strip()
+            inflow = _to_float(row.get(inflow_col))
+            if not name:
+                continue
+            sectors.append({"name": name, "main_net_inflow_yi": inflow})
+        out["top_inflow_sectors"] = sectors
+        out["source"] = source
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "market_temperature_fund_flow",
+                "code": "AKSHARE_CALL_FAILED",
+                "message": repr(e),
+                "hint": "行业资金流接口失败，已降级为空列表",
+            }
+        )
+
+    # 2) 赚钱效应：优先涨停池/跌停池，失败后由全市场涨跌幅估算。
+    limit_up: int | None = None
+    limit_down: int | None = None
+    try:
+        zt_df = _call_with_retries(lambda: ak.stock_zt_pool_em(), attempts=retries)
+        limit_up = int(len(zt_df))
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "market_temperature_limit_up",
+                "code": "AKSHARE_CALL_FAILED",
+                "message": repr(e),
+                "hint": "涨停池接口失败，将尝试全市场估算",
+            }
+        )
+
+    try:
+        dt_df = _call_with_retries(lambda: ak.stock_dt_pool_em(), attempts=retries)
+        limit_down = int(len(dt_df))
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "market_temperature_limit_down",
+                "code": "AKSHARE_CALL_FAILED",
+                "message": repr(e),
+                "hint": "跌停池接口失败，将尝试全市场估算",
+            }
+        )
+
+    if limit_up is None or limit_down is None:
+        try:
+            spot_df = _call_with_retries(lambda: ak.stock_zh_a_spot_em(), attempts=retries)
+            pct = pd.to_numeric(spot_df.get("涨跌幅"), errors="coerce")
+            if limit_up is None:
+                limit_up = int((pct >= 9.8).sum())
+            if limit_down is None:
+                limit_down = int((pct <= -9.8).sum())
+            errors.append(
+                {
+                    "source": "market",
+                    "stage": "market_temperature_fallback_spot",
+                    "code": "MARKET_TEMPERATURE_ESTIMATED",
+                    "message": "涨跌停池部分不可用，已用全市场涨跌幅阈值估算",
+                    "hint": "估算阈值: 涨停>=9.8%, 跌停<=-9.8%",
+                }
+            )
+        except Exception as e:  # noqa: BLE001
+            errors.append(
+                {
+                    "source": "market",
+                    "stage": "market_temperature_fallback_spot",
+                    "code": "AKSHARE_CALL_FAILED",
+                    "message": repr(e),
+                    "hint": "全市场估算也失败，赚钱效应字段保持为空",
+                }
+            )
+
+    out["limit_up_count"] = limit_up
+    out["limit_down_count"] = limit_down
+    return out, errors
 
 
 def fetch_market_sentiment() -> tuple[dict[str, Any], list[dict[str, Any]]]:

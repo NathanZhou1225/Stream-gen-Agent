@@ -29,6 +29,23 @@ class MarketSentiment(TypedDict):
     top_hot_stocks: list[HotStockItem]  # 东方财富人气股 Top3
 
 
+class SectorInflowItem(TypedDict):
+    """market_temperature.top_inflow_sectors[] 中每一条的结构。"""
+
+    name: str
+    main_net_inflow_yi: float | None
+
+
+class MarketTemperature(TypedDict):
+    """
+    sections["market"].market_temperature 数据结构契约。"""
+
+    source: str
+    top_inflow_sectors: list[SectorInflowItem]
+    limit_up_count: int | None
+    limit_down_count: int | None
+
+
 def normalize_index_item(
     *,
     code: str,
