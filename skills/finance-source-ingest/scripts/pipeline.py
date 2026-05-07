@@ -717,9 +717,9 @@ def _router_event_dedup_key(it: dict[str, Any]) -> str:
 def _dedupe_router_items_across_sectors(
     items_by_sec: dict[str, list[dict[str, Any]]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """同一事件仅在六大板块中保留一条：正文更长优先，并列时保留板块顺序更靠前的一条。"""
+    """跨板块事件仲裁：普通事件单主归属，强联动白名单允许最多双归属。"""
     out: dict[str, list[dict[str, Any]]] = {s: [] for s in _ROUTER_SECTORS}
-    dedup_queue: list[tuple[int, int, dict[str, Any], str]] = []
+    grouped: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
     for si, sec in enumerate(_ROUTER_SECTORS):
         for it in items_by_sec.get(sec) or []:
             if not isinstance(it, dict):
@@ -728,16 +728,79 @@ def _dedupe_router_items_across_sectors(
             if not dk or len(dk) < 8:
                 out[sec].append(it)
                 continue
-            bl = len(str(it.get("clean_text") or it.get("summary") or ""))
-            dedup_queue.append((bl, si, it, dk))
-    best: dict[str, tuple[int, int, dict[str, Any]]] = {}
-    for bl, si, it, dk in dedup_queue:
-        prev = best.get(dk)
-        if prev is None or (bl, -si) > (prev[0], -prev[1]):
-            best[dk] = (bl, si, it)
-    for _dk, (_bl, si, it) in best.items():
-        out[_ROUTER_SECTORS[si]].append(it)
+            grouped.setdefault(dk, []).append((sec, si, it))
+
+    for _dk, entries in grouped.items():
+        if len(entries) == 1:
+            sec, _si, it = entries[0]
+            out[sec].append(it)
+            continue
+        ranked = sorted(
+            entries,
+            key=lambda x: (_router_sector_claim_score(x[0], x[2]), len(str(x[2].get("clean_text") or x[2].get("summary") or "")), -x[1]),
+            reverse=True,
+        )
+        kept: list[tuple[str, int, dict[str, Any]]] = [ranked[0]]
+        for cand in ranked[1:]:
+            if len(kept) >= 2:
+                break
+            if _router_allowed_cross_sector_pair(kept[0][0], cand[0], cand[2]):
+                kept.append(cand)
+                break
+        for sec, _si, it in kept:
+            out[sec].append(it)
     return out
+
+
+def _router_item_blob(it: dict[str, Any]) -> str:
+    return f"{it.get('title') or ''} {it.get('clean_text') or it.get('summary') or ''}".lower()
+
+
+def _router_sector_claim_score(sec: str, it: dict[str, Any]) -> int:
+    score = 0
+    if str(it.get("vertical_target_sector") or "").strip() == sec:
+        score += 80
+    tags = {str(x).strip() for x in (it.get("sector_tags") or []) if str(x).strip()}
+    if sec in tags:
+        score += 40
+    if str(it.get("candidate_sector") or "").strip() == sec:
+        score += 20
+    if _sector_strong_match(
+        sec,
+        str(it.get("title") or ""),
+        str(it.get("clean_text") or it.get("summary") or ""),
+        item_tags=it.get("sector_tags") or [],
+        vertical_target_sector=str(it.get("vertical_target_sector") or ""),
+    ):
+        score += 10
+    score += _depth_source_rank(it)
+    return score
+
+
+def _router_allowed_cross_sector_pair(sec_a: str, sec_b: str, it: dict[str, Any]) -> bool:
+    pair = {sec_a, sec_b}
+    txt = _router_item_blob(it)
+
+    def has_any(words: tuple[str, ...]) -> bool:
+        return any(w.lower() in txt for w in words)
+
+    if pair == {"港股", "科技"}:
+        return has_any(("港股", "恒生", "港股通", "港交所", "中资股")) and has_any(
+            ("芯片", "半导体", "AI", "人工智能", "互联网", "算力", "机器人")
+        )
+    if pair == {"黄金", "有色"}:
+        return has_any(("黄金", "金价", "贵金属", "白银", "期金", "期银")) and has_any(
+            ("有色", "铜", "铝", "锌", "镍", "金属", "矿", "白银")
+        )
+    if pair == {"银行", "港股"}:
+        return has_any(("央行", "降准", "降息", "货币政策", "金融监管")) and has_any(
+            ("银行", "信贷", "息差", "贷款", "存款")
+        ) and has_any(("港股", "恒生", "中资股", "港股通"))
+    if pair == {"新能源", "科技"}:
+        return has_any(("储能", "电池", "光伏", "新能源车", "电网", "智能驾驶")) and has_any(
+            ("芯片", "AI", "人工智能", "机器人", "算力", "智能驾驶")
+        )
+    return False
 
 
 def _clean_display_text(s: str) -> str:
@@ -760,6 +823,25 @@ def _sector_strong_match(
     vertical_target_sector: str | None = None,
 ) -> bool:
     """板块强相关判定，避免弱相关误命中。"""
+    blob = f"{title} {body}"
+    # 银行板块先做反向排除，避免被标签豁免误放行
+    if sec == "银行":
+        analyst_terms = ("目标价", "评级")
+        tech_subject_terms = (
+            "半导体",
+            "芯片",
+            "arm",
+            "阿斯麦",
+            "asml",
+            "英伟达",
+            "台积电",
+            "光模块",
+            "算力",
+            "服务器",
+        )
+        if any(k in blob for k in analyst_terms) and any(k in blob for k in tech_subject_terms):
+            return False
+
     # 第一段：标签豁免权（垂直路由或上游已打板块标签时直接放行）
     if vertical_target_sector and str(vertical_target_sector).strip() == sec:
         return True
@@ -767,7 +849,22 @@ def _sector_strong_match(
         return True
 
     # 第二段：关键词强匹配（用于宽池条目）
-    blob = f"{title} {body}"
+    if sec == "银行":
+        bank_terms = (
+            "银行",
+            "汇丰",
+            "摩根大通",
+            "摩根士丹利",
+            "高盛",
+            "花旗",
+            "净息差",
+            "不良率",
+            "拨备",
+            "存款",
+            "贷款",
+            "息差",
+        )
+        return any(k in blob for k in bank_terms)
     if sec == "黄金":
         return any(
             k in blob
@@ -819,18 +916,36 @@ def _sector_strong_match(
 
 
 _ROUTER_SECTORS: tuple[str, ...] = ("科技", "新能源", "港股", "黄金", "有色", "银行")
+_ROUTER_MAX_IDS_PER_SECTOR = 3
+_ROUTER_EMPTY_INSIGHT = "今日盘面受宏观大盘主导，暂无超预期产业事件。"
+_ROUTER_FILLED_FALLBACK_INSIGHT = "本板块出现若干强相关线索，需结合盘面继续确认主线。"
+_ROUTER_CANDIDATES_PER_SECTOR = 8
 _ROUTER_SYSTEM_PROMPT = (
-    "你是一名专业的金融分析师。请阅读以下今日新闻菜单，为 [科技, 新能源, 港股, 黄金, 有色, 银行] "
-    "这六大板块分别挑选 1-3 条最有价值的资讯。\n"
-    "挑选原则：\n"
-    "(1) 优先挑选具有基本面/资金面深度逻辑的重大新闻。\n"
-    "(2) 如果某板块今日无重大事件，请退而求其次，挑选最相关的行业动态或盘面异动，只要与该板块【强相关】即可保留。\n"
-    "(3) 仅在菜单中完全没有该板块任何相关信息时，该板块才返回 []。\n"
-    "(4) 同一事件的不同快讯请勿重复挑选。\n"
-    "输出要求：只返回一个严格 JSON 对象，且必须同时包含上述六个中文键；值为菜单项整数 ID 的列表（每板块 0～3 个 ID），"
-    "同一 ID 尽量不要重复出现在多个板块。示例："
-    '{"科技": [1], "新能源": [2, 5], "港股": [0], "黄金": [], "有色": [3], "银行": []}。'
-    "严禁输出任何解释、思考过程或其它字符。"
+    "你是一名专业的金融分析师兼研报编辑。请阅读以下今日新闻菜单，"
+    "菜单已按 [科技, 新能源, 港股, 黄金, 有色, 银行] 六大板块分组。"
+    "请仅在每个板块自己的候选菜单中筛选并进行逻辑合成。\n"
+    "【红线警告 — 防凑数规则】\n"
+    "(1) 宁缺毋滥！若某篇新闻与该板块核心产业逻辑没有直接的、强烈的相关性，"
+    "【严禁】为了凑数强行塞入！反例：把某银行对菲律宾经济的看法塞入A股银行板块；"
+    "把中美外交新闻塞入新能源板块。\n"
+    "(2) 一篇新闻最多归入 1-2 个真正相关的板块；"
+    "同一篇宏观文章严禁在 3 个以上板块重复出现。\n"
+    "(3) 若该板块确实无强相关新闻，items 必须返回 []，"
+    "insight 填写「今日盘面受宏观大盘主导，暂无超预期产业事件。」\n"
+    "挑选与合成要求：\n"
+    "(4) 每板块最多挑选 3 条强相关资讯（目标 1-3 条，可少，绝不凑数）；"
+    "优先兼顾盘面快讯与产业深度各 1 条。\n"
+    "(5) 为每个板块写一句 20-40 字的 insight（今日核心驱动逻辑，直接结论不废话）。\n"
+    "(6) 为每条入选资讯写一句 15-30 字的 reason（为何选它、对该板块的逻辑价值）。\n"
+    "同一事件的不同快讯请勿重复挑选；除港股科技、黄金有色、央行银行、新能源科技等强联动事件外，"
+    "同一事件默认只给一个主归属板块。\n"
+    "输出格式：只返回严格 JSON，包含上述六个中文板块键，"
+    "每键对应 {\"insight\": str, \"items\": [{\"id\": int, \"reason\": str}]}。\n"
+    '示例：{"科技": {"insight": "算力基础设施爆发，光纤需求持续超预期", '
+    '"items": [{"id": 1, "reason": "华虹涨停验证国产芯片需求爆发"}, '
+    '{"id": 3, "reason": "算力租赁直接兑现AI推理需求"}]}, '
+    '"新能源": {"insight": "今日盘面受宏观大盘主导，暂无超预期产业事件。", "items": []}}。\n'
+    "严禁输出任何解释、思考过程或其他字符。"
 )
 
 
@@ -844,19 +959,26 @@ def _router_enabled() -> bool:
 def _router_menu_max_items() -> int:
     raw = os.environ.get("FINANCE_LLM_ROUTER_MENU_MAX_ITEMS", "").strip()
     try:
-        v = int(raw) if raw else 18
+        v = int(raw) if raw else 48
     except ValueError:
-        v = 18
-    return max(12, min(40, v))
+        v = 48
+    return max(24, min(72, v))
 
 
 def _router_timeout_sec() -> int:
     raw = os.environ.get("FINANCE_LLM_ROUTER_TIMEOUT_SEC", "").strip()
     try:
-        v = int(raw) if raw else 35
+        v = int(raw) if raw else 45
     except ValueError:
         v = 20
     return max(5, min(60, v))
+
+
+def _router_compact_retry_enabled() -> bool:
+    raw = os.environ.get("FINANCE_LLM_ROUTER_COMPACT_RETRY", "").strip()
+    if not raw:
+        return True
+    return raw in ("1", "true", "TRUE", "yes", "YES")
 
 
 def _router_load_config() -> tuple[str, str, str]:
@@ -888,7 +1010,9 @@ def _router_load_config() -> tuple[str, str, str]:
     raise RuntimeError("LLM router 未配置可用网关（FINANCE_LLM_ROUTER_* 或 OPENCLAW_ARK_* / openclaw.json）")
 
 
-def _router_parse_json(raw: str) -> dict[str, list[int]]:
+def _router_parse_result(raw: str) -> dict[str, Any]:
+    """解析新嵌套格式的 Router JSON，返回 {ids_by_sec, insight_by_sec, reason_by_id}。
+    兼容旧平铺列表格式（compact retry 等降级情况）。"""
     s = (raw or "").strip()
     try:
         obj = json.loads(s)
@@ -899,19 +1023,47 @@ def _router_parse_json(raw: str) -> dict[str, list[int]]:
         obj = json.loads(m.group(0))
     if not isinstance(obj, dict):
         raise ValueError("router 输出根节点必须为 object")
-    out: dict[str, list[int]] = {sec: [] for sec in _ROUTER_SECTORS}
+    ids_by_sec: dict[str, list[int]] = {sec: [] for sec in _ROUTER_SECTORS}
+    insight_by_sec: dict[str, str] = {}
+    reason_by_id: dict[int, str] = {}
     for sec in _ROUTER_SECTORS:
-        vals = obj.get(sec) or []
-        if not isinstance(vals, list):
+        val = obj.get(sec)
+        if val is None:
             continue
-        arr: list[int] = []
-        for x in vals:
-            if isinstance(x, int):
-                arr.append(x)
-            elif isinstance(x, str) and x.strip().isdigit():
-                arr.append(int(x.strip()))
-        out[sec] = arr
-    return out
+        if isinstance(val, dict):
+            # 新嵌套格式 {"insight": str, "items": [{"id": int, "reason": str}]}
+            insight = str(val.get("insight") or "").strip()
+            insight_by_sec[sec] = insight or _ROUTER_EMPTY_INSIGHT
+            arr: list[int] = []
+            for entry in val.get("items") or []:
+                if not isinstance(entry, dict):
+                    continue
+                idx_raw = entry.get("id")
+                reason = str(entry.get("reason") or "").strip()
+                if isinstance(idx_raw, int):
+                    arr.append(idx_raw)
+                    if reason:
+                        reason_by_id[idx_raw] = reason
+                elif isinstance(idx_raw, str) and idx_raw.strip().isdigit():
+                    ii = int(idx_raw.strip())
+                    arr.append(ii)
+                    if reason:
+                        reason_by_id[ii] = reason
+            ids_by_sec[sec] = arr
+        elif isinstance(val, list):
+            # 旧平铺格式兼容 [int, ...]
+            arr2: list[int] = []
+            for x in val:
+                if isinstance(x, int):
+                    arr2.append(x)
+                elif isinstance(x, str) and x.strip().isdigit():
+                    arr2.append(int(x.strip()))
+            ids_by_sec[sec] = arr2
+    return {
+        "ids_by_sec": ids_by_sec,
+        "insight_by_sec": insight_by_sec,
+        "reason_by_id": reason_by_id,
+    }
 
 
 def _router_build_candidates(
@@ -923,62 +1075,148 @@ def _router_build_candidates(
     *,
     max_items: int = 40,
 ) -> list[dict[str, Any]]:
-    pool: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    """构建 Router 分组菜单：每板块独立配额，避免高频板块挤压低频板块。"""
+    per_sector_cap = min(_ROUTER_CANDIDATES_PER_SECTOR, max(4, max_items // max(1, len(_ROUTER_SECTORS))))
+    candidates: list[dict[str, Any]] = []
 
-    def push(it: dict[str, Any], default_source: str = "") -> None:
+    def wrap(it: dict[str, Any], sec: str, source_type: str, default_source: str = "") -> dict[str, Any]:
         title = _clean_display_text(str(it.get("title") or "")).strip()
         body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or "")).strip()
-        if not title and not body:
-            return
-        key = _title_dedup_key(title or body[:80])
-        if not key or key in seen:
-            return
-        seen.add(key)
-        pool.append(
-            {
-                "title": title or body[:120],
-                "summary": body[:120],
-                "clean_text": str(it.get("clean_text") or it.get("summary") or title),
-                "source_name": str(it.get("source_name") or default_source or _item_source_label(it)),
-                "published_at": str(it.get("published_at") or ""),
-                "raw_item": dict(it),
-            }
+        raw = dict(it)
+        return {
+            "title": title or body[:120],
+            "summary": body[:160],
+            "clean_text": str(it.get("clean_text") or it.get("summary") or title),
+            "source_name": str(it.get("source_name") or default_source or _item_source_label(it)),
+            "published_at": str(it.get("published_at") or ""),
+            "candidate_sector": sec,
+            "candidate_source_type": source_type,
+            "raw_item": raw,
+        }
+
+    def item_key(it: dict[str, Any]) -> str:
+        title = _clean_display_text(str(it.get("title") or "")).strip()
+        body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or "")).strip()
+        return _title_dedup_key(title or body[:80])
+
+    def matches_sector(sec: str, it: dict[str, Any]) -> bool:
+        vts = str(it.get("vertical_target_sector") or "").strip()
+        tags = {str(x).strip() for x in (it.get("sector_tags") or []) if str(x).strip()}
+        if vts == sec or sec in tags:
+            return True
+        txt = f"{it.get('title') or ''} {it.get('clean_text') or it.get('summary') or ''}"
+        if sec in {"银行", "黄金", "有色"}:
+            return _sector_strong_match(sec, str(it.get("title") or ""), str(it.get("clean_text") or it.get("summary") or ""))
+        return sec in sectors_for_text(txt)
+
+    def sort_key(sec: str, it: dict[str, Any]) -> tuple[int, int, datetime]:
+        return (
+            _sec_deep_whitelist_rank(sec, it),
+            _depth_source_rank(it),
+            _parse_published_at(str(it.get("published_at") or "")) or datetime.min.replace(tzinfo=timezone(timedelta(hours=8))),
         )
 
-    for sec in _ROUTER_SECTORS:
-        for it in (by_sec.get(sec) or [])[:6]:
-            if isinstance(it, dict):
-                push(it)
-    for bucket in (gm_items, deep_items, other_flash_items):
-        for it in bucket[:30]:
-            if isinstance(it, dict):
-                push(it)
+    macro_synth_items: list[dict[str, Any]] = []
     for it in macro_items_raw[:12]:
-        if not isinstance(it, dict):
-            continue
-        synth = {
-            "title": str(it.get("title") or ""),
-            "clean_text": str(it.get("detail") or it.get("title") or ""),
-            "published_at": str(it.get("published_at") or ""),
-            "source_name": "百度热榜",
-        }
-        push(synth, default_source="百度热榜")
-    pool.sort(key=lambda x: _parse_published_at(x.get("published_at") or "") or datetime.min.replace(tzinfo=timezone(timedelta(hours=8))), reverse=True)
-    return pool[:max_items]
+        if isinstance(it, dict):
+            macro_synth_items.append(
+                {
+                    "title": str(it.get("title") or ""),
+                    "clean_text": str(it.get("detail") or it.get("title") or ""),
+                    "published_at": str(it.get("published_at") or ""),
+                    "source_name": "百度热榜",
+                    "sector_line_source": "macro_hot",
+                }
+            )
+
+    for sec in _ROUTER_SECTORS:
+        seen: set[str] = set()
+
+        deep_pool = [it for it in deep_items if isinstance(it, dict) and matches_sector(sec, it)]
+        flash_pool = [it for it in (by_sec.get(sec) or []) if isinstance(it, dict)]
+        broad_pool = [
+            it
+            for it in [*gm_items[:28], *other_flash_items[:30], *macro_synth_items]
+            if isinstance(it, dict) and matches_sector(sec, it)
+        ]
+
+        deep_pool.sort(key=lambda x: sort_key(sec, x), reverse=True)
+        flash_pool.sort(
+            key=lambda x: _parse_published_at(str(x.get("published_at") or "")) or datetime.min.replace(tzinfo=timezone(timedelta(hours=8))),
+            reverse=True,
+        )
+        broad_pool.sort(key=lambda x: sort_key(sec, x), reverse=True)
+
+        picked: list[dict[str, Any]] = []
+
+        def add_from(pool: list[dict[str, Any]], source_type: str, limit: int) -> int:
+            added = 0
+            for it in pool:
+                if len(picked) >= per_sector_cap or added >= limit:
+                    break
+                k = item_key(it)
+                if not k or k in seen:
+                    continue
+                seen.add(k)
+                picked.append(wrap(it, sec, source_type))
+                added += 1
+            return added
+
+        deep_n = add_from(deep_pool, "deep", 4)
+        flash_limit = 3 + min(2, max(0, 4 - deep_n))
+        add_from(flash_pool, "flash", flash_limit)
+        add_from(broad_pool, "broad", 1)
+        candidates.extend(picked[:per_sector_cap])
+
+    return candidates
 
 
 def _router_build_menu(candidates: list[dict[str, Any]]) -> str:
     lines: list[str] = []
-    for idx, it in enumerate(candidates):
-        src = str(it.get("source_name") or "未知来源").strip()
-        title = _clean_display_text(str(it.get("title") or "")).strip()
-        summ = _clean_display_text(str(it.get("summary") or "")).strip()[:20]
-        lines.append(f"[ID: {idx}] {src} - {title} - {summ}")
+    type_label = {"deep": "深度", "flash": "快讯", "broad": "宽池"}
+    for sec in _ROUTER_SECTORS:
+        sec_rows = [(idx, it) for idx, it in enumerate(candidates) if str(it.get("candidate_sector") or "") == sec]
+        lines.append(f"【{sec}候选】")
+        if not sec_rows:
+            lines.append("（无候选）")
+            continue
+        for idx, it in sec_rows:
+            src = str(it.get("source_name") or "未知来源").strip()
+            st = type_label.get(str(it.get("candidate_source_type") or ""), "候选")
+            title = _clean_display_text(str(it.get("title") or "")).strip()
+            summ = _clean_display_text(str(it.get("summary") or "")).strip()[:40]
+            lines.append(f"[ID: {idx}] ({st}) {src} - {title} - {summ}")
     return "\n".join(lines)
 
 
-def _router_call_llm(menu_text: str, *, timeout_sec: int = 10) -> dict[str, list[int]]:
+def _router_compact_grouped_candidates(candidates: list[dict[str, Any]], *, per_sector: int = 3) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for sec in _ROUTER_SECTORS:
+        n = 0
+        for it in candidates:
+            if str(it.get("candidate_sector") or "") != sec:
+                continue
+            compact.append(it)
+            n += 1
+            if n >= per_sector:
+                break
+    return compact
+
+
+def _router_candidate_diagnostics(candidates: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    diag: dict[str, dict[str, int]] = {}
+    for sec in _ROUTER_SECTORS:
+        rows = [it for it in candidates if str(it.get("candidate_sector") or "") == sec]
+        diag[sec] = {
+            "candidate_count": len(rows),
+            "deep_candidate_count": sum(1 for it in rows if str(it.get("candidate_source_type") or "") == "deep"),
+            "flash_candidate_count": sum(1 for it in rows if str(it.get("candidate_source_type") or "") == "flash"),
+            "broad_candidate_count": sum(1 for it in rows if str(it.get("candidate_source_type") or "") == "broad"),
+        }
+    return diag
+
+
+def _router_call_llm(menu_text: str, *, timeout_sec: int = 10) -> dict[str, Any]:
     base, key, model = _router_load_config()
     body = {
         "model": model,
@@ -987,7 +1225,7 @@ def _router_call_llm(menu_text: str, *, timeout_sec: int = 10) -> dict[str, list
             {"role": "user", "content": menu_text},
         ],
         "temperature": 0.1,
-        "max_tokens": 260,
+        "max_tokens": 1600,
         "response_format": {"type": "json_object"},
     }
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -1019,7 +1257,7 @@ def _router_call_llm(menu_text: str, *, timeout_sec: int = 10) -> dict[str, list
     content = str(((choices[0] or {}).get("message") or {}).get("content") or "")
     if not content.strip():
         raise RuntimeError("router content 为空")
-    return _router_parse_json(content)
+    return _router_parse_result(content)
 
 
 def _legacy_sector_enriched(
@@ -1061,53 +1299,134 @@ def _build_sector_items_with_router(
     if not candidates:
         return legacy, {"status": "no_candidates"}
     menu_text = _router_build_menu(candidates)
-    try:
-        routed = _router_call_llm(menu_text, timeout_sec=_router_timeout_sec())
+    candidate_diag = _router_candidate_diagnostics(candidates)
+    retry_mode = "none"
+
+    def assemble_from_ids(
+        ids_by_sec: dict[str, list[int]],
+        reason_by_id: dict[int, str],
+        *,
+        fallback_reason: str = "",
+    ) -> dict[str, list[dict[str, Any]]]:
         items_by_sec: dict[str, list[dict[str, Any]]] = {sec: [] for sec in _ROUTER_SECTORS}
-        global_idx: set[int] = set()
         for sec in _ROUTER_SECTORS:
             seen_idx: set[int] = set()
-            for idx in routed.get(sec) or []:
+            n_sec = 0
+            for idx in ids_by_sec.get(sec) or []:
+                if n_sec >= _ROUTER_MAX_IDS_PER_SECTOR:
+                    break
                 if not isinstance(idx, int):
                     continue
-                if idx < 0 or idx >= len(candidates) or idx in seen_idx or idx in global_idx:
+                if idx < 0 or idx >= len(candidates) or idx in seen_idx:
+                    continue
+                cand = candidates[idx]
+                if str(cand.get("candidate_sector") or "") != sec:
                     continue
                 seen_idx.add(idx)
-                global_idx.add(idx)
-                base_item = dict(candidates[idx].get("raw_item") or {})
+                base_item = dict(cand.get("raw_item") or {})
                 if not base_item:
                     continue
                 if not base_item.get("clean_text"):
-                    base_item["clean_text"] = candidates[idx].get("clean_text") or candidates[idx].get("summary") or base_item.get("title") or ""
+                    base_item["clean_text"] = cand.get("clean_text") or cand.get("summary") or base_item.get("title") or ""
                 tags = base_item.get("sector_tags") or []
                 tags_clean = [str(x).strip() for x in tags if str(x).strip()]
                 if sec not in tags_clean:
                     tags_clean.insert(0, sec)
                 base_item["sector_tags"] = tags_clean
                 base_item["vertical_target_sector"] = sec
-                base_item["sector_line_source"] = "llm_router"
+                base_item["candidate_sector"] = sec
+                base_item["candidate_source_type"] = cand.get("candidate_source_type") or ""
+                if not str(base_item.get("sector_line_source") or "").strip():
+                    base_item["sector_line_source"] = "llm_router"
+                base_item["llm_reason"] = reason_by_id.get(idx, "") or fallback_reason
                 items_by_sec[sec].append(base_item)
-        items_by_sec = _dedupe_router_items_across_sectors(items_by_sec)
+                n_sec += 1
+        return _dedupe_router_items_across_sectors(items_by_sec)
+
+    def fallback_grouped(reason: str) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+        ids_by_sec: dict[str, list[int]] = {sec: [] for sec in _ROUTER_SECTORS}
+        for idx, cand in enumerate(candidates):
+            sec = str(cand.get("candidate_sector") or "")
+            if sec in ids_by_sec and len(ids_by_sec[sec]) < _ROUTER_MAX_IDS_PER_SECTOR:
+                ids_by_sec[sec].append(idx)
+        items_by_sec = assemble_from_ids(ids_by_sec, {}, fallback_reason="规则降级：选取板块分组候选中的高优先级线索")
+        insights = {
+            sec: (_ROUTER_FILLED_FALLBACK_INSIGHT if items_by_sec.get(sec) else _ROUTER_EMPTY_INSIGHT)
+            for sec in _ROUTER_SECTORS
+        }
         return items_by_sec, {
-            "status": "ok",
+            "status": "fallback_grouped",
+            "reason": reason[:300],
             "selected_count": sum(len(v) for v in items_by_sec.values()),
             "menu_count": len(candidates),
             "menu_preview": menu_text[:2000],
+            "retry_mode": retry_mode,
+            "insights_by_sector": insights,
+            "candidate_diagnostics": candidate_diag,
+        }
+
+    try:
+        routed = _router_call_llm(menu_text, timeout_sec=_router_timeout_sec())
+    except Exception as exc:  # noqa: BLE001
+        # 超时常见于菜单过长/网关瞬时抖动：缩小菜单后再试一次，提升稳定性
+        msg = str(exc).lower()
+        is_timeout = ("timed out" in msg) or ("timeout" in msg)
+        if _router_compact_retry_enabled() and is_timeout and len(candidates) > 16:
+            compact_candidates = _router_compact_grouped_candidates(candidates, per_sector=3)
+            compact_menu = _router_build_menu(compact_candidates)
+            try:
+                routed = _router_call_llm(compact_menu, timeout_sec=min(60, _router_timeout_sec() + 8))
+                candidates = compact_candidates
+                menu_text = compact_menu
+                candidate_diag = _router_candidate_diagnostics(candidates)
+                retry_mode = "compact_retry"
+            except Exception as exc2:  # noqa: BLE001
+                errors.append(
+                    {
+                        "source": "llm_router",
+                        "stage": "dispatch",
+                        "code": "LLM_ROUTER_FAILED",
+                        "message": f"{str(exc)[:220]} | compact_retry: {str(exc2)[:220]}",
+                    }
+                )
+                return fallback_grouped(str(exc2))
+        else:
+            errors.append(
+                {
+                    "source": "llm_router",
+                    "stage": "dispatch",
+                    "code": "LLM_ROUTER_FAILED",
+                    "message": str(exc)[:500],
+                }
+            )
+            return fallback_grouped(str(exc))
+    try:
+        ids_by_sec = routed.get("ids_by_sec") or {}
+        insight_by_sec: dict[str, str] = routed.get("insight_by_sec") or {}
+        reason_by_id: dict[int, str] = routed.get("reason_by_id") or {}
+        items_by_sec = assemble_from_ids(ids_by_sec, reason_by_id)
+        for sec in _ROUTER_SECTORS:
+            if not str(insight_by_sec.get(sec) or "").strip() or (items_by_sec.get(sec) and insight_by_sec.get(sec) == _ROUTER_EMPTY_INSIGHT):
+                insight_by_sec[sec] = _ROUTER_FILLED_FALLBACK_INSIGHT if items_by_sec.get(sec) else _ROUTER_EMPTY_INSIGHT
+        return items_by_sec, {
+            "status": "ok_compact_retry" if retry_mode == "compact_retry" else "ok",
+            "selected_count": sum(len(v) for v in items_by_sec.values()),
+            "menu_count": len(candidates),
+            "menu_preview": menu_text[:2000],
+            "retry_mode": retry_mode,
+            "insights_by_sector": insight_by_sec,
+            "candidate_diagnostics": candidate_diag,
         }
     except Exception as exc:  # noqa: BLE001
         errors.append(
             {
                 "source": "llm_router",
-                "stage": "dispatch",
+                "stage": "assemble",
                 "code": "LLM_ROUTER_FAILED",
                 "message": str(exc)[:500],
             }
         )
-        return legacy, {
-            "status": "fallback_legacy",
-            "reason": str(exc)[:300],
-            "menu_count": len(candidates),
-        }
+        return fallback_grouped(str(exc))
 
 
 def _sector_source_rank(item: dict[str, Any], sec: str) -> int:
@@ -1141,6 +1460,33 @@ def _item_source_label(it: dict[str, Any]) -> str:
     if it.get("cross_source_hit"):
         return "财联社·RSSHub"
     return "RSSHub快讯"
+
+
+def _depth_source_rank(it: dict[str, Any]) -> int:
+    """深度来源优先级：深度/产业源 > 其他。"""
+    src = str(it.get("source_name") or "")
+    line_src = str(it.get("sector_line_source") or "")
+    deep_hints = ("36氪", "界面", "金十", "格隆汇", "华尔街见闻", "第一财经")
+    if line_src == "deep_news" or any(k in src for k in deep_hints):
+        return 2
+    return 1
+
+
+def _sec_deep_whitelist_rank(sec: str, it: dict[str, Any]) -> int:
+    """板块定制深度白名单：黄金/有色优先金十、华尔街见闻、界面大宗等来源。"""
+    src = str(it.get("source_name") or "")
+    txt = f"{it.get('title') or ''} {it.get('clean_text') or it.get('summary') or ''}"
+    if sec == "黄金":
+        if any(k in src for k in ("金十", "华尔街见闻", "界面", "格隆汇")):
+            return 3
+        if any(k in txt for k in ("黄金", "金价", "现货黄金", "COMEX", "贵金属", "金饰")):
+            return 2
+    if sec == "有色":
+        if any(k in src for k in ("金十", "华尔街见闻", "界面", "格隆汇")):
+            return 3
+        if any(k in txt for k in ("有色", "工业金属", "铜", "铝", "锌", "镍", "稀土", "LME")):
+            return 2
+    return 1
 
 
 def _hotspot_importance_score(it: dict[str, Any]) -> float:
@@ -1483,8 +1829,9 @@ def _build_live_stream_markdown(
 
     # F3/T3：优先走 LLM Router 的板块重组；失败/不可用时自动回退 legacy 规则聚合
     llm_router_sec = sections.get("llm_router") or {}
-    llm_router_ok = str(llm_router_sec.get("status") or "") == "ok"
+    llm_router_ok = str(llm_router_sec.get("status") or "") in {"ok", "ok_compact_retry", "fallback_grouped"}
     llm_items_by_sec = llm_router_sec.get("items_by_sector") or {}
+    llm_insights: dict[str, str] = llm_router_sec.get("insights_by_sector") or {}
     if llm_router_ok and isinstance(llm_items_by_sec, dict):
         enriched_by_sec = {sec: list(llm_items_by_sec.get(sec) or []) for sec in SECTOR_ORDER}
     else:
@@ -1497,8 +1844,19 @@ def _build_live_stream_markdown(
         )
 
     sector_lines: list[str] = []
-    for sec in SECTOR_ORDER:
+    # 固定六大板块顺序，杜绝空板块合并标题
+    fixed_sector_order = ["科技", "新能源", "港股", "黄金", "有色", "银行"]
+    for sec in fixed_sector_order:
+        if sector_lines:
+            sector_lines.append("")
         sector_lines.append(f"**【{sec}】**")
+        # LLM Router 模式：紧随标题输出板块洞察（即便 items 为空也必须输出）
+        if llm_router_ok:
+            has_items_hint = bool(enriched_by_sec.get(sec) or [])
+            fallback_insight = _ROUTER_FILLED_FALLBACK_INSIGHT if has_items_hint else _ROUTER_EMPTY_INSIGHT
+            insight_text = str(llm_insights.get(sec) or "").strip() or fallback_insight
+            sector_lines.append(f"🧠 **板块洞察**：{insight_text}")
+            sector_lines.append("")
         raw_sec_items = enriched_by_sec.get(sec) or []
         # 板块内按标题去重（保留正文最长的版本），再取 top-5
         _sec_seen: dict[str, dict[str, Any]] = {}
@@ -1524,6 +1882,53 @@ def _build_live_stream_markdown(
                 if _body_new > _body_old:
                     _sec_seen[_k] = _it
         sec_items = list(_sec_seen.values())
+        # 非 LLM 模式做「深度优先」宽容补位（LLM 模式宁缺毋滥，信任模型选择）
+        if not llm_router_ok and len(sec_items) < 2:
+            need_n = 2 - len(sec_items)
+            _seen_keys = set(_sec_seen.keys())
+            recover_pool: list[dict[str, Any]] = []
+
+            def _collect_recover(bucket: list[dict[str, Any]], default_line_source: str) -> None:
+                for _it in bucket:
+                    if not isinstance(_it, dict):
+                        continue
+                    _title = _clean_display_text(str(_it.get("title") or ""))
+                    _body = _clean_display_text(str(_it.get("clean_text") or _it.get("summary") or _title))
+                    if not _title and not _body:
+                        continue
+                    if not _sector_strong_match(
+                        sec,
+                        _title,
+                        _body,
+                        item_tags=_it.get("sector_tags") or [],
+                        vertical_target_sector=str(_it.get("vertical_target_sector") or ""),
+                    ):
+                        continue
+                    _k = _title_dedup_key(_title or _body[:80])
+                    if not _k or _k in _seen_keys:
+                        continue
+                    _seen_keys.add(_k)
+                    _cand = dict(_it)
+                    if not str(_cand.get("sector_line_source") or "").strip():
+                        _cand["sector_line_source"] = default_line_source
+                    recover_pool.append(_cand)
+
+            _collect_recover(deep_items_for_sectors, "deep_news")
+            _collect_recover(gm_items, "global_macro")
+            _collect_recover(list(by_sec.get(sec) or []), "tagged_catchup")
+
+            recover_pool.sort(
+                key=lambda x: (
+                    _sec_deep_whitelist_rank(sec, x),
+                    _depth_source_rank(x),
+                    _parse_published_at(str(x.get("published_at") or ""))
+                    or datetime.min.replace(tzinfo=timezone(timedelta(hours=8))),
+                ),
+                reverse=True,
+            )
+            for _it in recover_pool[:need_n]:
+                sec_items.append(_it)
+
         sec_items.sort(
             key=lambda x: (
                 _sector_source_rank(x, sec),
@@ -1531,7 +1936,7 @@ def _build_live_stream_markdown(
             ),
             reverse=True,
         )
-        sec_items = sec_items[:5]
+        sec_items = sec_items[:6]
         out_n = 0
         for it in sec_items:
             if not isinstance(it, dict):
@@ -1562,35 +1967,39 @@ def _build_live_stream_markdown(
                 s_hint = classify_sentiment(_txt)
                 s_emoji = _s_emoji(s_hint)
             s_prefix = f"{s_emoji}{s_hint} " if s_emoji and s_hint else ""
-            # 来源标注
             src_label = _item_source_label(it)
-            src_suffix = f" _[{src_label}]_" if src_label else ""
-            # 特殊标注（双源共振/关键词回溯）
-            src = str(it.get("sector_line_source") or "")
-            extra_note = ""
-            if src == "recent_keyword":
-                extra_note = " *〔关键词回溯〕*"
-            elif src == "tagged_catchup":
-                extra_note = " *〔同板块补位〕*"
-            if it.get("cross_source_hit"):
-                extra_note += " *〔双源共振〕*"
-            if title or body:
-                if title and body and not body.startswith(title[:min(10, len(title))]):
-                    line = f"- {s_prefix}{tpart} **{title}** — {body}{extra_note}{src_suffix}"
-                elif title:
-                    line = f"- {s_prefix}{tpart} **{title}**{extra_note}{src_suffix}"
-                else:
-                    line = f"- {s_prefix}{tpart} {body}{extra_note}{src_suffix}"
-                sector_lines.append(line)
-                out_n += 1
-        used_llm_empty_state = False
-        if llm_router_ok and out_n == 0:
-            sector_lines.append(
-                "- 🧠 **深度洞察**：今日该板块暂无显著的超预期事件驱动或高价值资讯，盘面主要受宏观大盘资金面主导。"
-            )
-            out_n += 1
-            used_llm_empty_state = True
-        if not used_llm_empty_state and out_n < 3:
+            if llm_router_ok:
+                # 深度合成渲染：🔹 标题 + 来源 / 💡 逻辑推演
+                if title:
+                    sector_lines.append(f"- 🔹 {s_prefix}{tpart} **{title}** （{src_label}）")
+                    reasoning = str(it.get("llm_reason") or "").strip()
+                    if reasoning:
+                        sector_lines.append(f"- 💡 **逻辑推演**：{reasoning}")
+                    sector_lines.append("")
+                    out_n += 1
+            else:
+                # Legacy 渲染：时间+标题+正文摘要+情绪+来源
+                src_suffix = f" _[{src_label}]_" if src_label else ""
+                src = str(it.get("sector_line_source") or "")
+                extra_note = ""
+                if src == "recent_keyword":
+                    extra_note = " *〔关键词回溯〕*"
+                elif src == "tagged_catchup":
+                    extra_note = " *〔同板块补位〕*"
+                if it.get("cross_source_hit"):
+                    extra_note += " *〔双源共振〕*"
+                if title or body:
+                    if title and body and not body.startswith(title[:min(10, len(title))]):
+                        line = f"- {s_prefix}{tpart} **{title}** — {body}{extra_note}{src_suffix}"
+                    elif title:
+                        line = f"- {s_prefix}{tpart} **{title}**{extra_note}{src_suffix}"
+                    else:
+                        line = f"- {s_prefix}{tpart} {body}{extra_note}{src_suffix}"
+                    sector_lines.append(line)
+                    out_n += 1
+        # LLM 模式：洞察已在标题后输出，item 为空时无需额外行
+        # 非 LLM 模式：行情补位保底三条
+        if not llm_router_ok and out_n < 3:
             for fill_line in _market_sector_fill_lines(sec, m, min_count=3 - out_n):
                 sector_lines.append(fill_line)
                 out_n += 1
@@ -1711,8 +2120,12 @@ def _build_live_stream_markdown(
 
     error_lines: list[str] = []
     router_status = str((sections.get("llm_router") or {}).get("status") or "")
-    if router_status == "ok":
-        router_diag = "💡 数据引擎：已启用 LLM 深度去噪与提纯"
+    if router_status in {"ok", "ok_compact_retry"}:
+        router_diag = "💡 数据引擎：已启用板块分组 Router 深度去噪与提纯"
+        if router_status == "ok_compact_retry":
+            router_diag += "（紧凑菜单重试成功）"
+    elif router_status == "fallback_grouped":
+        router_diag = "⚠️ 数据引擎：LLM 路由超时/异常，已降级为板块分组规则精选"
     else:
         router_diag = "⚠️ 数据引擎：LLM 路由超时/异常，已平滑降级为词典匹配模式"
     error_cn = {
@@ -1943,6 +2356,8 @@ def build_snapshot(
         "menu_count": _router_meta.get("menu_count") or 0,
         "selected_count": _router_meta.get("selected_count") or 0,
         "reason": _router_meta.get("reason") or "",
+        "insights_by_sector": _router_meta.get("insights_by_sector") or {},
+        "candidate_diagnostics": _router_meta.get("candidate_diagnostics") or {},
     }
     meta_extra["llm_router_status"] = sections["llm_router"]["status"]
     if sections["llm_router"]["reason"]:
@@ -1951,6 +2366,8 @@ def build_snapshot(
         meta_extra["llm_router_menu_count"] = sections["llm_router"]["menu_count"]
     if sections["llm_router"]["selected_count"]:
         meta_extra["llm_router_selected_count"] = sections["llm_router"]["selected_count"]
+    if sections["llm_router"]["candidate_diagnostics"]:
+        meta_extra["llm_router_candidate_diagnostics"] = sections["llm_router"]["candidate_diagnostics"]
 
     md = _build_live_stream_markdown(sections, errors, fetched_at)
     ok = True

@@ -36,7 +36,7 @@ description: |
 4. **`markdown_summary` 结构**：大盘与情绪（三大指数优先 → 北向资金 → 其他情绪/资金）→ 六大板块 **RSSHub 快讯**摘要（**每条带时间**；板块内不足时用宽池关键词回溯；仍无新闻时用行情侧补充或明确暂无；**深度层条目已并入各板块展示，无独立「深度内容」小节**）→ 大事件（国家/全球/政策/地缘/峰会类，不放公司业绩/午评/涨停分析）→ **全球宏观**（新浪7x24 + 证监会/人民银行 + 可选 CCTV）→ 今日热点讯息（仅金融相关）→ 社媒/人气榜探测 → 中文告警。机器侧完整深度列表仍以 JSON **`sections.deep_news`** 为准。与上游 Agent 的「只发指数表」类输出**不**同义。
 5. **缺口与告警**：接口失败、字段为空、板块未命中等情况写入 `errors` 并在 `markdown_summary` 的告警区用中文说明；**不再**输出 `meta.websearch_required` / `meta.websearch_gaps`，也不内嵌联网检索。
 6. **边界**：本 skill 为可迁移 API 信源层，**不调用** Agent WebSearch / Tavily。若上游 Agent 仍需人工联网核对，由 Agent 在对话中自行处理，且不得改写本 JSON 的 `sections` 数值事实。
-7. **T3 Router（v0.1.9）**：在组装前会对压缩菜单做单次 LLM 路由：每板块 **1～3 条**、优先深度逻辑、无重大事件时保留【强相关】行业/盘面动态，**仅**当菜单中完全无该板块相关信息时才 `[]`；去重同一事件多源快讯。结果写入 `sections.llm_router.items_by_sector`，主状态写入 `meta.llm_router_status`。超时/网关错/JSON 解析失败时回退 legacy，并写 `errors[].code=LLM_ROUTER_FAILED`。
+7. **T3 Router（v0.1.9）**：`sections.deep_news` 与板块快讯分池后**交替并入** Router 菜单（避免纯按时间截断把 36氪/界面/金十等深度源挤出）；单次 LLM 路由要求每板块 **2～4 条**且【信息配比】：**必须**同时覆盖盘面快讯（财联社、新浪等）与产业/基本面源（深度层常见来源），禁止快讯独占；**仅**当菜单中完全无该板块相关信息时才 `[]`。默认菜单约 **28** 条（`FINANCE_LLM_ROUTER_MENU_MAX_ITEMS` 可调）。结果写入 `sections.llm_router.items_by_sector`，`meta.llm_router_status`。失败回退 legacy，`errors[].code=LLM_ROUTER_FAILED`。
 
 ## 铁律
 

@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 # ——— 深度内容源配置 ——————————————————————————————————————————————————————
 
 _SUMMARY_MAX_LEN = 120  # 约 2-3 句核心信息，与选题 digest 上限对齐
+_ARTICLE_TEXT_MAX_LEN = 1000  # 文章源 clean_text 供 LLM 消费
+_FRESH_DAYS_DEFAULT = 7
 
 # 直连 API / RSS（无 RSSHub 或作回退）
 _BASE_DEEP_SOURCES: tuple[dict[str, Any], ...] = (
@@ -88,11 +90,12 @@ _BASE_DEEP_SOURCES: tuple[dict[str, Any], ...] = (
 _PROVIDER_DISPATCH: dict[str, Any] = {}
 
 _RSSHUB_ROUTE_ROWS: tuple[tuple[str, str, str], ...] = (
-    ("wallstreetcn_rsshub", "华尔街见闻(RSSHub)", "/wallstreetcn/live"),
-    ("jin10_rsshub", "金十数据(RSSHub)", "/jin10"),
-    ("yicai_rsshub", "第一财经(RSSHub)", "/yicai/brief"),
-    ("jiemian_rsshub", "界面快报(RSSHub)", "/jiemian/lists/4"),
-    ("kr36_rsshub", "36氪快讯(RSSHub)", "/36kr/newsflashes"),
+    ("wallstreetcn_hot_rsshub", "华尔街见闻最热(RSSHub)", "/wallstreetcn/hot"),
+    ("cls_depth_rsshub", "财联社深度(RSSHub)", "/cls/depth"),
+    ("yicai_feed_rsshub", "第一财经深度(RSSHub)", "/yicai/feed"),
+    ("gelonghui_home_rsshub", "格隆汇首页(RSSHub)", "/gelonghui/home"),
+    ("kr36_tech_info_rsshub", "36氪科技深度(RSSHub)", "/36kr/information/technology"),
+    ("xueqiu_hots_rsshub", "雪球热帖(RSSHub)", "/xueqiu/hots"),
 )
 
 # v0.1.9：六大板块垂直 RSSHub 矩阵（仅当配置了 FINANCE_RSSHUB_BASE_URL 时启用，替代扁平 _RSSHUB_ROUTE_ROWS）。
@@ -101,24 +104,24 @@ SECTOR_DEEP_RSSHUB_ROUTES: dict[str, dict[str, list[dict[str, Any]]]] = {
     "科技": {
         "primary": [
             {
-                "path": "/36kr/motif/32768",
-                "label": "36氪前沿科技专栏",
-                "key": "vertical_tech_kr36_motif_32768",
+                "path": "/36kr/information/technology",
+                "label": "36氪科技前沿文章",
+                "key": "vertical_tech_kr36_info_technology",
                 "needs_probe": True,
             },
             {
-                "path": "/36kr/newsflashes",
-                "label": "36氪快讯",
-                "key": "vertical_tech_kr36_newsflashes",
-                "needs_probe": False,
+                "path": "/huxiu/channel/103",
+                "label": "虎嗅科技频道",
+                "key": "vertical_tech_huxiu_channel_103",
+                "needs_probe": True,
             },
         ],
         "fallback": [
             {
-                "path": "/wallstreetcn/live",
-                "label": "华尔街见闻快讯（宽池）",
-                "key": "vertical_tech_wscn_live_fb",
-                "needs_probe": False,
+                "path": "/xueqiu/hots",
+                "label": "雪球热帖（科技宽池）",
+                "key": "vertical_tech_xueqiu_hots_fb",
+                "needs_probe": True,
             },
         ],
     },
@@ -133,94 +136,106 @@ SECTOR_DEEP_RSSHUB_ROUTES: dict[str, dict[str, list[dict[str, Any]]]] = {
         ],
         "fallback": [
             {
-                "path": "/36kr/newsflashes",
-                "label": "36氪快讯",
-                "key": "vertical_ev_kr36_fb",
-                "needs_probe": False,
+                "path": "/xueqiu/hots",
+                "label": "雪球热帖（新能源宽池）",
+                "key": "vertical_ev_xueqiu_hots_fb",
+                "needs_probe": True,
             },
             {
-                "path": "/jin10",
-                "label": "金十数据（宽池）",
-                "key": "vertical_ev_jin10_fb",
-                "needs_probe": False,
+                "path": "/wallstreetcn/hot",
+                "label": "华尔街见闻最热（宽池）",
+                "key": "vertical_ev_wscn_hot_fb",
+                "needs_probe": True,
             },
         ],
     },
     "港股": {
         "primary": [
             {
-                "path": "/gelonghui/live",
-                "label": "格隆汇快讯",
-                "key": "vertical_hk_gelonghui_live",
+                "path": "/gelonghui/home",
+                "label": "格隆汇首页深度",
+                "key": "vertical_hk_gelonghui_home",
                 "needs_probe": True,
             },
         ],
         "fallback": [
             {
-                "path": "/wallstreetcn/live",
-                "label": "华尔街见闻快讯（宽池）",
-                "key": "vertical_hk_wscn_live_fb",
-                "needs_probe": False,
+                "path": "/xueqiu/hots",
+                "label": "雪球热帖（港股宽池）",
+                "key": "vertical_hk_xueqiu_hots_fb",
+                "needs_probe": True,
             },
         ],
     },
     "黄金": {
         "primary": [
             {
-                "path": "/jin10",
-                "label": "金十数据（贵金属/大宗线索）",
-                "key": "vertical_gold_jin10",
-                "needs_probe": False,
+                "path": "/wallstreetcn/hot",
+                "label": "华尔街见闻最热（贵金属/宏观）",
+                "key": "vertical_gold_wscn_hot",
+                "needs_probe": True,
+            },
+            {
+                "path": "/cls/depth",
+                "label": "财联社深度（贵金属/宏观）",
+                "key": "vertical_gold_cls_depth",
+                "needs_probe": True,
             },
         ],
         "fallback": [
             {
-                "path": "/wallstreetcn/live",
-                "label": "华尔街见闻快讯（宽池）",
-                "key": "vertical_gold_wscn_live_fb",
-                "needs_probe": False,
+                "path": "/xueqiu/hots",
+                "label": "雪球热帖（黄金宽池）",
+                "key": "vertical_gold_xueqiu_hots_fb",
+                "needs_probe": True,
             },
         ],
     },
     "有色": {
         "primary": [
             {
-                "path": "/jin10",
-                "label": "金十数据（工业金属/大宗线索）",
-                "key": "vertical_metals_jin10",
-                "needs_probe": False,
+                "path": "/wallstreetcn/hot",
+                "label": "华尔街见闻最热（工业金属/宏观）",
+                "key": "vertical_metals_wscn_hot",
+                "needs_probe": True,
+            },
+            {
+                "path": "/cls/depth",
+                "label": "财联社深度（工业金属/宏观）",
+                "key": "vertical_metals_cls_depth",
+                "needs_probe": True,
             },
         ],
         "fallback": [
             {
-                "path": "/wallstreetcn/live",
-                "label": "华尔街见闻快讯（宽池）",
-                "key": "vertical_metals_wscn_live_fb",
-                "needs_probe": False,
+                "path": "/xueqiu/hots",
+                "label": "雪球热帖（有色宽池）",
+                "key": "vertical_metals_xueqiu_hots_fb",
+                "needs_probe": True,
             },
         ],
     },
     "银行": {
         "primary": [
             {
-                "path": "/yicai/brief",
-                "label": "第一财经简报",
-                "key": "vertical_bank_yicai_brief",
+                "path": "/yicai/feed",
+                "label": "第一财经深度 feed",
+                "key": "vertical_bank_yicai_feed",
                 "needs_probe": False,
             },
             {
-                "path": "/jiemian/lists/4",
-                "label": "界面快报",
-                "key": "vertical_bank_jiemian_lists_4",
-                "needs_probe": False,
+                "path": "/cls/depth",
+                "label": "财联社深度（大金融）",
+                "key": "vertical_bank_cls_depth",
+                "needs_probe": True,
             },
         ],
         "fallback": [
             {
-                "path": "/36kr/newsflashes",
-                "label": "36氪快讯",
-                "key": "vertical_bank_kr36_fb",
-                "needs_probe": False,
+                "path": "/xueqiu/hots",
+                "label": "雪球热帖（大金融宽池）",
+                "key": "vertical_bank_xueqiu_hots_fb",
+                "needs_probe": True,
             },
         ],
     },
@@ -390,6 +405,16 @@ def _clip_summary(text: str, max_len: int = _SUMMARY_MAX_LEN) -> str:
     return t[:max_len] + "…"
 
 
+def _clip_article_text(text: str, max_len: int = _ARTICLE_TEXT_MAX_LEN) -> str:
+    """文章正文清洗与截断（默认 1000 字，供下游 LLM 消费）。"""
+    t = _strip_html(text).strip()
+    if not t:
+        return ""
+    if len(t) <= max_len:
+        return t
+    return t[:max_len] + "…"
+
+
 def _parse_time(raw: Any) -> str:
     """把各种时间格式归一化为 ISO8601 字符串（Asia/Shanghai）。"""
     tz_cn = timezone(timedelta(hours=8))
@@ -420,6 +445,47 @@ def _parse_time(raw: Any) -> str:
         except (ValueError, TypeError):
             continue
     return raw_s[:19] if len(raw_s) >= 10 else raw_s
+
+
+def _parse_iso_dt(raw: str) -> datetime | None:
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone(timedelta(hours=8)))
+    return dt
+
+
+def _fresh_days_limit() -> int:
+    raw = os.environ.get("FINANCE_DEEP_NEWS_FRESH_DAYS", "").strip()
+    try:
+        v = int(raw) if raw else _FRESH_DAYS_DEFAULT
+    except ValueError:
+        v = _FRESH_DAYS_DEFAULT
+    return max(1, min(30, v))
+
+
+def _filter_recent_items(items: list[dict[str, Any]], *, days: int) -> tuple[list[dict[str, Any]], int]:
+    """仅保留最近 N 天深度条目；无法解析时间的条目默认保留。"""
+    now_dt = datetime.now(timezone(timedelta(hours=8)))
+    floor = now_dt - timedelta(days=days)
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        dt = _parse_iso_dt(str(it.get("published_at") or ""))
+        if dt is not None and dt < floor:
+            dropped += 1
+            continue
+        kept.append(it)
+    return kept, dropped
 
 
 def _fetch_url(url: str, headers: dict[str, str], timeout: int = 15) -> bytes:
@@ -485,7 +551,8 @@ def _wscn_parse_one_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
         title = _clip_summary(body, max_len=80)
     if not title:
         return None
-    summary = _clip_summary(str(body) if body else title)
+    clean_text = _clip_article_text(str(body) if body else title)
+    summary = _clip_summary(clean_text or title)
     uri = str(entry.get("uri") or entry.get("resource_uri") or entry.get("url") or "").strip()
     url_full = ""
     if uri.startswith("http://") or uri.startswith("https://"):
@@ -507,6 +574,7 @@ def _wscn_parse_one_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "title": title,
         "summary": summary,
+        "clean_text": clean_text,
         "url": url_full,
         "published_at": _parse_time(ts),
     }
@@ -573,7 +641,8 @@ def _fetch_rss(src: dict[str, Any], limit: int) -> tuple[list[dict], list[dict]]
                 or getattr(entry, "description", "")
                 or title
             )
-            summary = _clip_summary(raw_summary)
+            clean_text = _clip_article_text(raw_summary)
+            summary = _clip_summary(clean_text or title)
             link = str(getattr(entry, "link", "") or "").strip()
             pub_raw = (
                 getattr(entry, "published", "")
@@ -583,6 +652,7 @@ def _fetch_rss(src: dict[str, Any], limit: int) -> tuple[list[dict], list[dict]]
             items.append({
                 "title": title,
                 "summary": summary,
+                "clean_text": clean_text,
                 "url": link,
                 "published_at": _parse_time(pub_raw),
                 "source": src["key"],
@@ -687,7 +757,9 @@ def fetch_deep_news_section(limit: int = 8) -> tuple[dict[str, Any], list[dict[s
                 sources_ok.append(src["key"])
                 all_items.extend(items)
 
-    enriched = _enrich(all_items)
+    fresh_days = _fresh_days_limit()
+    filtered_items, dropped_stale = _filter_recent_items(all_items, days=fresh_days)
+    enriched = _enrich(filtered_items)
 
     section: dict[str, Any] = {
         "items": enriched,
@@ -695,6 +767,8 @@ def fetch_deep_news_section(limit: int = 8) -> tuple[dict[str, Any], list[dict[s
         "sources_ok": sources_ok,
         "total": len(enriched),
         "rsshub_base_url": base or None,
+        "fresh_days_limit": fresh_days,
+        "stale_dropped_count": dropped_stale,
     }
     if sector_matrix is not None:
         section["sector_rsshub_matrix"] = sector_matrix

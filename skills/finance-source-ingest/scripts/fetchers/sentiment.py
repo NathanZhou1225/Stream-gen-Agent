@@ -47,6 +47,17 @@ NEGATIVE_KEYWORDS: tuple[str, ...] = (
     "暴跌", "大跌", "跌停", "崩", "闪崩",
 )
 
+# 明确负面强信号：命中即优先判为利空，避免被正面词抵消
+STRONG_NEGATIVE_KEYWORDS: tuple[str, ...] = (
+    "跌超",
+    "走低",
+    "下调",
+    "减持",
+    "退市",
+    "亏损",
+    "立案",
+)
+
 # ——— 影响评估关键词库 ——————————————————————————————————————————————————
 
 MARKET_LEVEL_KEYWORDS: tuple[str, ...] = (
@@ -143,6 +154,8 @@ def classify_sentiment(text: str) -> str:
     正负各计命中数：净正 > 0 → 利好；净负 > 0 → 利空；平局或均无命中 → 中性。
     单个明确信号（如"降准"）在无负向词时即可判定，避免过严漏报。
     """
+    if any(kw in text for kw in STRONG_NEGATIVE_KEYWORDS):
+        return "利空"
     pos = sum(1 for kw in POSITIVE_KEYWORDS if kw in text)
     neg = sum(1 for kw in NEGATIVE_KEYWORDS if kw in text)
     if pos > neg:
