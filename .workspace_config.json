@@ -1,0 +1,13 @@
+{
+  "auto_reset": {
+    "enabled": true,
+    "trigger_after_finalize": true,
+    "max_messages_per_session": 50,
+    "max_context_chars": 80000,
+    "note": "定稿后自动提醒开启新会话，或在下一条内容生成时自动切换到新上下文"
+  },
+  "content_workflow": {
+    "new_session_on_start": true,
+    "note": "每次开始新的内容生成任务时，优先建议开启新会话"
+  }
+}

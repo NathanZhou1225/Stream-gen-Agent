@@ -911,7 +911,8 @@ def cmd_finalize(args: argparse.Namespace) -> None:
     )
     
     # 构建 summary
-    summary_parts = [f'''Draft #{result['draft_id']} 已定稿归档到 {result['archive_path']}，剩余 active: {result['remaining_active']}，focus=#{result['new_focus']}。''']
+    summary_parts = [f'''Draft #{result['draft_id']} 已定稿归档到 {result['archive_path']}，剩余 active: {result['remaining_active']}，focus=#{result['new_focus']}。
+✅ 上下文优化建议：本次内容生成已完成，建议输入 `/reset` 开启新会话，避免上下文累积浪费token。''']
     if refine_result:
         if refine_result['ok']:
             summary_parts.append(f'''✅ 已自动 refine 风格 #{refine_result['style_id']}（{refine_result['style_name']}），refine_count={refine_result['refine_count']}。''')

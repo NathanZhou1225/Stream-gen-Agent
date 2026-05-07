@@ -6,9 +6,12 @@ import logging
 import math
 import os
 import random
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
+from datetime import datetime, timedelta
+from io import BytesIO
 from typing import Any, Callable
 from urllib import request as _urlreq
 from urllib.error import URLError
@@ -18,6 +21,13 @@ from _common import now_iso
 from fetchers.models import normalize_index_item
 
 logger = logging.getLogger(__name__)
+
+try:
+    import feedparser as _feedparser  # type: ignore[import-untyped]
+except ImportError:
+    _feedparser = None
+
+_NORTHBOUND_TEXT_RE = re.compile(r"(北向资金|沪股通|深股通)[^0-9+-]{0,20}([+-]?\d+(?:\.\d+)?)\s*亿")
 
 
 def _akshare_retry_count() -> int:
@@ -431,6 +441,129 @@ def _probe_northbound_hsgt(ak: Any, errors: list[dict[str, Any]]) -> dict[str, A
     }
 
 
+def _probe_northbound_tushare(errors: list[dict[str, Any]]) -> dict[str, Any] | None:
+    token = os.environ.get("TUSHARE_TOKEN", "").strip()
+    if not token:
+        return None
+    try:
+        import pandas as pd  # noqa: PLC0415
+        import tushare as ts  # noqa: PLC0415
+
+        ts.set_token(token)
+        pro = ts.pro_api(token)
+        today = datetime.now().strftime("%Y%m%d")
+        for i in range(0, 5):
+            day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+            df = pro.moneyflow_hsgt(start_date=day, end_date=day)
+            if df is None or getattr(df, "empty", True):
+                continue
+            cand_cols = (
+                "north_money",
+                "north_net_flow",
+                "northbound_net",
+                "northbound_money",
+                "net_amount",
+                "net",
+            )
+            col = next((c for c in cand_cols if c in df.columns), None)
+            if not col:
+                continue
+            val = pd.to_numeric(df[col], errors="coerce").dropna()
+            if val.empty:
+                continue
+            num = float(val.iloc[0])
+            if abs(num) > 1e-6:
+                # Tushare 字段单位可能是万元/百万元，异常大值做守护缩放到“亿元”量级
+                if abs(num) > 5000:
+                    num = num / 10000.0
+                return {
+                    "source": "tushare:moneyflow_hsgt",
+                    "aggregate_net_buy_yi": round(num, 4),
+                    "note": f"北向资金来自 Tushare moneyflow_hsgt（{day}）",
+                }
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "northbound_tushare",
+                "code": "NORTHBOUND_TUSHARE_FAILED",
+                "message": repr(e),
+                "hint": "Tushare moneyflow_hsgt",
+            }
+        )
+    return None
+
+
+def _probe_northbound_text_fallback(errors: list[dict[str, Any]]) -> dict[str, Any] | None:
+    # 1) 新浪7x24 文本抓取
+    try:
+        from . import news_sina_live  # noqa: PLC0415
+
+        sec, _ = news_sina_live.fetch_sina_live_section(60)
+        for it in sec.get("items") or []:
+            txt = f"{it.get('title') or ''} {it.get('clean_text') or ''}"
+            m = _NORTHBOUND_TEXT_RE.search(txt)
+            if not m:
+                continue
+            val = _to_float(m.group(2))
+            if val is None:
+                continue
+            return {
+                "source": "sina_live:text_extract",
+                "aggregate_net_buy_yi": val,
+                "note": "北向资金来自新浪7x24文本抽取（估算口径）",
+            }
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "northbound_sina_live",
+                "code": "NORTHBOUND_SINA_TEXT_FAILED",
+                "message": repr(e),
+                "hint": "news_sina_live text extract",
+            }
+        )
+
+    # 2) RSSHub wallstreetcn/live 文本抓取
+    base = (os.environ.get("FINANCE_RSSHUB_BASE_URL") or "").strip().rstrip("/")
+    if not base or _feedparser is None:
+        return None
+    try:
+        req = _urlreq.Request(
+            f"{base}/wallstreetcn/live",
+            headers={"User-Agent": "finance-source-ingest/0.2 northbound-fallback"},
+        )
+        with _urlreq.urlopen(req, timeout=8) as resp:
+            parsed = _feedparser.parse(BytesIO(resp.read()))
+        entries = list(getattr(parsed, "entries", []) or [])[:40]
+        for ent in entries:
+            title = str(getattr(ent, "title", "") or "")
+            summary = str(getattr(ent, "summary", "") or "")
+            txt = f"{title} {summary}"
+            m = _NORTHBOUND_TEXT_RE.search(txt)
+            if not m:
+                continue
+            val = _to_float(m.group(2))
+            if val is None:
+                continue
+            return {
+                "source": "rsshub:wallstreetcn_live:text_extract",
+                "aggregate_net_buy_yi": val,
+                "note": "北向资金来自 RSSHub 文本抽取（估算口径）",
+            }
+    except Exception as e:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "market",
+                "stage": "northbound_rsshub_text",
+                "code": "NORTHBOUND_RSSHUB_TEXT_FAILED",
+                "message": repr(e),
+                "hint": "FINANCE_RSSHUB_BASE_URL/wallstreetcn/live",
+            }
+        )
+    return None
+
+
 def _probe_industry_rank(ak: Any, errors: list[dict[str, Any]]) -> dict[str, Any] | None:
     fn = getattr(ak, "stock_fund_flow_industry", None)
     if not callable(fn):
@@ -563,8 +696,18 @@ def _fill_akshare_market_extensions(out: dict[str, Any], errors: list[dict[str, 
         )
         return
     nb = _probe_northbound_hsgt(ak, errors)
-    if nb:
+    if nb and abs(float(nb.get("aggregate_net_buy_yi") or 0.0)) > 1e-6:
         out["northbound"] = nb
+    else:
+        nb_ts = _probe_northbound_tushare(errors)
+        if nb_ts:
+            out["northbound"] = nb_ts
+        else:
+            nb_txt = _probe_northbound_text_fallback(errors)
+            if nb_txt:
+                out["northbound"] = nb_txt
+            elif nb:
+                out["northbound"] = nb
     ir = _probe_industry_rank(ak, errors)
     if ir:
         out["industry_rank"] = ir
@@ -801,7 +944,7 @@ def fetch_market_sentiment() -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
 def extract_keywords_from_news(news_items: list[dict[str, Any]]) -> list[str]:
     """
-    终极兜底方案（零网络依赖）：从财联社快讯标题中离线提取高频热词
+    终极兜底方案（零网络依赖）：从板块快讯标题中离线提取高频热词
     设计目标：所有外部接口都挂掉时，依然能给用户展示有意义的内容
     """
     import re

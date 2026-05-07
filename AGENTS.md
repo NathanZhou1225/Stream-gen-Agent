@@ -18,7 +18,7 @@
 2. `SOUL.md` — 服务方式与飞书/隐私边界
 3. `USER.md` — 对面前协作者/客户的画像
 4. `memory/YYYY-MM-DD.md`（今天 + 昨天，若存在）
-5. `MEMORY.md` — 长期精华（**仅 1v1/私人语境**，见下）
+5. `MEMORY.md` — 长期精华（**仅 1v1/私人语境**，见下）；内含「场景分流」，涉及行情快照或开稿时再 **`read`** `memory/rules/MEMORY_ingest.md` / `MEMORY_workflow.md`
 6. `TOOLS.md` — 本环境、飞书与凭据说明
 
 ---
@@ -41,6 +41,14 @@
 
 ---
 
+## 上下文与轮次（费 token · 与 MEMORY 同步）
+
+- **少复述**：状态以磁盘与工具结果为准；勿在回复里反复粘贴整段快照/逐字稿/旧 tool 全文（详见 `MEMORY.md`「上下文预算与会话轮次」）。
+- **控制长度**：同会话约 **12～15 个用户回合**或单主题已收尾时，**建议领航员新开飞书会话**再继续下一主题；长线程切换前可把交接写在 **当日** `memory/YYYY-MM-DD.md`（稿件 id、阶段、待办）。
+- **MEMORY 碎片**：信源/开稿长规则已拆至 `memory/rules/`；默认只注入精简后的 `MEMORY.md`，按任务再读碎片，避免每轮堆全文。
+
+---
+
 ## 安全
 
 - 不越权访问其他 agent 的 workspace。
@@ -60,27 +68,9 @@
 - 进入 `outline_refining` / `script_refining` 后，只回当前阶段产物与确认动作。
 - 除非用户明确要求“回看数据/快讯来源”，否则不再拼接「信源状态/大盘行情/市场焦点/事实依据」块。
 
-### WebSearch 兜底（Agent 层，不属于 ingest）
+### 纯拉数（ingest 与包装脚本）
 
-`finance-source-ingest` 只产出可迁移的 API 快照；用户侧纯拉数一律通过 `query_market_facts.py` 包装脚本执行。该脚本会在 JSON 顶层 `meta.websearch_required: true` 或 `meta.websearch_gaps` 非空时直接调用 Tavily，并在 **`markdown_summary` 原文之后**追加一段 **「联网补充（Tavily 兜底）」**。触发条件：
-
-- 六大板块中任一板块只有「行情侧补充 / 暂无」而无财联社正文；
-- 百度热榜或泛财经条目为空、无可用财经 `detail`，或 `meta.websearch_gaps` 标出「泛财经热点」；
-- 社媒/人气榜/舆情为空，或相关接口失败；
-- 北向资金为空、返回 `0` 或被 `meta.websearch_gaps` 标出异常时，只补充可核验口径/背景，不用搜索结果覆盖 API 数字；
-- 「大事件」未命中国家/全球/政策/地缘/峰会类事件时，搜索近 3-7 天会影响金融市场的国家性/世界性事件；
-- `markdown_summary` 的告警已中文化；若因 API 失败触发 WebSearch，附录中必须写明「因 XX 接口失败/为空，使用 WebSearch 兜底」。
-
-硬规则：
-
-- WebSearch 结果**不得改写、删减、插入** `markdown_summary` 原文，只能追加独立附录；
-- WebSearch 能力可来自平台原生 WebSearch、Brave API，或当前 workspace 已安装且可执行的搜索 skill；不要把 Brave API 当成唯一联网方式；
-- 每条补充必须标注 **板块/归属 + 来源标题或域名 + 时间**（无网页时间则写「检索时间」）；
-- 每个缺口板块最多 1 次搜索、1-2 条补充；全量补充最多 6-8 条；
-- 搜不到可靠来源时写「未找到可核验补充」，不得脑补；
-- 禁止只复述 `markdown_summary` 里的「已触发 / 需 WebSearch」提示然后结束；必须给出 WebSearch 结果，或明确写「WebSearch 未执行成功：原因」；
-- 若当前会话没有 WebSearch 工具或调用失败，仍要追加「联网补充」段，说明未能执行，不得把“建议 WebSearch”当作完成；
-- 迁移本 workspace 时，若希望保留此能力，需连同本 `AGENTS.md`、`MEMORY.md` 与 `natural-language-intent.md` 的 Agent 层协议一起迁移。
+`finance-source-ingest` 只产出可迁移的 API 快照；用户侧纯拉数推荐 `python3 skills/streamy-content-gen/scripts/query_market_facts.py ...`，其 **stdout JSON 与直接运行 `ingest.py` 等价**（便于从 workspace `.env` 注入 `TUSHARE_TOKEN`、`FINANCE_RSSHUB_BASE_URL` 等），**不再**自动拼接 Tavily 或任何「联网补充」附录。若业务仍需要人工联网核对北向/社媒等，由 Agent 在对话中自行检索，且不得覆盖 JSON 里 API 给出的数值。
 
 ---
 

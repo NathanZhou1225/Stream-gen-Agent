@@ -47,3 +47,7 @@ python3 skills/user-style-manager/scripts/style_cli.py refine --style-id <UUID> 
 ## 凭据
 
 - 提取 / 持续优化（`refine`）：`style_extract` 读 `OPENCLAW_ARK_*` 或 `OPENCLAW_CONFIG` 指向的 `openclaw.json` 中 `models.providers.ark`（**不在** skill 内写 key）
+
+## 本地缓存（省 API）
+
+- `extract` / `refine` 在 **相同输入** 下会命中 `{WORKSPACE_ROOT}/user_data/style_extract_cache/*.json`，跳过重复调用 Ark。改 `prompts/extract-style.md` 或 `refine-style.md` 后如需忽略旧缓存，可删该目录下文件或设环境变量 **`STYLE_EXTRACT_CACHE=0`** 临时关闭。

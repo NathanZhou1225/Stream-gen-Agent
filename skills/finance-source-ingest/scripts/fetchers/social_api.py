@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -15,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 WB_HOT_URL = "https://api.vvhan.com/api/hotlist/wbHot"
 WB_HOT_TIMEOUT_SEC = 3.0
+
+BAIDU_BOARD_URL = "https://top.baidu.com/board?tab=realtime"
+BAIDU_TIMEOUT_SEC = 8.0
 
 # 第一梯队：宏观 / 金融向过滤（与产品约定一致）
 MACRO_FINANCE_KEYWORDS = ["股", "降息", "央行", "外资", "黄金", "楼市", "经济", "汇率"]
@@ -59,6 +63,103 @@ def _wb_title_matches_user_keywords(title: str, user_keywords: list[str]) -> boo
         return True
     blob = title.lower()
     return any(k.lower() in blob for k in user_keywords)
+
+
+def _extract_baidu_board_titles(html: str) -> list[str]:
+    """从百度实时热搜页提取标题（多策略）。"""
+    titles: list[str] = []
+    seen: set[str] = set()
+    for m in re.finditer(
+        r'class="c-single-text-ellipsis[^"]*"[^>]*>([^<]+)</',
+        html,
+        flags=re.I,
+    ):
+        t = _clean_title(m.group(1))
+        if t and t not in seen and len(t) >= 2:
+            seen.add(t)
+            titles.append(t)
+    if len(titles) < 5:
+        for m in re.finditer(r'"word"\s*:\s*"([^"\\]+)"', html):
+            t = _clean_title(m.group(1))
+            if t and t not in seen and 2 <= len(t) <= 80:
+                seen.add(t)
+                titles.append(t)
+    return titles[:60]
+
+
+def _clean_title(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
+
+
+def _tier3_baidu_hot_filtered(
+    user_keywords: list[str],
+    max_items: int,
+    errors: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    """第三梯队：百度实时热搜 HTML + 宏观词过滤（Tier1+2 均不可用或为空时）。"""
+    try:
+        req = urlrequest.Request(
+            BAIDU_BOARD_URL,
+            headers={"User-Agent": "Mozilla/5.0 finance-source-ingest/0.3"},
+        )
+        with urlrequest.urlopen(req, timeout=BAIDU_TIMEOUT_SEC) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except (urlerror.URLError, OSError, TimeoutError, ValueError) as e:
+        logger.warning("百度热搜不可用: %s", repr(e))
+        errors.append(
+            {
+                "source": "social",
+                "stage": "social_trends_tier3",
+                "code": "BAIDU_HOT_FAILED",
+                "message": str(e),
+                "hint": BAIDU_BOARD_URL,
+            },
+        )
+        return None
+
+    raw_titles = _extract_baidu_board_titles(html)
+    if not raw_titles:
+        errors.append(
+            {
+                "source": "social",
+                "stage": "social_trends_tier3",
+                "code": "BAIDU_HOT_FAILED",
+                "message": "页面无可用标题（结构变更）",
+                "hint": BAIDU_BOARD_URL,
+            },
+        )
+        return None
+
+    macro_hits = [t for t in raw_titles if _wb_title_matches_macro(t)]
+    if not macro_hits:
+        errors.append(
+            {
+                "source": "social",
+                "stage": "social_trends_tier3",
+                "code": "BAIDU_HOT_NO_MATCH",
+                "message": "百度热搜无命中宏观/金融关键词",
+                "hint": str(MACRO_FINANCE_KEYWORDS),
+            },
+        )
+        return None
+
+    filtered = [t for t in macro_hits if _wb_title_matches_user_keywords(t, user_keywords)]
+    if not filtered:
+        errors.append(
+            {
+                "source": "social",
+                "stage": "social_trends_tier3",
+                "code": "BAIDU_HOT_NO_USER_KEYWORD_MATCH",
+                "message": "百度热搜命中宏观词后，被 CLI --keywords 过滤为空",
+            },
+        )
+        return None
+
+    items: list[dict[str, Any]] = []
+    for title in filtered[: max(1, max_items)]:
+        clean = f"{title} {BAIDU_BOARD_URL}".strip()
+        items.append(_social_item(title=title, clean_text=clean, platform="百度热搜"))
+    return items
 
 
 def _tier1_weibo_hot_filtered(
@@ -211,12 +312,12 @@ def fetch_social_trends(
     max_items: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """
-    MVP 多级降级社媒热点：① vvhan 微博热搜（宏观词过滤）→ ② AkShare 淘股吧 / 东财人气榜。
+    MVP 多级降级社媒热点：① vvhan 微博热搜 → ② AkShare 淘股吧/东财人气榜 → ③ 百度实时热搜 HTML。
 
     每条为契约字典：title、clean_text（可选 platform 供 markdown）。
     所有异常记入 errors，不向调用方抛掷。
 
-    第三个返回值为 meta：``social_tier_used`` ∈ {1, 2, 0}，``social_api`` 为简要来源标记。
+    第三个返回值为 meta：``social_tier_used`` ∈ {1, 2, 3, 0}，``social_api`` 为简要来源标记。
     """
     errors: list[dict[str, Any]] = []
     meta: dict[str, Any] = {"social_tier_used": 0, "social_api": ""}
@@ -241,6 +342,8 @@ def fetch_social_trends(
         return t1[: max(1, max_items)], errors, meta
 
     # ---------- 第二梯队 ----------
+    items: list[dict[str, Any]] = []
+    api_label = "akshare"
     try:
         import akshare as ak  # noqa: PLC0415
     except ImportError as e:
@@ -253,48 +356,64 @@ def fetch_social_trends(
                 "hint": "请安装 akshare 以启用淘股吧/人气榜兜底",
             }
         )
-        return [], errors, meta
+        items = []
+    else:
+        try:
+            df, api_label = _call_tgb_or_hot_rank_em(ak)
+            items = _tier2_community_hot_to_items(df, api_label)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("第二梯队 AkShare 社区热榜失败: %s", repr(e))
+            errors.append(
+                {
+                    "source": "social",
+                    "stage": "social_trends_tier2",
+                    "code": "SOCIAL_TGB_OR_HOT_RANK_FAILED",
+                    "message": repr(e),
+                    "hint": "网络或东财/淘股吧接口变更",
+                }
+            )
+            items = []
 
-    api_label = "akshare"
-    try:
-        df, api_label = _call_tgb_or_hot_rank_em(ak)
-        items = _tier2_community_hot_to_items(df, api_label)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("第二梯队 AkShare 社区热榜失败: %s", repr(e))
+        if not items:
+            errors.append(
+                {
+                    "source": "social",
+                    "stage": "social_trends_tier2",
+                    "code": "SOCIAL_TIER2_EMPTY",
+                    "message": "AkShare 返回空表或无可用行",
+                    "hint": api_label,
+                }
+            )
+
+    if items:
         errors.append(
             {
                 "source": "social",
-                "stage": "social_trends_tier2",
-                "code": "SOCIAL_TGB_OR_HOT_RANK_FAILED",
-                "message": repr(e),
-                "hint": "网络或东财/淘股吧接口变更",
-            }
-        )
-        return [], errors, meta
-
-    if not items:
-        errors.append(
-            {
-                "source": "social",
-                "stage": "social_trends_tier2",
-                "code": "SOCIAL_TIER2_EMPTY",
-                "message": "AkShare 返回空表或无可用行",
+                "stage": "social_trends",
+                "code": "SOCIAL_USED_TIER2_FALLBACK",
+                "message": "未使用微博热搜命中或第一梯队不可用，已采用第二梯队结果",
                 "hint": api_label,
             }
         )
-        return [], errors, meta
+        meta.update({"social_tier_used": 2, "social_api": api_label})
+        return items[: max(1, max_items)], errors, meta
 
-    errors.append(
-        {
-            "source": "social",
-            "stage": "social_trends",
-            "code": "SOCIAL_USED_TIER2_FALLBACK",
-            "message": "未使用微博热搜命中或第一梯队不可用，已采用第二梯队结果",
-            "hint": api_label,
-        }
-    )
-    meta.update({"social_tier_used": 2, "social_api": api_label})
-    return items[: max(1, max_items)], errors, meta
+    # ---------- 第三梯队：百度热搜 ----------
+    t3 = _tier3_baidu_hot_filtered(user_keywords, max_items, errors)
+    if t3:
+        errors.append(
+            {
+                "source": "social",
+                "stage": "social_trends",
+                "code": "SOCIAL_USED_TIER3_BAIDU",
+                "message": "Tier1/2 不可用或为空，已采用百度热搜兜底",
+                "hint": BAIDU_BOARD_URL,
+            }
+        )
+        meta.update({"social_tier_used": 3, "social_api": "baidu:board+macro_filter"})
+        return t3[: max(1, max_items)], errors, meta
+
+    return [], errors, meta
 
 
 def fetch_social_section(
@@ -309,7 +428,14 @@ def fetch_social_section(
         errors.extend(trend_errs)
         tier = int(trend_meta.get("social_tier_used") or 0)
         api = str(trend_meta.get("social_api") or "")
-        primary = "vvhan:wbHot+macro_filter" if tier == 1 else (api if tier == 2 else "social_mvp_empty")
+        if tier == 1:
+            primary = "vvhan:wbHot+macro_filter"
+        elif tier == 2:
+            primary = api
+        elif tier == 3:
+            primary = "baidu:board+macro_filter"
+        else:
+            primary = "social_mvp_empty"
         return (
             {
                 "as_of": now_iso(),

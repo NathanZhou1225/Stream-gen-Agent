@@ -2,18 +2,117 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import ssl
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
 
+from paths import get_user_data_dir
+
 _SKILLS_ROOT = Path(__file__).resolve().parent.parent
 _PROMPT_FILE = _SKILLS_ROOT / "prompts" / "extract-style.md"
 _REFINE_PROMPT_FILE = _SKILLS_ROOT / "prompts" / "refine-style.md"
+
+# Bump when extract/refine prompts or profile schema change enough to invalidate old cache entries.
+_EXTRACT_CACHE_SCHEMA = 1
+_REFINE_CACHE_SCHEMA = 1
+
+
+def _cache_enabled() -> bool:
+    v = os.environ.get("STYLE_EXTRACT_CACHE", "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
+def _cache_dir() -> Path:
+    d = get_user_data_dir() / "style_extract_cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _read_extract_cache(key_hex: str) -> dict[str, Any] | None:
+    p = _cache_dir() / f"extract_{key_hex}.json"
+    if not p.is_file():
+        return None
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if raw.get("schema") != _EXTRACT_CACHE_SCHEMA:
+        return None
+    prof = raw.get("profile")
+    if not isinstance(prof, dict):
+        return None
+    return {
+        "profile": prof,
+        "raw_model": raw.get("raw_model") or "",
+    }
+
+
+def _write_extract_cache(key_hex: str, profile: dict[str, Any], raw_model: str) -> None:
+    p = _cache_dir() / f"extract_{key_hex}.json"
+    payload = {
+        "schema": _EXTRACT_CACHE_SCHEMA,
+        "profile": profile,
+        "raw_model": (raw_model or "")[:8000],
+    }
+    try:
+        fd, tmp = tempfile.mkstemp(
+            suffix=".json", dir=_cache_dir(), text=True
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        Path(tmp).replace(p)
+    except OSError:
+        pass
+
+
+def _read_refine_cache(key_hex: str) -> dict[str, Any] | None:
+    p = _cache_dir() / f"refine_{key_hex}.json"
+    if not p.is_file():
+        return None
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if raw.get("schema") != _REFINE_CACHE_SCHEMA:
+        return None
+    prof = raw.get("profile")
+    if not isinstance(prof, dict):
+        return None
+    return {
+        "profile": prof,
+        "raw_model": raw.get("raw_model") or "",
+    }
+
+
+def _write_refine_cache(
+    key_hex: str, profile: dict[str, Any], raw_model: str
+) -> None:
+    p = _cache_dir() / f"refine_{key_hex}.json"
+    payload = {
+        "schema": _REFINE_CACHE_SCHEMA,
+        "profile": profile,
+        "raw_model": (raw_model or "")[:8000],
+    }
+    try:
+        fd, tmp = tempfile.mkstemp(
+            suffix=".json", dir=_cache_dir(), text=True
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        Path(tmp).replace(p)
+    except OSError:
+        pass
 
 
 def load_ark_config() -> tuple[str, str, str]:
@@ -145,8 +244,15 @@ def extract_from_text(transcript: str) -> dict[str, Any]:
     """
     返回 { "profile": { ...7 fields per contract }, "raw_model": str (optional) }
     """
+    body = transcript.strip()
+    key_hex = _sha256_hex(body.encode("utf-8"))
+    if _cache_enabled():
+        hit = _read_extract_cache(key_hex)
+        if hit is not None:
+            return hit
+
     system = _load_system_prompt()
-    user = f"【用户历史文稿开始】\n{transcript.strip()}\n【用户历史文稿结束】\n只输出 JSON。"
+    user = f"【用户历史文稿开始】\n{body}\n【用户历史文稿结束】\n只输出 JSON。"
     b, k, m = load_ark_config()
     body: dict[str, Any] = {
         "model": m,
@@ -159,7 +265,10 @@ def extract_from_text(transcript: str) -> dict[str, Any]:
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
     out = _ark_post(b, k, m, data, system, user, 0.2)
     prof = _validate_profile(_parse_json_object(out["raw_content"]))
-    return {"profile": prof, "raw_model": out["raw_content"][:8000]}
+    raw_slice = out["raw_content"][:8000]
+    if _cache_enabled():
+        _write_extract_cache(key_hex, prof, raw_slice)
+    return {"profile": prof, "raw_model": raw_slice}
 
 
 def _load_refine_prompt() -> str:
@@ -192,6 +301,14 @@ def refine_from_text(
         f"{new_transcript.strip()}\n"
         "【新样本文稿结束】\n只输出合并后的一个 JSON 对象，键名同初次提取，不要其他文字。"
     )
+    refine_key = _sha256_hex(
+        f"{_REFINE_CACHE_SCHEMA}\n".encode("utf-8") + user.encode("utf-8")
+    )
+    if _cache_enabled():
+        hit = _read_refine_cache(refine_key)
+        if hit is not None:
+            return hit
+
     b, k, m = load_ark_config()
     body: dict[str, Any] = {
         "model": m,
@@ -206,4 +323,7 @@ def refine_from_text(
     prof = _validate_profile(_parse_json_object(out["raw_content"]))
     if not str(prof.get("style_name", "")).strip():
         prof["style_name"] = existing_style_name
-    return {"profile": prof, "raw_model": out["raw_content"][:8000]}
+    raw_slice = out["raw_content"][:8000]
+    if _cache_enabled():
+        _write_refine_cache(refine_key, prof, raw_slice)
+    return {"profile": prof, "raw_model": raw_slice}

@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import json
+import logging
 import os
-from pathlib import Path
+import re
+import select
 import subprocess
+import sys
 from typing import Any
 
 from _common import compute_invariants, now_iso, truthy_env
-from fetchers import macro_hot, market, news_rss, social_api, social_scrape_stub
-from fetchers.sector_keywords import SECTOR_ORDER
+from fetchers import (
+    deep_news,
+    macro_hot,
+    market,
+    news_rss,
+    news_sina_live,
+    policy_gov,
+    social_api,
+    social_scrape_stub,
+)
+from fetchers.sector_keywords import SECTOR_KEYWORDS, SECTOR_ORDER, sectors_for_text
+from fetchers.sentiment import classify_impact, classify_sentiment, extract_stock_mentions, sentiment_emoji as _s_emoji
+
+logger = logging.getLogger(__name__)
 
 
 FINANCE_TEXT_HINTS = (
@@ -105,6 +119,93 @@ MAJOR_EVENT_HINTS = (
     "进口",
 )
 
+_RSSHUB_UPDATE_SCRIPT = "/root/.openclaw/workspace-stream-gen/rsshub/update_rsshub.sh"
+_RSSHUB_AUTH_PROMPT = "是否授权 Agent 自动执行底层引擎更新脚本？(y/n): "
+_RSSHUB_DIAG_WARN = "⚠️ [Agent 诊断] 检测到宏观资讯抓取为空。这通常意味着目标网站防爬虫规则升级，或 RSSHub 节点路由过期。"
+
+
+def _news_items_empty(news_section: dict[str, Any]) -> bool:
+    items = news_section.get("items")
+    return not isinstance(items, list) or len(items) == 0
+
+
+def _rsshub_self_heal_enabled() -> bool:
+    """默认开启；显式设置 FINANCE_RSSHUB_SELF_HEAL=0/false/no 可关闭。"""
+    raw = os.environ.get("FINANCE_RSSHUB_SELF_HEAL")
+    if raw is None:
+        return True
+    return raw.strip() in ("1", "true", "TRUE", "yes", "YES")
+
+
+def _append_rsshub_manual_repair_notice(
+    errors: list[dict[str, Any]],
+    meta_extra: dict[str, Any],
+    *,
+    reason: str,
+) -> None:
+    msg = (
+        "RSSHub 新闻抓取为空。请在飞书/微信确认授权后执行更新脚本并重试："
+        f"{_RSSHUB_UPDATE_SCRIPT}"
+    )
+    errors.append(
+        {
+            "source": "news",
+            "stage": "rsshub_self_heal",
+            "code": "NEWS_RSSHUB_REPAIR_SUGGESTED",
+            "message": msg,
+            "hint": reason,
+        }
+    )
+    meta_extra["news_rsshub_manual_action_required"] = True
+    meta_extra["news_rsshub_manual_command"] = _RSSHUB_UPDATE_SCRIPT
+    meta_extra["news_rsshub_authorization_prompt"] = (
+        "⚠️ 报告老板，今天的新闻抓取失败，疑似目标网站防爬虫升级。是否授权我执行底层更新脚本？ [确认执行] | [忽略本次]"
+    )
+
+
+def _prompt_rsshub_self_heal(timeout_sec: int = 18) -> bool:
+    logger.warning(_RSSHUB_DIAG_WARN)
+    print(_RSSHUB_DIAG_WARN, flush=True)
+
+    if not sys.stdin.isatty():
+        logger.warning("[Agent 诊断] 非交互式环境，跳过 RSSHub 自动修复。")
+        return False
+
+    print(_RSSHUB_AUTH_PROMPT, end="", flush=True)
+    try:
+        readable, _, _ = select.select([sys.stdin], [], [], timeout_sec)
+        if not readable:
+            print("\n[Agent 诊断] 输入超时，跳过自动修复。", flush=True)
+            return False
+        answer = sys.stdin.readline().strip().lower()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[Agent 诊断] 交互授权读取失败，跳过自动修复: %s", exc)
+        return False
+    return answer in {"y", "yes"}
+
+
+def _run_rsshub_update_script() -> bool:
+    if not os.path.isfile(_RSSHUB_UPDATE_SCRIPT):
+        logger.warning("[Agent 诊断] 更新脚本不存在: %s", _RSSHUB_UPDATE_SCRIPT)
+        return False
+
+    print("正在拉取开源社区最新修复补丁，请稍候...", flush=True)
+    try:
+        proc = subprocess.run(
+            [_RSSHUB_UPDATE_SCRIPT],
+            check=False,
+            text=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[Agent 诊断] 执行更新脚本失败: %s", exc)
+        return False
+
+    if proc.returncode != 0:
+        logger.warning("[Agent 诊断] 更新脚本返回非 0: %s", proc.returncode)
+        return False
+    print("[Agent 诊断] RSSHub 更新完成，正在重试新闻抓取...", flush=True)
+    return True
+
 MAJOR_EVENT_ACTOR_HINTS = (
     "中共中央",
     "国务院",
@@ -155,6 +256,9 @@ MAJOR_EVENT_GOV_ACTOR_HINTS = (
     "IMF",
     "世界银行",
     "海关",
+    "银保监会",
+    "金融监管总局",
+    "国家统计局",
 )
 
 MAJOR_EVENT_EXCLUDE_HINTS = (
@@ -208,6 +312,9 @@ MAJOR_EVENT_STRICT_INCLUDE_HINTS = (
     "国务院",
     "国家数据局",
     "国资委",
+    "银保监会",
+    "金融监管总局",
+    "国家统计局",
 )
 
 MAJOR_EVENT_THEME_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -228,7 +335,7 @@ def _clip_flash_text(s: str, max_len: int = 160) -> str:
 
 
 def _item_text(it: dict[str, Any]) -> str:
-    return f"{it.get('title') or ''} {it.get('clean_text') or ''} {it.get('detail') or ''}"
+    return f"{it.get('title') or ''} {it.get('clean_text') or ''} {it.get('summary') or ''} {it.get('detail') or ''}"
 
 
 def _is_finance_related(it: dict[str, Any]) -> bool:
@@ -240,11 +347,13 @@ def _is_finance_related(it: dict[str, Any]) -> bool:
 
 def _is_major_event(it: dict[str, Any]) -> bool:
     txt = _item_text(it)
+    src_name = str(it.get("source_name") or "")
     if any(k and k in txt for k in MAJOR_EVENT_EXCLUDE_HINTS):
         return False
     has_topic = any(k and k in txt for k in MAJOR_EVENT_HINTS)
     has_actor = any(k and k in txt for k in MAJOR_EVENT_ACTOR_HINTS)
-    return _is_finance_related(it) and has_topic and has_actor
+    has_regulator_source = any(k in src_name for k in ("证监会", "人民银行", "银保监会", "金融监管总局", "国家统计局"))
+    return _is_finance_related(it) and ((has_topic and has_actor) or has_regulator_source)
 
 
 def _parse_published_at(ts: str) -> datetime | None:
@@ -341,8 +450,8 @@ def _major_event_theme_key(it: dict[str, Any]) -> str:
 def _format_major_event_digest_line(it: dict[str, Any]) -> str:
     ts_full = str(it.get("published_at") or "").strip()
     date = ts_full[:10] if len(ts_full) >= 10 else ts_full
-    title = str(it.get("title") or "").strip()
-    body = str(it.get("clean_text") or it.get("detail") or title).strip().replace("\n", " ")
+    title = _clean_display_text(str(it.get("title") or ""))
+    body = _clean_display_text(str(it.get("clean_text") or it.get("detail") or title))
     impact = _clip_flash_text(body, max_len=100)
     if impact and title and impact != title:
         return f"- [{date}] **{title}**｜市场影响：{impact}"
@@ -432,179 +541,6 @@ def _format_flash_line(it: dict[str, Any], *, max_len: int = 180) -> str:
     return f"- {tpart} {body}" if body else ""
 
 
-def _collect_websearch_gaps(sections: dict[str, Any], errors: list[dict[str, Any]]) -> list[dict[str, str]]:
-    gaps: list[dict[str, str]] = []
-    market_section = sections.get("market") or {}
-    nb = market_section.get("northbound") or {}
-    nb_val = nb.get("aggregate_net_buy_yi")
-    if nb_val is None or (isinstance(nb_val, (int, float)) and abs(float(nb_val)) < 0.0001):
-        gaps.append({"area": "北向资金", "reason": "接口为空或返回 0，需联网核验资金流口径"})
-
-    news = sections.get("news") or {}
-    by_sec = news.get("items_by_sector") or {}
-    if isinstance(by_sec, dict):
-        for sec in SECTOR_ORDER:
-            if not by_sec.get(sec):
-                gaps.append({"area": sec, "reason": "财联社未命中板块正文，需联网补充近期相关事件"})
-
-    macro_items = (sections.get("macro_hot") or {}).get("items") or []
-    if not any(isinstance(x, dict) and x.get("detail") and _is_finance_related(x) for x in macro_items):
-        gaps.append({"area": "泛财经热点", "reason": "百度热榜无财经详情或未命中财经条目，需 WebSearch 兜底"})
-
-    social_items = (sections.get("social") or {}).get("items") or []
-    if not social_items:
-        gaps.append({"area": "社媒/人气榜/舆情", "reason": "社媒或人气榜接口为空，需 WebSearch 兜底"})
-
-    failed_codes = {str(e.get("code") or "") for e in errors if isinstance(e, dict)}
-    if {"TGB_HOT_FAILED", "WC_RANK_FAILED", "EM_RANK_FAILED"} & failed_codes:
-        gaps.append({"area": "人气榜", "reason": "社区/问财/东财接口失败，需 WebSearch 兜底"})
-
-    news_items: list[dict[str, Any]] = []
-    news = sections.get("news") or {}
-    for bucket in [news.get("items") or [], news.get("items_other_flash") or []]:
-        if isinstance(bucket, list):
-            news_items.extend([x for x in bucket if isinstance(x, dict)])
-    if not any(_is_major_event(x) for x in news_items):
-        gaps.append({"area": "国家/全球大事件", "reason": "财联社本轮未命中国家/全球/政策/地缘类大事件，需 WebSearch 补充近期待核验信息"})
-    return gaps
-
-
-def _load_env_with_dotenv() -> dict[str, str]:
-    env = dict(os.environ)
-    here = Path(__file__).resolve()
-    candidates = [
-        here.parents[3] / ".env",  # workspace root
-        here.parents[4] / ".env",  # ~/.openclaw
-        Path("/root/.openclaw/.env"),
-    ]
-    for path in candidates:
-        if not path.exists():
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            raw = line.strip()
-            if not raw or raw.startswith("#") or "=" not in raw:
-                continue
-            key, value = raw.split("=", 1)
-            if key and key not in env:
-                env[key] = value
-    return env
-
-
-def _websearch_query(area: str, reason: str) -> str:
-    today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y年%m月%d日")
-    text = f"{area} {reason}"
-    if "北向" in text:
-        return f"{today} 北向资金 沪深港通 净流入 A股"
-    if "社媒" in text or "人气榜" in text or "舆情" in text:
-        return f"{today} A股 人气榜 热门股票 社媒 舆情"
-    if "泛财经" in text or "热点" in text:
-        return f"{today} 今日财经热点 A股 港股 宏观"
-    if "大事件" in text or "国家" in text or "全球" in text:
-        return "近7天 全球宏观 政策 地缘 央行 关税 金融市场 重要事件"
-    return f"{today} {area} A股 金融市场"
-
-
-def _run_tavily_search(area: str, query: str) -> dict[str, Any]:
-    here = Path(__file__).resolve()
-    tavily_script = here.parents[2] / "liang-tavily-search-1.0.1" / "scripts" / "search.mjs"
-    env = _load_env_with_dotenv()
-    if not tavily_script.exists():
-        return {"area": area, "query": query, "ok": False, "error": f"Tavily script not found: {tavily_script}"}
-    if not env.get("TAVILY_API_KEY"):
-        return {"area": area, "query": query, "ok": False, "error": "TAVILY_API_KEY not set"}
-    base_cmd = ["node", str(tavily_script), query, "-n", "3", "--json"]
-    proc = subprocess.run(
-        [*base_cmd, "--raw-content"],
-        cwd=str(here.parents[3]),
-        text=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-        env=env,
-        check=False,
-    )
-    stdout_text = proc.stdout.decode("utf-8", errors="ignore")
-    stderr_text = proc.stderr.decode("utf-8", errors="ignore")
-    if proc.returncode != 0:
-        return {"area": area, "query": query, "ok": False, "error": (stderr_text or stdout_text)[-800:]}
-    try:
-        data = json.loads(stdout_text)
-    except json.JSONDecodeError:
-        retry = subprocess.run(
-            base_cmd,
-            cwd=str(here.parents[3]),
-            text=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=30,
-            env=env,
-            check=False,
-        )
-        retry_stdout = retry.stdout.decode("utf-8", errors="ignore")
-        retry_stderr = retry.stderr.decode("utf-8", errors="ignore")
-        if retry.returncode != 0:
-            return {"area": area, "query": query, "ok": False, "error": (retry_stderr or retry_stdout)[-800:]}
-        try:
-            data = json.loads(retry_stdout)
-        except json.JSONDecodeError as exc2:
-            return {"area": area, "query": query, "ok": False, "error": f"Tavily JSON parse failed: {exc2}"}
-    return {"area": area, "query": query, "ok": True, "data": data}
-
-
-def _build_tavily_supplement(gaps: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
-    priority = ("北向资金", "社媒/人气榜/舆情", "人气榜", "泛财经热点", "国家/全球大事件")
-    ordered = sorted(gaps, key=lambda g: priority.index(g.get("area", "")) if g.get("area", "") in priority else 99)
-    planned: list[tuple[str, str]] = []
-    seen_queries: set[str] = set()
-    for gap in ordered:
-        area = str(gap.get("area") or "联网缺口")
-        query = _websearch_query(area, str(gap.get("reason") or ""))
-        if query in seen_queries:
-            continue
-        seen_queries.add(query)
-        planned.append((area, query))
-        if len(planned) >= 4:
-            break
-
-    results = [_run_tavily_search(area, query) for area, query in planned]
-    if not results:
-        return "", []
-
-    fetched_at = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
-    gap_text = "、".join(str(g.get("area") or "") for g in gaps[:4] if g.get("area"))
-    lines = [
-        "",
-        "### 🔍 联网补充（Tavily 兜底）",
-        f"> 触发原因：{gap_text or '部分 API 缺口'}；以下为独立联网补充，不覆盖上方 API 数字。",
-    ]
-    for item in results:
-        area = item.get("area") or "联网补充"
-        query = item.get("query") or ""
-        lines.append(f"- **{area}**（检索时间：{fetched_at}；查询：{query}）")
-        if not item.get("ok"):
-            lines.append(f"  - 未执行成功：{item.get('error') or 'unknown error'}")
-            continue
-        rows = ((item.get("data") or {}).get("results") or [])[:2]
-        if not rows:
-            lines.append("  - 未找到可核验补充。")
-            continue
-        for row in rows:
-            title = str(row.get("title") or "").strip()
-            url = str(row.get("url") or "").strip()
-            content = str(row.get("content") or "").strip()
-            raw_content = str(row.get("raw_content") or "").strip()
-            snippet_src = content or raw_content
-            snippet = snippet_src[:220] + ("…" if len(snippet_src) > 220 else "")
-            if title and url:
-                lines.append(f"  - {title}｜{url}")
-            if snippet:
-                lines.append(f"    摘要：{snippet}")
-            elif title:
-                # 避免只剩 URL：无正文时至少给出标题级信息
-                lines.append(f"    摘要：该来源标题为“{title}”，原站未返回可截取正文。")
-    return "\n".join(lines).rstrip() + "\n", results
-
-
 def _market_sector_fallback(sec: str, market_section: dict[str, Any]) -> str:
     keyword_map = {
         "科技": ("科技", "AI", "算力", "芯片", "半导体", "软件", "互联网"),
@@ -651,8 +587,374 @@ def _market_sector_fallback(sec: str, market_section: dict[str, Any]) -> str:
             if hp:
                 hits.append("港股指数：" + "、".join(hp))
     if hits:
-        return f"- （财联社本轮未命中；行情侧补充）{ '；'.join(hits[:4]) }"
-    return f"- （本轮财联社与行情池暂未命中{sec}可用信息）"
+        return f"- （RSSHub 快讯本轮未命中；行情侧补充）{ '；'.join(hits[:4]) }"
+    return f"- （本轮 RSSHub 快讯与行情池暂未命中{sec}可用信息）"
+
+
+def _market_sector_fill_lines(sec: str, market_section: dict[str, Any], *, min_count: int = 3) -> list[str]:
+    """当板块新闻不足时，用行情字段补齐条数。"""
+    lines: list[str] = []
+    first = _market_sector_fallback(sec, market_section)
+    if first:
+        lines.append(first)
+
+    keys = SECTOR_KEYWORDS.get(sec, ())
+    sent = market_section.get("market_sentiment") or {}
+    kws = [str(x) for x in (sent.get("hot_keywords") or []) if str(x).strip()]
+    kw_hits = [x for x in kws if any(k and k in x for k in keys)]
+    if kw_hits:
+        lines.append("- （行情侧补充）市场热词：" + "、".join(kw_hits[:4]))
+
+    inflow = (market_section.get("market_temperature") or {}).get("top_inflow_sectors") or []
+    inflow_hits: list[str] = []
+    if isinstance(inflow, list):
+        for row in inflow:
+            if not isinstance(row, dict):
+                continue
+            nm = str(row.get("name") or "").strip()
+            v = row.get("main_net_inflow_yi")
+            if not nm or not any(k and k in nm for k in keys):
+                continue
+            if isinstance(v, (int, float)):
+                inflow_hits.append(f"{nm}({v:+.2f}亿)")
+            else:
+                inflow_hits.append(nm)
+    if inflow_hits:
+        lines.append("- （行情侧补充）主力净流入：" + "、".join(inflow_hits[:3]))
+
+    if sec == "有色":
+        ir = (market_section.get("industry_rank") or {}).get("items") or []
+        nonferrous_hits: list[str] = []
+        if isinstance(ir, list):
+            for row in ir[:15]:
+                if not isinstance(row, dict):
+                    continue
+                nm = str(row.get("name") or "").strip()
+                pct = row.get("pct_change")
+                if not nm:
+                    continue
+                if any(k in nm for k in ("有色", "能源金属", "稀土", "工业金属", "铜", "铝", "锌", "镍")):
+                    if isinstance(pct, (int, float)):
+                        nonferrous_hits.append(f"{nm}({pct:+.2f}%)")
+                    else:
+                        nonferrous_hits.append(nm)
+        if nonferrous_hits:
+            lines.append("- （有色专属补充）行业涨跌：" + "、".join(nonferrous_hits[:4]))
+
+    if sec == "港股":
+        hk_items = (market_section.get("hong_kong_indices") or {}).get("items") or []
+        hp: list[str] = []
+        if isinstance(hk_items, list):
+            for row in hk_items[:3]:
+                if not isinstance(row, dict):
+                    continue
+                name = str(row.get("name") or "").strip()
+                close = row.get("close")
+                pct = row.get("pct_change")
+                if name and isinstance(close, (int, float)) and isinstance(pct, (int, float)):
+                    hp.append(f"{name} {close}({pct:+.2f}%)")
+                elif name and isinstance(pct, (int, float)):
+                    hp.append(f"{name}({pct:+.2f}%)")
+        if hp:
+            lines.append("- （行情侧补充）港股指数：" + "、".join(hp))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        k = _title_dedup_key(line)
+        if k and k not in seen:
+            seen.add(k)
+            deduped.append(line)
+        if len(deduped) >= min_count:
+            break
+    while len(deduped) < min_count:
+        deduped.append("- （行情侧补充）该板块当日新闻源稀缺，已展示盘面核心指标。")
+    return deduped
+
+
+# ─── 今日热点重要度评分常量 ───────────────────────────────────────────────
+
+_HOTSPOT_REG_SOURCES: tuple[str, ...] = (
+    "证监会", "人民银行", "发改委", "财政部", "国资委",
+    "银保监会", "金融监管总局", "国家统计局", "商务部",
+)
+
+_HOTSPOT_PRIORITY_KEYWORDS: tuple[str, ...] = (
+    "央行", "美联储", "财政", "关税", "降息", "加息",
+    "制裁", "战争", "冲突", "贸易战", "出口管制", "降准",
+)
+
+
+def _title_dedup_key(s: str) -> str:
+    """标题去重 key：去空白、小写、取前 30 字。"""
+    cleaned = re.sub(r"<[^>]+>", " ", (s or ""))
+    cleaned = re.sub(r"[^\w\u4e00-\u9fff]+", "", cleaned.lower())
+    return re.sub(r"\s+", "", cleaned)[:30]
+
+
+def _clean_display_text(s: str) -> str:
+    """显示层文本净化：去 HTML / 折叠空白。"""
+    txt = re.sub(r"<[^>]+>", " ", (s or ""))
+    # 兜底清理被截断的 HTML 残片（如 "<br/..."、"<span class..."）
+    txt = re.sub(r"<[^\s]{0,60}\.\.\.", " ", txt)
+    txt = re.sub(r"<\s*/?\s*[a-zA-Z][^>\n\r]{0,120}", " ", txt)
+    txt = txt.replace("\\n", " ").replace("\n", " ").replace("\r", " ").replace("\xa0", " ")
+    txt = txt.replace("<", " ").replace(">", " ")
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt
+
+
+def _sector_strong_match(sec: str, title: str, body: str) -> bool:
+    """板块强相关判定，避免弱相关误命中。"""
+    blob = f"{title} {body}"
+    if sec == "黄金":
+        return any(k in blob for k in ("金价", "现货黄金", "COMEX", "贵金属", "纽约期金", "沪金", "黄金ETF"))
+    if sec == "有色":
+        return any(k in blob for k in ("有色", "能源金属", "稀土", "工业金属", "铜", "铝", "锌", "镍", "钴", "锂矿", "钨"))
+    return True
+
+
+def _sector_source_rank(item: dict[str, Any], sec: str) -> int:
+    """板块内来源优先级（值越大越优先）。"""
+    src = str(item.get("sector_line_source") or "")
+    if sec == "有色":
+        if src == "deep_news":
+            return 5
+        if src == "global_macro":
+            return 4
+        if src == "other_flash":
+            return 3
+        if src in ("tagged", "tagged_catchup", "recent_keyword"):
+            return 2
+        return 1
+    if src == "deep_news":
+        return 4
+    if src == "global_macro":
+        return 3
+    return 2
+
+
+def _item_source_label(it: dict[str, Any]) -> str:
+    """提取展示用来源标注文字。"""
+    src_name = str(it.get("source_name") or "").strip()
+    if src_name:
+        return src_name
+    src_hint = str(it.get("source_hint") or "").strip()
+    if src_hint == "cls_akshare":
+        return "财联社"
+    if it.get("cross_source_hit"):
+        return "财联社·RSSHub"
+    return "RSSHub快讯"
+
+
+def _hotspot_importance_score(it: dict[str, Any]) -> float:
+    """今日热点重要度评分（越高越重要）。"""
+    txt = _item_text(it)
+    src_name = str(it.get("source_name") or "")
+    score = 0.0
+    # 来源为监管/央行机构
+    if any(k in src_name for k in _HOTSPOT_REG_SOURCES):
+        score += 3.0
+    # 内容含监管/央行关键词
+    if any(k in txt for k in _HOTSPOT_REG_SOURCES):
+        score += 2.0
+    # 内容含市场触发词
+    if any(k in txt for k in _HOTSPOT_PRIORITY_KEYWORDS):
+        score += 1.5
+    if _is_finance_related(it):
+        score += 0.5
+    # 时效性加分
+    now_dt = datetime.now(timezone(timedelta(hours=8)))
+    dt = _parse_published_at(str(it.get("published_at") or ""))
+    if dt is not None:
+        age_h = max(0.0, (now_dt - dt).total_seconds() / 3600.0)
+        if age_h <= 4:
+            score += 1.0
+        elif age_h <= 12:
+            score += 0.5
+    return score
+
+
+def _enrich_sectors_from_all_sources(
+    base_sectors: dict[str, list[dict[str, Any]]],
+    global_macro_items: list[dict[str, Any]],
+    deep_news_items: list[dict[str, Any]],
+    flash_items: list[dict[str, Any]],
+    macro_hot_items: list[dict[str, Any]],
+    *,
+    max_per_sector: int = 5,
+) -> dict[str, list[dict[str, Any]]]:
+    """将 global_macro 和 deep_news 中的板块相关条目合并进六大板块桶（不超 max_per_sector）。"""
+    result: dict[str, list[dict[str, Any]]] = {}
+    for sec in SECTOR_ORDER:
+        result[sec] = list(base_sectors.get(sec) or [])
+
+    existing_keys: dict[str, set[str]] = {
+        sec: {_title_dedup_key(str(x.get("title") or "")) for x in items}
+        for sec, items in result.items()
+    }
+
+    def try_add(sec: str, it: dict[str, Any]) -> None:
+        if len(result[sec]) >= max_per_sector:
+            return
+        k = _title_dedup_key(str(it.get("title") or ""))
+        if not k or k in existing_keys[sec]:
+            return
+        existing_keys[sec].add(k)
+        result[sec].append(it)
+
+    # 补充 global_macro 条目
+    for it in global_macro_items:
+        if not isinstance(it, dict):
+            continue
+        body = str(it.get("clean_text") or it.get("title") or "")
+        txt = f"{it.get('title') or ''} {body}"
+        sec_tags = sectors_for_text(txt)
+        if not sec_tags:
+            continue
+        neo = dict(it)
+        if "sentiment_hint" not in neo:
+            s = classify_sentiment(txt)
+            neo["sentiment_hint"] = s
+            neo["sentiment_emoji"] = _s_emoji(s)
+            neo["impact_level"] = classify_impact(txt)
+        if not neo.get("clean_text"):
+            neo["clean_text"] = neo.get("title") or ""
+        neo["sector_tags"] = sec_tags
+        neo["sector_line_source"] = "global_macro"
+        for sec in sec_tags:
+            if sec in result:
+                try_add(sec, neo)
+
+    # 补充 deep_news 条目
+    for it in deep_news_items:
+        if not isinstance(it, dict):
+            continue
+        sec_tags = it.get("sector_tags") or []
+        if not sec_tags:
+            body = str(it.get("summary") or it.get("clean_text") or "")
+            sec_tags = sectors_for_text(f"{it.get('title') or ''} {body}")
+        if not sec_tags:
+            continue
+        neo = dict(it)
+        neo["sector_line_source"] = "deep_news"
+        if not neo.get("clean_text") and neo.get("summary"):
+            neo["clean_text"] = neo["summary"]
+        for sec in sec_tags:
+            if sec in result:
+                try_add(sec, neo)
+
+    # 补充其他金融快讯
+    for it in flash_items:
+        if not isinstance(it, dict):
+            continue
+        txt = _item_text(it)
+        sec_tags = sectors_for_text(txt)
+        if not sec_tags:
+            continue
+        neo = dict(it)
+        neo["sector_line_source"] = "other_flash"
+        for sec in sec_tags:
+            if sec in result:
+                try_add(sec, neo)
+
+    # 补充 macro_hot（百度）条目
+    for it in macro_hot_items:
+        if not isinstance(it, dict):
+            continue
+        title = str(it.get("title") or "").strip()
+        detail = str(it.get("detail") or "").strip()
+        txt = f"{title} {detail}"
+        sec_tags = sectors_for_text(txt)
+        if not sec_tags:
+            continue
+        neo = {
+            "title": title or detail[:60],
+            "clean_text": detail or title,
+            "published_at": it.get("published_at") or "",
+            "source_name": "百度热榜",
+            "sector_line_source": "macro_hot",
+            "sentiment_hint": classify_sentiment(txt),
+            "sentiment_emoji": _s_emoji(classify_sentiment(txt)),
+        }
+        for sec in sec_tags:
+            if sec in result:
+                try_add(sec, neo)
+
+    return result
+
+
+def _build_hotspot_top5(
+    global_macro_items: list[dict[str, Any]],
+    deep_news_items: list[dict[str, Any]],
+    flash_items: list[dict[str, Any]],
+    macro_hot_items: list[dict[str, Any]],
+    enriched_sectors: dict[str, list[dict[str, Any]]],
+    major_event_items: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """从全部信源池化，筛选 5 条最重要的今日热点（排除大事件和六大板块已有内容）。"""
+    # 构建板块桶中已有条目的去重 key
+    in_sector_keys: set[str] = set()
+    for items in enriched_sectors.values():
+        for it in items:
+            in_sector_keys.add(_title_dedup_key(str(it.get("title") or "")))
+
+    pool: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    major_keys = {
+        _title_dedup_key(str(x.get("title") or ""))
+        for x in (major_event_items or [])
+        if isinstance(x, dict)
+    }
+
+    def add_if_new(it: dict[str, Any]) -> None:
+        title = str(it.get("title") or "").strip()
+        # 过滤过短的导航/栏目标题（如「金融知识」「要闻」等）
+        if len(title) <= 6:
+            return
+        k = _title_dedup_key(title)
+        if not k:
+            return
+        if k in in_sector_keys:
+            return
+        if k in major_keys:
+            return
+        # 已属于「大事件」级别的内容已在大事件板块展示，此处跳过
+        if _is_major_event(it) and _is_major_event_whitelisted(it):
+            return
+        if k in seen_keys:
+            return
+        seen_keys.add(k)
+        pool.append(it)
+
+    # 按来源重要性顺序入池
+    for it in global_macro_items:
+        if isinstance(it, dict) and _is_finance_related(it):
+            add_if_new(it)
+    for it in deep_news_items:
+        if isinstance(it, dict):
+            add_if_new(it)
+    for it in flash_items:
+        if isinstance(it, dict) and _is_finance_related(it):
+            add_if_new(it)
+    for it in macro_hot_items:
+        if not isinstance(it, dict):
+            continue
+        title = str(it.get("title") or "").strip()
+        detail = str(it.get("detail") or "").strip()
+        if not title:
+            continue
+        synthesized = {
+            "title": title,
+            "clean_text": detail,
+            "published_at": it.get("published_at") or "",
+            "source_name": "百度热榜",
+        }
+        if _is_finance_related(synthesized):
+            add_if_new(synthesized)
+
+    pool.sort(key=_hotspot_importance_score, reverse=True)
+    return pool[:5]
 
 
 def _build_live_stream_markdown(
@@ -686,11 +988,11 @@ def _build_live_stream_markdown(
     nb_val = nb.get("aggregate_net_buy_yi")
     if nb_val is not None:
         if isinstance(nb_val, (int, float)) and abs(float(nb_val)) < 0.0001:
-            src_bits.append("**北向资金**（接口返回 0，疑似未更新/口径异常）：已触发 Agent WebSearch 兜底核验")
+            src_bits.append("**北向资金**（接口返回 0，疑似未更新或口径异常；请以交易所/东财等渠道核验）")
         else:
             src_bits.append(f"**北向资金**（尽力探测）：{nb_val} 亿元")
     else:
-        src_bits.append("**北向资金**：今日数据暂缺（接口失败或未返回，已触发 Agent WebSearch 兜底核验）")
+        src_bits.append("**北向资金**：今日数据暂缺（接口失败或未返回）")
 
     if "sina" in str(a_src).lower():
         src_bits.append("📡 指数源：新浪财经 hq.sinajs.cn")
@@ -776,33 +1078,112 @@ def _build_live_stream_markdown(
     block_market = "\n".join(f"- {x}" for x in src_bits) + mood_tail
 
     by_sec = n.get("items_by_sector") or {}
+    other_flash_items = n.get("items_other_flash") or []
+    macro_items_raw = macro_sec.get("items") or []
+    deep_sec = sections.get("deep_news") or {}
+    deep_items_for_sectors: list[dict[str, Any]] = deep_sec.get("items") or []
+    gm_sec = sections.get("global_macro") or {}
+    gm_items: list[dict[str, Any]] = gm_sec.get("items") or []
+
+    # F3: 全信源增强板块桶（RSSHub快讯 + global_macro + deep_news）
+    enriched_by_sec = _enrich_sectors_from_all_sources(
+        by_sec,
+        gm_items,
+        deep_items_for_sectors,
+        list(other_flash_items),
+        list(macro_items_raw),
+        max_per_sector=5,
+    )
+
     sector_lines: list[str] = []
     for sec in SECTOR_ORDER:
         sector_lines.append(f"**【{sec}】**")
-        lst = by_sec.get(sec) if isinstance(by_sec, dict) else None
-        if not lst:
-            sector_lines.append(_market_sector_fallback(sec, m))
-            continue
-        for it in lst[:10]:
+        raw_sec_items = enriched_by_sec.get(sec) or []
+        # 板块内按标题去重（保留正文最长的版本），再取 top-5
+        _sec_seen: dict[str, dict[str, Any]] = {}
+        for _it in raw_sec_items:
+            if not isinstance(_it, dict):
+                continue
+            _title_raw = _clean_display_text(str(_it.get("title") or ""))
+            if (
+                _title_raw.startswith("回复 ")
+                or _title_raw.startswith("回复周家旭")
+                or _title_raw in {"拉取今日讯息", "今日讯息", "拉取热点", "热点"}
+            ):
+                continue
+            _k = _title_dedup_key(str(_it.get("title") or ""))
+            if not _k:
+                continue
+            if _k not in _sec_seen:
+                _sec_seen[_k] = _it
+            else:
+                _existing = _sec_seen[_k]
+                _body_new = len(str(_it.get("clean_text") or _it.get("summary") or ""))
+                _body_old = len(str(_existing.get("clean_text") or _existing.get("summary") or ""))
+                if _body_new > _body_old:
+                    _sec_seen[_k] = _it
+        sec_items = list(_sec_seen.values())
+        sec_items.sort(
+            key=lambda x: (
+                _sector_source_rank(x, sec),
+                _parse_published_at(str(x.get("published_at") or "")) or datetime.min.replace(tzinfo=timezone(timedelta(hours=8))),
+            ),
+            reverse=True,
+        )
+        sec_items = sec_items[:5]
+        out_n = 0
+        for it in sec_items:
             if not isinstance(it, dict):
                 continue
             ts_full = str(it.get("published_at") or "").strip()
-            hh = news_rss.news_hhmm_for_markdown(str(it.get("published_at") or ""))
-            tpart = f"[{ts_full[:19]}]" if len(ts_full) >= 16 else f"[{hh}]"
-            title = (it.get("title") or "").strip()
-            body = _clip_flash_text(str(it.get("clean_text") or it.get("title") or ""))
-            src = str(it.get("sector_line_source") or "tagged")
-            src_note = ""
+            ts_display = ts_full[:19].replace("T", " ")
+            hh = news_rss.news_hhmm_for_markdown(ts_full)
+            tpart = f"[{ts_display}]" if len(ts_full) >= 16 else f"[{hh}]"
+            title = _clean_display_text(str(it.get("title") or ""))
+            body = _clip_flash_text(
+                _clean_display_text(str(it.get("clean_text") or it.get("summary") or it.get("title") or "")),
+                max_len=120,
+            )
+            if not _sector_strong_match(sec, title, body):
+                continue
+            # 情绪标注
+            s_emoji = str(it.get("sentiment_emoji") or "").strip()
+            s_hint = str(it.get("sentiment_hint") or "").strip()
+            if not s_hint:
+                _txt = f"{title} {body}"
+                s_hint = classify_sentiment(_txt)
+                s_emoji = _s_emoji(s_hint)
+            s_prefix = f"{s_emoji}{s_hint} " if s_emoji and s_hint else ""
+            # 来源标注
+            src_label = _item_source_label(it)
+            src_suffix = f" _[{src_label}]_" if src_label else ""
+            # 特殊标注（双源共振/关键词回溯）
+            src = str(it.get("sector_line_source") or "")
+            extra_note = ""
             if src == "recent_keyword":
-                src_note = " *〔关键词回溯〕*"
+                extra_note = " *〔关键词回溯〕*"
             elif src == "tagged_catchup":
-                src_note = " *〔同板块补位〕*"
+                extra_note = " *〔同板块补位〕*"
+            if it.get("cross_source_hit"):
+                extra_note += " *〔双源共振〕*"
             if title or body:
-                line = f"- {tpart} **{title}** — {body}{src_note}" if title else f"- {tpart} {body}{src_note}"
+                if title and body and not body.startswith(title[:min(10, len(title))]):
+                    line = f"- {s_prefix}{tpart} **{title}** — {body}{extra_note}{src_suffix}"
+                elif title:
+                    line = f"- {s_prefix}{tpart} **{title}**{extra_note}{src_suffix}"
+                else:
+                    line = f"- {s_prefix}{tpart} {body}{extra_note}{src_suffix}"
                 sector_lines.append(line)
+                out_n += 1
+        if out_n < 3:
+            for fill_line in _market_sector_fill_lines(sec, m, min_count=3 - out_n):
+                sector_lines.append(fill_line)
+                out_n += 1
+                if out_n >= 3:
+                    break
 
     all_news_items: list[dict[str, Any]] = []
-    for bucket in [n.get("items") or [], n.get("items_other_flash") or []]:
+    for bucket in [n.get("items") or [], n.get("items_other_flash") or [], gm_items, deep_items_for_sectors]:
         if isinstance(bucket, list):
             all_news_items.extend([x for x in bucket if isinstance(x, dict)])
 
@@ -813,39 +1194,81 @@ def _build_live_stream_markdown(
         limit=5,
     )
     if not major_lines:
-        major_lines.append("- （近 7 日未筛出足够高重要度的国家/全球/政策事件，已触发 Agent WebSearch 兜底补充）")
+        major_lines.append("- （近 7 日未筛出足够高重要度的国家/全球/政策事件；可结合板块快讯自行核对）")
 
-    other = n.get("items_other_flash") or []
-    flash_lines: list[str] = []
-    if isinstance(other, list) and other:
-        for it in other[:10]:
-            if not isinstance(it, dict):
-                continue
-            if not _is_finance_related(it):
-                continue
-            line = _format_flash_line(it, max_len=180)
-            if line:
-                flash_lines.append(line)
-            if len(flash_lines) >= 8:
-                break
-    if not flash_lines:
-        flash_lines.append("- （财联社其他金融快讯本轮暂无可用条目，已触发 Agent WebSearch 兜底补充）")
+    # 与大事件口径对齐的去重 key（用于热点去重）
+    now_dt = _parse_published_at(fetched_at) or datetime.now(timezone(timedelta(hours=8)))
+    week_start = now_dt - timedelta(days=7)
+    major_event_items_for_dedup: list[dict[str, Any]] = []
+    scored_for_major: list[tuple[float, datetime, dict[str, Any]]] = []
+    for it in all_news_items:
+        if not isinstance(it, dict):
+            continue
+        if not _is_finance_related(it):
+            continue
+        dt = _parse_published_at(str(it.get("published_at") or ""))
+        if dt is None or dt < week_start:
+            continue
+        s = _major_event_score(it, now_dt)
+        if s < 2.5:
+            continue
+        scored_for_major.append((s, dt, it))
+    scored_for_major.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    seen_theme: set[str] = set()
+    seen_title: set[str] = set()
+    for _, _, it in scored_for_major:
+        if not _is_major_event_whitelisted(it):
+            continue
+        if _is_corporate_actor_event(it):
+            continue
+        theme = _major_event_theme_key(it)
+        norm = str(it.get("title") or "").strip()[:36]
+        if theme in seen_theme:
+            continue
+        if norm and norm in seen_title:
+            continue
+        if norm:
+            seen_title.add(norm)
+        seen_theme.add(theme)
+        major_event_items_for_dedup.append(it)
+        if len(major_event_items_for_dedup) >= 5:
+            break
 
-    macro_items = macro_sec.get("items") or []
-    macro_lines: list[str] = []
-    if isinstance(macro_items, list):
-        for x in macro_items[:6]:
-            if not isinstance(x, dict):
-                continue
-            t = str(x.get("title") or "").strip()
-            det = str(x.get("detail") or "").strip()
-            det_clip = _clip_flash_text(det, max_len=320) if det else ""
-            if t and det_clip and _is_finance_related(x):
-                rk = x.get("rank")
-                head = f"- {rk}. **{t}**" if rk is not None else f"- **{t}**"
-                macro_lines.append(head)
-                if det_clip != t:
-                    macro_lines.append(f"  · {det_clip}")
+    # F2: 今日热点讯息 — 全信源池化，筛最重要 5 条（排除六大板块和大事件已有内容）
+    other = other_flash_items
+    hotspot_items = _build_hotspot_top5(
+        gm_items,
+        deep_items_for_sectors,
+        list(other),
+        list(macro_items_raw),
+        enriched_by_sec,
+        major_event_items_for_dedup,
+    )
+    hotspot_lines: list[str] = []
+    for it in hotspot_items:
+        s_emoji = str(it.get("sentiment_emoji") or "").strip()
+        s_hint = str(it.get("sentiment_hint") or "").strip()
+        s_prefix = f"{s_emoji}{s_hint} " if s_emoji and s_hint else ""
+        src_label = _item_source_label(it)
+        src_suffix = f" _[{src_label}]_" if src_label else ""
+        ts_full = str(it.get("published_at") or "").strip()
+        ts_display = ts_full[:19].replace("T", " ")
+        tpart = f"[{ts_display}]" if len(ts_full) >= 16 else ""
+        title = _clean_display_text(str(it.get("title") or ""))
+        body = _clip_flash_text(
+            _clean_display_text(str(it.get("clean_text") or it.get("summary") or it.get("title") or "")),
+            max_len=200,
+        )
+        if title and body and not body.startswith(title[:min(10, len(title))]):
+            line = f"- {s_prefix}{tpart} **{title}** — {body}{src_suffix}"
+        elif title:
+            line = f"- {s_prefix}{tpart} **{title}**{src_suffix}"
+        else:
+            line = f"- {s_prefix}{tpart} {body}{src_suffix}"
+        if line.strip() != "-":
+            hotspot_lines.append(line)
+    if not hotspot_lines:
+        hotspot_lines.append("- （今日热点本轮无可用条目）")
 
     social_lines: list[str] = []
     s_items = soc.get("items") or []
@@ -853,23 +1276,50 @@ def _build_live_stream_markdown(
         for it in s_items[:6]:
             if not isinstance(it, dict):
                 continue
-            title = (it.get("title") or "").strip()
+            title = _clean_display_text(str(it.get("title") or ""))
             plat = (it.get("platform") or "").strip()
+            detail = _clip_flash_text(_clean_display_text(str(it.get("clean_text") or "")), max_len=140)
+            title_norm = title.replace("\xa0", " ").strip()
+            if (
+                title_norm.startswith("回复 ")
+                or title_norm.startswith("回复周家旭")
+                or title_norm in {"拉取今日讯息", "今日讯息", "拉取热点", "热点"}
+            ):
+                continue
             if title:
-                social_lines.append(f"- [{plat}] {title}" if plat else f"- {title}")
+                line = f"- [{plat}] **{title}**" if plat else f"- **{title}**"
+                if detail:
+                    line += f"｜概述：{detail}"
+                social_lines.append(line)
     if not social_lines:
-        social_lines.append("- （社媒/人气榜 API 暂不可用或本轮无条目，已触发 Agent WebSearch 兜底补充舆情）")
+        social_lines.append("- （社媒/人气榜 API 暂不可用或本轮无条目）")
 
     error_lines: list[str] = []
     error_cn = {
-        "TGB_HOT_FAILED": "淘股吧/社区热榜接口不可用，社媒/人气舆情需 Agent WebSearch 兜底。",
-        "WC_RANK_FAILED": "问财/人气榜接口不可用，个股人气需 Agent WebSearch 兜底。",
-        "EM_RANK_FAILED": "东方财富人气榜接口异常，个股热度需 Agent WebSearch 兜底。",
-        "MACRO_HOT_FINANCE_FILTER_EMPTY": "百度实时热榜未筛出可靠财经条目，泛财经热点改由 Agent WebSearch 兜底。",
-        "SOCIAL_WB_HOT_FAILED": "微博热搜接口不可用，社媒舆情需 Agent WebSearch 兜底。",
-        "SOCIAL_TGB_OR_HOT_RANK_FAILED": "第二梯队社媒/人气榜接口不可用，社媒舆情需 Agent WebSearch 兜底。",
-        "SINA_HK_INDICES_FAILED": "港股指数接口不可用，港股行情需 Agent WebSearch 兜底。",
-        "CLS_NODEAPI_FAILED": "财联社宽池接口不可用，板块快讯覆盖可能不足。",
+        "TGB_HOT_FAILED": "淘股吧/社区热榜接口不可用。",
+        "WC_RANK_FAILED": "问财/人气榜接口不可用。",
+        "EM_RANK_FAILED": "东方财富人气榜接口异常。",
+        "MACRO_HOT_FINANCE_FILTER_EMPTY": "百度实时热榜未筛出可靠财经条目。",
+        "SOCIAL_WB_HOT_FAILED": "微博热搜接口不可用。",
+        "SOCIAL_TGB_OR_HOT_RANK_FAILED": "第二梯队社媒/人气榜接口不可用。",
+        "BAIDU_HOT_FAILED": "百度实时热搜抓取失败，社媒舆情需其他渠道补充。",
+        "BAIDU_HOT_NO_MATCH": "百度热搜未命中宏观/金融关键词。",
+        "SINA_LIVE_FEED_FAILED": "新浪财经7x24接口不可用。",
+        "SINA_LIVE_FINANCE_FILTER_EMPTY": "新浪7x24有数据但未命中金融关键词过滤。",
+        "CSRC_INDEX_FAILED": "证监会公告列表抓取失败。",
+        "PBC_INDEX_FAILED": "人民银行公告列表抓取失败。",
+        "SINA_HK_INDICES_FAILED": "港股指数接口不可用。",
+        "NORTHBOUND_PROBE_FAILED": "北向资金 AkShare 接口不可用。",
+        "NORTHBOUND_TUSHARE_FAILED": "北向资金 Tushare 降级接口失败。",
+        "NORTHBOUND_SINA_TEXT_FAILED": "新浪7x24 北向文本降级失败。",
+        "NORTHBOUND_RSSHUB_TEXT_FAILED": "RSSHub 北向文本降级失败。",
+        "NEWS_RSSHUB_BASE_URL_MISSING": "未配置 FINANCE_RSSHUB_BASE_URL，六大板块快讯为空。",
+        "NEWS_RSSHUB_ROUTES_FAILED": "RSSHub 新闻路由全部失败（超时/网络/解析）。",
+        "NEWS_RSSHUB_FILTER_EMPTY": "RSSHub 有数据但未命中快讯关键词过滤。",
+        "NEWS_FEEDPARSER_IMPORT_ERROR": "缺少 feedparser 依赖，无法解析 RSS。",
+        "CLS_AKSHARE_IMPORT_FAILED": "AkShare 财联社快讯模块不可用（仅 RSSHub 生效）。",
+        "NEWS_RSSHUB_REPAIR_SUGGESTED": "可授权 Agent 执行 RSSHub 更新脚本后重试（支持飞书/微信确认）。",
+        "WALLSTREETCN_API_EMPTY": "华尔街见闻 API 返回空条目（直连路径）。",
     }
     if errors:
         error_lines.append(f"**告警（中文说明，最多 6 条）**（{len(errors)}）：")
@@ -883,21 +1333,62 @@ def _build_live_stream_markdown(
 ### 【📈 大盘与情绪】
 {block_market}
 
-### 【🎯 核心板块异动】（财联社 · 按六大板块 + 正文关键词）
+### 【🎯 核心板块异动】（全信源 · 六大板块精选 3-5 条 · 情绪+来源标注）
 {chr(10).join(sector_lines)}
 
 ### 【🧭 大事件】（近 7 日高重要度 · 国家/全球/政策/地缘）
 {chr(10).join(major_lines)}
 
-### 【🔥 今日热点讯息】（金融相关）
-**财联社其他金融快讯（非六大板块）**
-{chr(10).join(flash_lines)}
+### 【🔥 今日热点讯息】（非六大板块 · 全信源精选 5 条）
+{chr(10).join(hotspot_lines)}
 
 **社媒 / 人气榜（探测）**
 {chr(10).join(social_lines)}
 """
-    if macro_lines:
-        markdown += "\n**百度实时热榜（仅展示有财经详情的条目）**\n" + "\n".join(macro_lines) + "\n"
+
+    # --- 深度内容板块（华尔街见闻 / 第一财经 / 界面新闻） ---
+    deep = sections.get("deep_news") or {}
+    deep_items = deep.get("items") or []
+    if deep_items:
+        ok_sources = deep.get("sources_ok") or []
+        _deep_src_names = {
+            "wallstreetcn": "华尔街见闻",
+            "wallstreetcn_rsshub": "华尔街见闻(RSSHub)",
+            "yicai": "第一财经",
+            "yicai_rsshub": "第一财经(RSSHub)",
+            "jiemian": "界面新闻",
+            "jiemian_rsshub": "界面快报(RSSHub)",
+            "jin10": "金十数据",
+            "jin10_rsshub": "金十数据(RSSHub)",
+            "kr36_rsshub": "36氪快讯(RSSHub)",
+        }
+        src_label = "·".join(_deep_src_names.get(k, k) for k in ok_sources)
+        deep_header = f"\n### 【🗞️ 深度内容】（{src_label or '深度源'}）"
+        deep_body_lines: list[str] = [deep_header]
+        for it in deep_items[:8]:
+            if not isinstance(it, dict):
+                continue
+            emoji = it.get("sentiment_emoji") or "⚪"
+            hint = it.get("sentiment_hint") or "中性"
+            impact = it.get("impact_level") or ""
+            title = str(it.get("title") or "").strip()
+            summary = str(it.get("summary") or "").strip()
+            src_name = str(it.get("source_name") or "").strip()
+            stocks = it.get("stock_mentions") or []
+            stock_str = f"｜涉及：{'、'.join(stocks[:3])}" if stocks else ""
+            impact_tag = f"[{impact}]" if impact else ""
+            line = f"- {emoji}{hint}{impact_tag} **{title}**"
+            if summary and summary != title:
+                line += f" — {summary}{stock_str}"
+            elif stock_str:
+                line += stock_str
+            if src_name:
+                line += f" _[{src_name}]_"
+            deep_body_lines.append(line)
+        markdown += "\n".join(deep_body_lines) + "\n"
+    elif sections.get("deep_news") is not None:
+        markdown += "\n### 【🗞️ 深度内容】\n- （深度源本轮无可用条目，接口连接失败或内容为空）\n"
+
     if error_lines:
         markdown += "\n" + "\n".join(error_lines) + "\n"
 
@@ -934,6 +1425,9 @@ def build_snapshot(
             sources_ok.append("market.sentiment")
 
     meta_extra: dict[str, Any] = {}
+    _rb = os.environ.get("FINANCE_RSSHUB_BASE_URL", "").strip().rstrip("/")
+    if _rb:
+        meta_extra["finance_rsshub_base_url"] = _rb
 
     macro_data, macro_errs = macro_hot.fetch_macro_section(limit=12)
     sections["macro_hot"] = macro_data
@@ -941,21 +1435,66 @@ def build_snapshot(
     if macro_data.get("items"):
         sources_ok.append("macro_hot")
 
+    sina_live_data, sina_live_errs = news_sina_live.fetch_sina_live_section(12)
+    errors.extend(sina_live_errs)
+    policy_data, policy_errs = policy_gov.fetch_policy_section()
+    errors.extend(policy_errs)
+    merged_global: list[dict[str, Any]] = []
+    for _it in sina_live_data.get("items") or []:
+        if isinstance(_it, dict):
+            merged_global.append(dict(_it))
+    for _it in policy_data.get("items") or []:
+        if isinstance(_it, dict):
+            merged_global.append(dict(_it))
+    merged_global.sort(key=lambda z: str(z.get("published_at") or ""), reverse=True)
+    sections["global_macro"] = {
+        "items": merged_global,
+        "sina_live": sina_live_data,
+        "policy": policy_data,
+    }
+    if sina_live_data.get("items"):
+        sources_ok.append("global_macro:sina_live")
+    if policy_data.get("items"):
+        sources_ok.append("global_macro:policy")
+
     if "news" in sources:
         data, errs = news_rss.fetch_news_section(keywords, max_items)
+        if _news_items_empty(data):
+            if not _rsshub_self_heal_enabled():
+                logger.warning("[Agent 诊断] FINANCE_RSSHUB_SELF_HEAL=0，已禁用自动修复。")
+                meta_extra["news_rsshub_self_heal"] = "disabled_by_env"
+                _append_rsshub_manual_repair_notice(errs, meta_extra, reason="disabled_by_env")
+            elif _prompt_rsshub_self_heal():
+                if _run_rsshub_update_script():
+                    retry_data, retry_errs = news_rss.fetch_news_section(keywords, max_items)
+                    data = retry_data
+                    errs = [*errs, *retry_errs]
+                    if _news_items_empty(data):
+                        meta_extra["news_rsshub_self_heal"] = "updated_but_still_empty"
+                        _append_rsshub_manual_repair_notice(errs, meta_extra, reason="updated_but_still_empty")
+                    else:
+                        meta_extra["news_rsshub_self_heal"] = "updated_and_retried"
+                else:
+                    meta_extra["news_rsshub_self_heal"] = "update_failed"
+                    _append_rsshub_manual_repair_notice(errs, meta_extra, reason="update_failed")
+            else:
+                meta_extra["news_rsshub_self_heal"] = "skipped"
+                _append_rsshub_manual_repair_notice(errs, meta_extra, reason="user_skipped_or_non_interactive")
         sections["news"] = data
         errors.extend(errs)
         sources_ok.append("news")
         if data.get("keyword_fallback"):
             meta_extra["news_keyword_fallback"] = True
-        if data.get("cls_symbol") is not None:
-            meta_extra["news_cls_symbol"] = data["cls_symbol"]
+        if data.get("rsshub_paths_ok") is not None:
+            meta_extra["news_rsshub_paths_ok"] = data.get("rsshub_paths_ok") or []
+        if data.get("cls_source_ok") is not None:
+            meta_extra["news_cls_source_ok"] = bool(data.get("cls_source_ok"))
         if data.get("sector_filter_fallback"):
             meta_extra["news_sector_filter_fallback"] = True
         if data.get("sector_relax_backfill"):
             meta_extra["news_sector_relax_backfill"] = True
 
-        # 东财热榜关闭时：仅从财联社离线抽词填充 sentiment，便于下游可选展示（不产生告警项）
+        # 东财热榜关闭时：从已拉取的快讯标题离线抽词填充 sentiment，便于下游可选展示（不产生告警项）
         if "market_sentiment" in sections.get("market", {}):
             sentiment = sections["market"]["market_sentiment"]
             news_items = data.get("items") or []
@@ -964,7 +1503,7 @@ def build_snapshot(
                 sections["market"]["market_sentiment"]["hot_keywords"] = extracted_kws
                 sections["market"]["market_sentiment"]["hot_keywords_source"] = "offline_news_extract"
                 if extracted_kws:
-                    sections["market"]["market_sentiment"]["note"] = "热词来自财联社离线抽取（AkShare 社区/东财热榜未返回时的兜底）"
+                    sections["market"]["market_sentiment"]["note"] = "热词来自快讯离线抽取（社区/东财热榜未返回时的兜底）"
 
     skip_social = truthy_env("FINANCE_SOURCE_SKIP_SOCIAL")
     if "social" in sources and skip_social:
@@ -981,14 +1520,30 @@ def build_snapshot(
             meta_extra["social_source_primary"] = data.get("source_primary")
         meta_extra["social_scrape_stub"] = social_scrape_stub.fetch_social_scrape_stub()
 
-    gaps = _collect_websearch_gaps(sections, errors)
-    if gaps:
-        meta_extra["websearch_required"] = True
-        meta_extra["websearch_gaps"] = gaps
+    # --- 深度内容层（华尔街见闻 / 第一财经 / 界面新闻） ---
+    _dn_data, _dn_errs = deep_news.fetch_deep_news_section(limit=8)
+    sections["deep_news"] = _dn_data
+    errors.extend(_dn_errs)
+    if _dn_data.get("sources_ok"):
+        sources_ok.append("deep_news:" + "+".join(_dn_data["sources_ok"]))
+    meta_extra["deep_news_sources_ok"] = _dn_data.get("sources_ok") or []
+    if _dn_data.get("rsshub_base_url"):
+        meta_extra["deep_news_rsshub_base_url"] = _dn_data["rsshub_base_url"]
+
+    # --- CLS 快讯情感回填（非破坏性，仅在字段缺失时追加）---
+    for _bucket in ("items", "items_other_flash"):
+        for _it in (sections.get("news") or {}).get(_bucket) or []:
+            if not isinstance(_it, dict) or "sentiment_hint" in _it:
+                continue
+            _txt = f"{_it.get('title') or ''} {_it.get('clean_text') or ''}"
+            _s = classify_sentiment(_txt)
+            _it["sentiment_hint"] = _s
+            _it["sentiment_emoji"] = _s_emoji(_s)
+            _it["impact_level"] = classify_impact(_txt)
+            _it["stock_mentions"] = extract_stock_mentions(_txt)
 
     md = _build_live_stream_markdown(sections, errors, fetched_at)
     ok = True
-    tavily_supplements: list[dict[str, Any]] = []
 
     snapshot: dict[str, Any] = {
         "schema_version": "0.1.0",
@@ -1007,11 +1562,4 @@ def build_snapshot(
         "markdown_summary": md,
         "invariants": compute_invariants(),
     }
-    if gaps:
-        supplement_md, tavily_supplements = _build_tavily_supplement(gaps)
-        if supplement_md:
-            snapshot["markdown_summary"] = str(snapshot.get("markdown_summary") or "").rstrip() + "\n\n" + supplement_md
-            snapshot["meta"]["websearch_executed"] = True
-            snapshot["meta"]["websearch_provider"] = "tavily-search"
-            snapshot["meta"]["websearch_supplements"] = tavily_supplements
     return snapshot

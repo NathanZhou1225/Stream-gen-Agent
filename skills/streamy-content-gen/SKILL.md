@@ -27,7 +27,7 @@ description: |
    - **②** 一句「请回复序号选定选题后再进大纲」。  
   默认**不展示**信源状态/大盘行情/市场焦点/事实摘要（除非用户显式要求回看数据来源）。  
    **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/natural-language-intent.md` §4.4**：必须执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
-   **联网补充（确定性脚本）**：`query_market_facts.py` 会先调用 `finance-source-ingest`，再依据 `meta.websearch_required/gaps` 直接调用 **`tavily-search`** 的 `scripts/search.mjs`，并把 **「联网补充（Tavily 兜底）」** 拼入 `markdown_summary`。纯拉数场景禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后把 Tavily 留给模型自行决定。  
+   **纯拉数**：`query_market_facts.py` 仅调用 `finance-source-ingest` 并输出 JSON（与 `ingest.py` 同源），**不**再拼接 Tavily。纯拉数场景仍可用 `ingest.py` 调试；面向用户展示推荐 `query_market_facts.py` 以便统一加载 `.env`。  
    **禁止**仅用三条候选标题复述用户原话却 **不展示** 任何 ingest 事实锚点（用户会误以为未拉信源）。  
    **同一轮内不得**再调用模型写 `outline_refining` / `script_refining` 内容，也不得在聊天里预写大纲/逐字稿「代替」落盘。
 
@@ -74,7 +74,7 @@ drafts/active/default/<draft_id>/topic_candidates.json   # topic_picking 起
 
 - `preflight_topic.py` 默认 `--out-dir /tmp/finance_data/`，并读取其中 **`snapshot.json`** 的 **`markdown_summary`** 折叠进 `source_context`（超长截断以降低 Token）。
 - 完整「ingest → FactSnapshot → 手写 payload」高阶管道仍以 `adapter_ingest_to_fact_snapshot.py` 等为准；**带方向开稿** 优先走本脚本的 **轻量闭环**。
-- `finance-source-ingest` 保持可迁移、脚本内不调用 Agent WebSearch；若迁移到具备 WebSearch 的 Agent，需同时迁移 `AGENTS.md` / `MEMORY.md` / `natural-language-intent.md` 中的兜底协议。WebSearch 补充优先依据 `meta.websearch_required` / `meta.websearch_gaps` 触发，只可作为 **标注来源的辅助事实**，不得伪装为 ingest 原始信源。
+- `finance-source-ingest` 保持可迁移、脚本内不调用联网搜索。若 Agent 仍需人工核对缺口，由会话策略自行决定；不得把联网结果伪装为 ingest 原始信源或覆盖 `sections` 中的 API 数值。
 
 ## 个性化风格（user-style-manager，可选）
 

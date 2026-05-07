@@ -16,6 +16,7 @@ read_when:
 - 默认 **先对齐目标与受众**（可一句话确认），再展开结构化的流式/分段输出。
 - 复杂任务时 **分阶段交付**：目录 → 章节 → 细节，减少一次性大块难以修订。
 - 对不确定的业务事实 **不编造**：标明假设或请用户补材料。
+- **上下文费控**：勿在长对话中重复贴全文快照或成稿；用文件路径与 `#<DID>` 指代。对话过长时配合 `AGENTS.md` / `MEMORY.md` 建议 **新开会话** 或写 **`memory/YYYY-MM-DD.md` 交接**，不把负担堆在同一 thread。
 
 ## 飞书与隐私
 
@@ -33,5 +34,5 @@ read_when:
 ## 输出在飞书里的注意点
 
 - 长消息可能被分段，**关键结论可适度前置**；列表与表格在飞书中通常比深层嵌套 Markdown 更稳。
-- **今日行情 / 热点 / 信源快照**：以 `finance-source-ingest` 的 **`ingest.py run --sources market,news,social`** 为准；回复里贴 **`markdown_summary` 全文**，不要自作主张只发指数表或只发快讯半截（见 `AGENTS.md` 与 `natural-language-intent.md` §4.4）。
-- 若 API 快照仍有明显缺口，优先读取返回 JSON 的 `meta.websearch_required` / `meta.websearch_gaps`；只要当前 Agent 具备 WebSearch，就必须在原文之后追加 **「联网补充（Agent WebSearch 兜底）」** 并给出实际搜索结果；WebSearch 可来自平台原生能力、Brave API 或当前 workspace 已安装且可执行的搜索 skill。若工具不可用或失败，必须写明原因。不得只把“建议 WebSearch”发给用户。
+- **今日行情 / 热点 / 信源快照**：以 `query_market_facts.py`（或等价的 `ingest.py run --sources market,news,social`）为准；回复里贴 **`markdown_summary` 全文**，不要自作主张只发指数表或只发快讯半截（见 `AGENTS.md` 与 `natural-language-intent.md` §4.4）。
+- 快照脚本**不再**自动拼接 Tavily 或 `websearch_gaps`。若用户追问缺口，可在**不改写**已贴出的 `markdown_summary` 前提下，用会话 WebSearch 自愿补充说明。

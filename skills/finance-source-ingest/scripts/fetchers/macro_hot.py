@@ -151,7 +151,7 @@ def fetch_baidu_realtime_hot(*, limit: int = 15) -> tuple[list[dict[str, Any]], 
                 "source": "macro_hot",
                 "stage": "baidu_board",
                 "code": "MACRO_HOT_FINANCE_FILTER_EMPTY",
-                "message": "财经关键词过滤无命中，本轮不展示百度非财经热榜，交由 Agent WebSearch 兜底",
+                "message": "财经关键词过滤无命中，本轮不展示百度非财经热榜。",
                 "hint": str(len(out)),
             }
         )

@@ -441,18 +441,8 @@ python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources marke
 
 - **禁止**只调 `fetch_market.py` / `fetch_hot_rank.py` 拼「半套」答复；**禁止**按用户措辞只拉 `market` 或只拉 `news`。  
 - **即使用户只说「今日行情」「今日热点」「快讯」「全量信息」之一**，也**同一动作**：仍跑 **`market,news,social` 全量**，**不得**拆成「先行情一条、再热点一条」或只渲染表格半段。  
-- **必须**将返回 JSON 中的 **`markdown_summary` 全文原样**发给用户（可加一行数据来源/时间说明），**不得**自行删减板块、不得把「行情」与「热点」拆成两次不同结构。`markdown_summary` 内部已收敛为金融相关热点，并包含「大事件」、中文告警，以及在有缺口时由 `query_market_facts.py` 自动追加的 **「联网补充（Tavily 兜底）」**；大盘块顺序固定为三大指数 → 北向资金 → 其他情绪/资金。  
-- **WebSearch 兜底（确定性脚本）**：纯拉数必须调用 `query_market_facts.py`，不要直接调用 `finance-source-ingest/scripts/ingest.py`。该脚本会读取返回 JSON 的 `meta.websearch_required` 与 `meta.websearch_gaps`，并在需要时直接调用 `tavily-search/scripts/search.mjs`，把联网补充拼入 `markdown_summary`；Agent 只需原样发送最终 `markdown_summary`。若用户看到缺口但无联网补充，说明命令调用错了。  
-  - 搜索对象：`meta.websearch_gaps[].area` + 今日/当前日期 + A股/港股/黄金/银行/北向资金/社媒舆情等关键词；泛财经优先搜索财经热榜/当日财经大事件，而不是展示百度非财经标题；「国家/全球大事件」搜索近 3-7 天战争冲突、国家政策、峰会协定、央行/财政/贸易等可能影响金融市场的事件。  
-  - 最低执行：对「北向资金」与「社媒/人气榜/舆情」这两类缺口至少各执行 1 次搜索；若还有「泛财经热点」或「国家/全球大事件」缺口，再各执行 1 次搜索；总搜索次数原则上不超过 5 次。  
-  - 输出要求：每条必须含 **归属板块/泛财经 + 摘要 + 来源标题或域名 + 发布时间/检索时间**。  
-  - 失败说明：若因 API 失败或返回空触发 WebSearch，必须用中文写明「因 XX 接口失败/为空，使用 WebSearch 兜底」。  
-  - 工具来源：优先用当前 Agent 可用的 WebSearch；可以是平台原生 WebSearch、Brave API，或当前 workspace 已安装且可执行的搜索 skill，不要把 Brave API 当作唯一方案。  
-  - **Tavily 强制回退（stream-gen）**：`<available_skills>` 含 `tavily-search` 时，只要仍需联网兜底，**优先**可执行的 `web_search`；若 `web_search` 的返回体含 `missing_brave_api_key` / `Brave` / `BRAVE_API_KEY` 等失败信息，**禁止**以「未配置联网」收尾，必须**同轮**再执行：`node skills/liang-tavily-search-1.0.1/scripts/search.mjs "<query>" --json`（`workdir` 为 workspace 根，与 `ingest.py` 相同）。至少覆盖「北向资金」与「社媒/人气榜/舆情」两个缺口；成功解析 JSON 且有 `results` 才可写「已联网补充」。  
-  - **执行顺序硬约束**：贴出 `markdown_summary` 后，若 `meta.websearch_required=true`，下一步必须立刻发起联网工具调用；至少先执行 2 次（北向 + 社媒）再考虑收尾提问，禁止在未调用任何联网工具时直接结束回复。  
-  - 工具不可用：若当前会话没有 WebSearch 工具、搜索 skill 未安装/不可执行，或调用失败，仍必须追加 **「联网补充（Agent WebSearch 兜底）」** 段，并写明「WebSearch 未执行成功：原因」；禁止把“建议 WebSearch”当作已完成。  
-  - 限制：每个缺口板块最多 1 次搜索、1-2 条补充；总补充最多 6-8 条；搜不到可靠来源就写「未找到可核验补充」。  
-  - 红线：WebSearch 结果**只能追加**，不得改写 `markdown_summary`，不得覆盖 API 中的指数、涨跌幅、北向资金等数值；不可把联网补充伪装成财联社/百度/新浪原始信源。  
+- **必须**将返回 JSON 中的 **`markdown_summary` 全文原样**发给用户（可加一行数据来源/时间说明），**不得**自行删减板块、不得把「行情」与「热点」拆成两次不同结构。`markdown_summary` 内含大盘与情绪、六大板块、大事件、全球宏观、热点、社媒、深度内容、中文告警等；**不再**由脚本自动拼接 Tavily 或任何「联网补充」段。大盘块顺序固定为三大指数 → 北向资金 → 其他情绪/资金。  
+- **纯拉数命令**：优先 **`query_market_facts.py`**（与 `ingest.py` 同源 JSON，且便于加载 workspace `.env`）；直接调 `ingest.py` 仅用于调试。脚本**不会**写入 `meta.websearch_required` / `meta.websearch_gaps`，也**不会**调用 `tavily-search`。若用户追问某缺口（如北向为 0、社媒为空），可由 Agent **自愿**使用会话内的 WebSearch 在对话中补充说明，且**不得**改写或声称替换了 `markdown_summary` / `sections` 中的 API 数值。  
 - 结尾可问一句「要不要就这个开一条稿？」—— 用户说「好」再走 `create_draft`。
 
 ---
