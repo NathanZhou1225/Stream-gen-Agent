@@ -11,6 +11,7 @@ import select
 import ssl
 import subprocess
 import sys
+import time
 from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urlrequest
@@ -803,6 +804,54 @@ def _router_allowed_cross_sector_pair(sec_a: str, sec_b: str, it: dict[str, Any]
     return False
 
 
+def _router_keyword_strong_match(sec: str, title: str, body: str) -> bool:
+    """不吃标签/垂直路由豁免的强相关判断，用于宽频道与降级输出。"""
+    blob = f"{title} {body}"
+    if sec == "科技":
+        return any(
+            k in blob
+            for k in (
+                "人工智能",
+                "AI",
+                "算力",
+                "芯片",
+                "半导体",
+                "大模型",
+                "GPU",
+                "光模块",
+                "CPO",
+                "信创",
+                "云计算",
+                "机器人",
+                "具身智能",
+                "数据中心",
+            )
+        )
+    if sec == "新能源":
+        return any(k in blob for k in ("新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩", "氢能", "新能源车", "电动车", "宁德时代", "微电网"))
+    if sec == "港股":
+        return any(k in blob for k in ("港股", "恒生", "南向", "港交所", "港股通", "恒生科技", "恒生指数", "中资股"))
+    if sec == "银行":
+        return any(k in blob for k in ("银行", "信贷", "息差", "净息差", "不良率", "拨备", "存款", "贷款", "LPR", "降准", "汇丰", "工行", "农行", "中行", "建行"))
+    if sec == "黄金":
+        return any(k in blob for k in ("黄金", "金价", "现货黄金", "COMEX", "贵金属", "纽约期金", "沪金", "黄金ETF", "金银比", "伦敦金", "央行增持黄金"))
+    if sec == "有色":
+        return any(k in blob for k in ("有色", "能源金属", "稀土", "工业金属", "铜", "铝", "锌", "镍", "钴", "锂矿", "伦铜", "沪铜", "LME", "氧化铝", "电解铝", "碳酸锂"))
+    return False
+
+
+def _router_source_requires_strict_match(it: dict[str, Any]) -> bool:
+    """宽频道/宽池来源不能仅凭 vertical_target_sector 直接进入板块。"""
+    src = str(it.get("source_name") or "")
+    route_key = str(it.get("deep_route_key") or "")
+    line_src = str(it.get("sector_line_source") or "")
+    if line_src in {"global_macro", "macro_hot", "other_flash"}:
+        return True
+    if route_key.endswith("_fb") or "xueqiu" in route_key.lower():
+        return True
+    return any(k in src for k in ("格隆汇首页", "36氪科技", "财联社深度", "华尔街见闻最热", "雪球热帖", "宽池"))
+
+
 def _clean_display_text(s: str) -> str:
     """显示层文本净化：去 HTML / 折叠空白。"""
     txt = re.sub(r"<[^>]+>", " ", (s or ""))
@@ -921,31 +970,13 @@ _ROUTER_EMPTY_INSIGHT = "今日盘面受宏观大盘主导，暂无超预期产�
 _ROUTER_FILLED_FALLBACK_INSIGHT = "本板块出现若干强相关线索，需结合盘面继续确认主线。"
 _ROUTER_CANDIDATES_PER_SECTOR = 8
 _ROUTER_SYSTEM_PROMPT = (
-    "你是一名专业的金融分析师兼研报编辑。请阅读以下今日新闻菜单，"
-    "菜单已按 [科技, 新能源, 港股, 黄金, 有色, 银行] 六大板块分组。"
-    "请仅在每个板块自己的候选菜单中筛选并进行逻辑合成。\n"
-    "【红线警告 — 防凑数规则】\n"
-    "(1) 宁缺毋滥！若某篇新闻与该板块核心产业逻辑没有直接的、强烈的相关性，"
-    "【严禁】为了凑数强行塞入！反例：把某银行对菲律宾经济的看法塞入A股银行板块；"
-    "把中美外交新闻塞入新能源板块。\n"
-    "(2) 一篇新闻最多归入 1-2 个真正相关的板块；"
-    "同一篇宏观文章严禁在 3 个以上板块重复出现。\n"
-    "(3) 若该板块确实无强相关新闻，items 必须返回 []，"
-    "insight 填写「今日盘面受宏观大盘主导，暂无超预期产业事件。」\n"
-    "挑选与合成要求：\n"
-    "(4) 每板块最多挑选 3 条强相关资讯（目标 1-3 条，可少，绝不凑数）；"
-    "优先兼顾盘面快讯与产业深度各 1 条。\n"
-    "(5) 为每个板块写一句 20-40 字的 insight（今日核心驱动逻辑，直接结论不废话）。\n"
-    "(6) 为每条入选资讯写一句 15-30 字的 reason（为何选它、对该板块的逻辑价值）。\n"
-    "同一事件的不同快讯请勿重复挑选；除港股科技、黄金有色、央行银行、新能源科技等强联动事件外，"
-    "同一事件默认只给一个主归属板块。\n"
-    "输出格式：只返回严格 JSON，包含上述六个中文板块键，"
-    "每键对应 {\"insight\": str, \"items\": [{\"id\": int, \"reason\": str}]}。\n"
-    '示例：{"科技": {"insight": "算力基础设施爆发，光纤需求持续超预期", '
-    '"items": [{"id": 1, "reason": "华虹涨停验证国产芯片需求爆发"}, '
-    '{"id": 3, "reason": "算力租赁直接兑现AI推理需求"}]}, '
-    '"新能源": {"insight": "今日盘面受宏观大盘主导，暂无超预期产业事件。", "items": []}}。\n'
-    "严禁输出任何解释、思考过程或其他字符。"
+    "你是金融资讯Router。菜单已按 [科技, 新能源, 港股, 黄金, 有色, 银行] 分组。"
+    "只在各板块自己的候选中选 ID。\n"
+    "规则：宁缺毋滥；无强相关就 items=[]；不要为了凑数塞宏观/海外/泛财经。"
+    "同一事件默认只归一个主板块，强联动最多两个板块，严禁三板块重复。"
+    "每板块最多3个ID，insight不超过30字。\n"
+    "只返回严格JSON，六个中文键必须齐全。格式："
+    '{"科技":{"insight":"算力链延续强势","items":[1,3]},"新能源":{"insight":"暂无超预期产业事件","items":[]}}'
 )
 
 
@@ -959,19 +990,19 @@ def _router_enabled() -> bool:
 def _router_menu_max_items() -> int:
     raw = os.environ.get("FINANCE_LLM_ROUTER_MENU_MAX_ITEMS", "").strip()
     try:
-        v = int(raw) if raw else 48
+        v = int(raw) if raw else 30
     except ValueError:
-        v = 48
-    return max(24, min(72, v))
+        v = 30
+    return max(12, min(48, v))
 
 
 def _router_timeout_sec() -> int:
     raw = os.environ.get("FINANCE_LLM_ROUTER_TIMEOUT_SEC", "").strip()
     try:
-        v = int(raw) if raw else 45
+        v = int(raw) if raw else 30
     except ValueError:
-        v = 20
-    return max(5, min(60, v))
+        v = 30
+    return max(10, min(45, v))
 
 
 def _router_compact_retry_enabled() -> bool:
@@ -1031,11 +1062,17 @@ def _router_parse_result(raw: str) -> dict[str, Any]:
         if val is None:
             continue
         if isinstance(val, dict):
-            # 新嵌套格式 {"insight": str, "items": [{"id": int, "reason": str}]}
+            # 新嵌套格式 {"insight": str, "items": [int, ...]}；兼容旧 {"id": int, "reason": str}
             insight = str(val.get("insight") or "").strip()
             insight_by_sec[sec] = insight or _ROUTER_EMPTY_INSIGHT
             arr: list[int] = []
             for entry in val.get("items") or []:
+                if isinstance(entry, int):
+                    arr.append(entry)
+                    continue
+                if isinstance(entry, str) and entry.strip().isdigit():
+                    arr.append(int(entry.strip()))
+                    continue
                 if not isinstance(entry, dict):
                     continue
                 idx_raw = entry.get("id")
@@ -1082,10 +1119,11 @@ def _router_build_candidates(
     def wrap(it: dict[str, Any], sec: str, source_type: str, default_source: str = "") -> dict[str, Any]:
         title = _clean_display_text(str(it.get("title") or "")).strip()
         body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or "")).strip()
+        menu_summary = body[:80] + ("..." if len(body) > 80 else "")
         raw = dict(it)
         return {
             "title": title or body[:120],
-            "summary": body[:160],
+            "summary": menu_summary,
             "clean_text": str(it.get("clean_text") or it.get("summary") or title),
             "source_name": str(it.get("source_name") or default_source or _item_source_label(it)),
             "published_at": str(it.get("published_at") or ""),
@@ -1100,13 +1138,17 @@ def _router_build_candidates(
         return _title_dedup_key(title or body[:80])
 
     def matches_sector(sec: str, it: dict[str, Any]) -> bool:
+        title = str(it.get("title") or "")
+        body = str(it.get("clean_text") or it.get("summary") or "")
+        if _router_source_requires_strict_match(it):
+            return _router_keyword_strong_match(sec, title, body)
         vts = str(it.get("vertical_target_sector") or "").strip()
         tags = {str(x).strip() for x in (it.get("sector_tags") or []) if str(x).strip()}
         if vts == sec or sec in tags:
             return True
-        txt = f"{it.get('title') or ''} {it.get('clean_text') or it.get('summary') or ''}"
+        txt = f"{title} {body}"
         if sec in {"银行", "黄金", "有色"}:
-            return _sector_strong_match(sec, str(it.get("title") or ""), str(it.get("clean_text") or it.get("summary") or ""))
+            return _router_keyword_strong_match(sec, title, body)
         return sec in sectors_for_text(txt)
 
     def sort_key(sec: str, it: dict[str, Any]) -> tuple[int, int, datetime]:
@@ -1162,8 +1204,8 @@ def _router_build_candidates(
                 added += 1
             return added
 
-        deep_n = add_from(deep_pool, "deep", 4)
-        flash_limit = 3 + min(2, max(0, 4 - deep_n))
+        deep_n = add_from(deep_pool, "deep", 6)
+        flash_limit = 2
         add_from(flash_pool, "flash", flash_limit)
         add_from(broad_pool, "broad", 1)
         candidates.extend(picked[:per_sector_cap])
@@ -1184,7 +1226,9 @@ def _router_build_menu(candidates: list[dict[str, Any]]) -> str:
             src = str(it.get("source_name") or "未知来源").strip()
             st = type_label.get(str(it.get("candidate_source_type") or ""), "候选")
             title = _clean_display_text(str(it.get("title") or "")).strip()
-            summ = _clean_display_text(str(it.get("summary") or "")).strip()[:40]
+            summ = _clean_display_text(str(it.get("summary") or "")).strip()[:80]
+            if len(summ) >= 80:
+                summ = summ.rstrip(".。") + "..."
             lines.append(f"[ID: {idx}] ({st}) {src} - {title} - {summ}")
     return "\n".join(lines)
 
@@ -1225,7 +1269,7 @@ def _router_call_llm(menu_text: str, *, timeout_sec: int = 10) -> dict[str, Any]
             {"role": "user", "content": menu_text},
         ],
         "temperature": 0.1,
-        "max_tokens": 1600,
+        "max_tokens": 600,
         "response_format": {"type": "json_object"},
     }
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -1235,22 +1279,14 @@ def _router_call_llm(menu_text: str, *, timeout_sec: int = 10) -> dict[str, Any]
         method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
     )
-    last_exc: Exception | None = None
-    for attempt in (1, 2):
-        try:
-            t = max(1, timeout_sec + (attempt - 1) * 8)
-            with urlrequest.urlopen(req, timeout=t, context=ssl.create_default_context()) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-            break
-        except urllib_error.HTTPError as e:
-            detail = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"router HTTP {e.code}: {detail[:500]}") from e
-        except Exception as e:  # noqa: BLE001
-            last_exc = e
-            if attempt >= 2:
-                raise RuntimeError(f"router 请求失败: {e!s}") from e
-    else:
-        raise RuntimeError(f"router 请求失败: {last_exc!s}")
+    try:
+        with urlrequest.urlopen(req, timeout=max(1, timeout_sec), context=ssl.create_default_context()) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib_error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"router HTTP {e.code}: {detail[:500]}") from e
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"router 请求失败: {e!s}") from e
     choices = payload.get("choices") or []
     if not choices:
         raise RuntimeError("router 响应无 choices")
@@ -1288,6 +1324,8 @@ def _build_sector_items_with_router(
     legacy = _legacy_sector_enriched(by_sec, gm_items, deep_items, other_flash_items, macro_items_raw)
     if not _router_enabled():
         return legacy, {"status": "disabled_by_env"}
+    t_start = time.perf_counter()
+    t_marks: dict[str, float] = {}
     candidates = _router_build_candidates(
         by_sec,
         gm_items,
@@ -1296,9 +1334,11 @@ def _build_sector_items_with_router(
         macro_items_raw,
         max_items=_router_menu_max_items(),
     )
+    t_marks["build_candidates"] = round(time.perf_counter() - t_start, 3)
     if not candidates:
-        return legacy, {"status": "no_candidates"}
+        return legacy, {"status": "no_candidates", "router_timing": t_marks}
     menu_text = _router_build_menu(candidates)
+    t_marks["build_menu"] = round(time.perf_counter() - t_start - t_marks["build_candidates"], 3)
     candidate_diag = _router_candidate_diagnostics(candidates)
     retry_mode = "none"
 
@@ -1307,6 +1347,7 @@ def _build_sector_items_with_router(
         reason_by_id: dict[int, str],
         *,
         fallback_reason: str = "",
+        require_strong: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         items_by_sec: dict[str, list[dict[str, Any]]] = {sec: [] for sec in _ROUTER_SECTORS}
         for sec in _ROUTER_SECTORS:
@@ -1321,6 +1362,12 @@ def _build_sector_items_with_router(
                     continue
                 cand = candidates[idx]
                 if str(cand.get("candidate_sector") or "") != sec:
+                    continue
+                if require_strong and not _router_keyword_strong_match(
+                    sec,
+                    str(cand.get("title") or ""),
+                    str(cand.get("clean_text") or cand.get("summary") or ""),
+                ):
                     continue
                 seen_idx.add(idx)
                 base_item = dict(cand.get("raw_item") or {})
@@ -1347,9 +1394,13 @@ def _build_sector_items_with_router(
         ids_by_sec: dict[str, list[int]] = {sec: [] for sec in _ROUTER_SECTORS}
         for idx, cand in enumerate(candidates):
             sec = str(cand.get("candidate_sector") or "")
-            if sec in ids_by_sec and len(ids_by_sec[sec]) < _ROUTER_MAX_IDS_PER_SECTOR:
+            if (
+                sec in ids_by_sec
+                and len(ids_by_sec[sec]) < _ROUTER_MAX_IDS_PER_SECTOR
+                and _router_keyword_strong_match(sec, str(cand.get("title") or ""), str(cand.get("clean_text") or cand.get("summary") or ""))
+            ):
                 ids_by_sec[sec].append(idx)
-        items_by_sec = assemble_from_ids(ids_by_sec, {}, fallback_reason="规则降级：选取板块分组候选中的高优先级线索")
+        items_by_sec = assemble_from_ids(ids_by_sec, {}, require_strong=True)
         insights = {
             sec: (_ROUTER_FILLED_FALLBACK_INSIGHT if items_by_sec.get(sec) else _ROUTER_EMPTY_INSIGHT)
             for sec in _ROUTER_SECTORS
@@ -1363,48 +1414,34 @@ def _build_sector_items_with_router(
             "retry_mode": retry_mode,
             "insights_by_sector": insights,
             "candidate_diagnostics": candidate_diag,
+            "router_timing": {
+                **t_marks,
+                "total": round(time.perf_counter() - t_start, 3),
+            },
         }
 
+    llm_t0 = time.perf_counter()
     try:
         routed = _router_call_llm(menu_text, timeout_sec=_router_timeout_sec())
+        t_marks["llm_inference"] = round(time.perf_counter() - llm_t0, 3)
     except Exception as exc:  # noqa: BLE001
-        # 超时常见于菜单过长/网关瞬时抖动：缩小菜单后再试一次，提升稳定性
+        t_marks["llm_inference"] = round(time.perf_counter() - llm_t0, 3)
         msg = str(exc).lower()
         is_timeout = ("timed out" in msg) or ("timeout" in msg)
-        if _router_compact_retry_enabled() and is_timeout and len(candidates) > 16:
-            compact_candidates = _router_compact_grouped_candidates(candidates, per_sector=3)
-            compact_menu = _router_build_menu(compact_candidates)
-            try:
-                routed = _router_call_llm(compact_menu, timeout_sec=min(60, _router_timeout_sec() + 8))
-                candidates = compact_candidates
-                menu_text = compact_menu
-                candidate_diag = _router_candidate_diagnostics(candidates)
-                retry_mode = "compact_retry"
-            except Exception as exc2:  # noqa: BLE001
-                errors.append(
-                    {
-                        "source": "llm_router",
-                        "stage": "dispatch",
-                        "code": "LLM_ROUTER_FAILED",
-                        "message": f"{str(exc)[:220]} | compact_retry: {str(exc2)[:220]}",
-                    }
-                )
-                return fallback_grouped(str(exc2))
-        else:
-            errors.append(
-                {
-                    "source": "llm_router",
-                    "stage": "dispatch",
-                    "code": "LLM_ROUTER_FAILED",
-                    "message": str(exc)[:500],
-                }
-            )
-            return fallback_grouped(str(exc))
+        errors.append(
+            {
+                "source": "llm_router",
+                "stage": "dispatch",
+                "code": "LLM_ROUTER_TIMEOUT" if is_timeout else "LLM_ROUTER_FAILED",
+                "message": str(exc)[:500],
+            }
+        )
+        return fallback_grouped(str(exc))
     try:
         ids_by_sec = routed.get("ids_by_sec") or {}
         insight_by_sec: dict[str, str] = routed.get("insight_by_sec") or {}
         reason_by_id: dict[int, str] = routed.get("reason_by_id") or {}
-        items_by_sec = assemble_from_ids(ids_by_sec, reason_by_id)
+        items_by_sec = assemble_from_ids(ids_by_sec, reason_by_id, require_strong=True)
         for sec in _ROUTER_SECTORS:
             if not str(insight_by_sec.get(sec) or "").strip() or (items_by_sec.get(sec) and insight_by_sec.get(sec) == _ROUTER_EMPTY_INSIGHT):
                 insight_by_sec[sec] = _ROUTER_FILLED_FALLBACK_INSIGHT if items_by_sec.get(sec) else _ROUTER_EMPTY_INSIGHT
@@ -1416,6 +1453,10 @@ def _build_sector_items_with_router(
             "retry_mode": retry_mode,
             "insights_by_sector": insight_by_sec,
             "candidate_diagnostics": candidate_diag,
+            "router_timing": {
+                **t_marks,
+                "total": round(time.perf_counter() - t_start, 3),
+            },
         }
     except Exception as exc:  # noqa: BLE001
         errors.append(
@@ -1969,12 +2010,9 @@ def _build_live_stream_markdown(
             s_prefix = f"{s_emoji}{s_hint} " if s_emoji and s_hint else ""
             src_label = _item_source_label(it)
             if llm_router_ok:
-                # 深度合成渲染：🔹 标题 + 来源 / 💡 逻辑推演
+                # 深度合成渲染：只展示标题与来源；reason 保留在 JSON，不污染飞书正文
                 if title:
                     sector_lines.append(f"- 🔹 {s_prefix}{tpart} **{title}** （{src_label}）")
-                    reasoning = str(it.get("llm_reason") or "").strip()
-                    if reasoning:
-                        sector_lines.append(f"- 💡 **逻辑推演**：{reasoning}")
                     sector_lines.append("")
                     out_n += 1
             else:
@@ -2358,6 +2396,7 @@ def build_snapshot(
         "reason": _router_meta.get("reason") or "",
         "insights_by_sector": _router_meta.get("insights_by_sector") or {},
         "candidate_diagnostics": _router_meta.get("candidate_diagnostics") or {},
+        "router_timing": _router_meta.get("router_timing") or {},
     }
     meta_extra["llm_router_status"] = sections["llm_router"]["status"]
     if sections["llm_router"]["reason"]:
@@ -2368,6 +2407,8 @@ def build_snapshot(
         meta_extra["llm_router_selected_count"] = sections["llm_router"]["selected_count"]
     if sections["llm_router"]["candidate_diagnostics"]:
         meta_extra["llm_router_candidate_diagnostics"] = sections["llm_router"]["candidate_diagnostics"]
+    if sections["llm_router"]["router_timing"]:
+        meta_extra["llm_router_timing"] = sections["llm_router"]["router_timing"]
 
     md = _build_live_stream_markdown(sections, errors, fetched_at)
     ok = True
