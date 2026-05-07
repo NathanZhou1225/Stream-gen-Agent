@@ -198,7 +198,20 @@ def _compact_source_context_bullets(raw_bullets: list[str], cap: int = SOURCE_CO
 def _is_index_or_flow_bullet(line: str) -> bool:
     """指数/北向/成交额等「打底」行，与财联社叙事行区分，用于选题差异化。"""
     s = line.strip()
-    return any(
+    # digest 元信息行（易误当「快讯」排到候选①）
+    if any(
+        k in s
+        for k in (
+            "指数源",
+            "📡",
+            "行业强弱",
+            "主力净流入",
+            "市场热词",
+            "涨跌停统计",
+        )
+    ):
+        return True
+    if any(
         k in s
         for k in (
             "上证指数",
@@ -211,10 +224,13 @@ def _is_index_or_flow_bullet(line: str) -> bool:
             "恒生",
             "道琼斯",
             "主力资金",
-            "涨停",
-            "跌停",
         )
-    )
+    ):
+        return True
+    # 仅把「涨跌停统计/家数」类打底行当指数流，避免把「一字涨停」等公司快讯误踢出 news
+    if "涨跌停统计" in s or re.search(r"涨停\s*\d+\s*家", s) or re.search(r"跌停\s*\d+\s*家", s):
+        return True
+    return False
 
 
 def _is_noise_bullet(line: str) -> bool:
@@ -293,6 +309,56 @@ def _relevance_score(text: str, direction: str) -> float:
     return hit / max(1, len(toks))
 
 
+def _strict_direction_hints(direction: str) -> tuple[str, ...] | None:
+    """用户方向强约束词（用于从全量 bullets 前插同域行，避免 domain_enhanced 落在列表末尾抢不到候选①）。"""
+    d = direction or ""
+    if any(k in d for k in ("黄金", "有色", "贵金属", "COMEX")):
+        return ("黄金", "有色", "贵金属", "COMEX", "白银", "现货金", "能源金属", "铜", "铝", "锌", "锂", "镍")
+    if any(k in d for k in ("新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩")):
+        return DOMAIN_LEXICON.get("energy_new", ("新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩"))
+    return None
+
+
+def _prefer_domain_news_order(news: list[str], direction: str) -> list[str]:
+    """按用户方向把同域快讯排到前面，避免候选①落在通用 digest 行上。"""
+    hints = _strict_direction_hints(direction)
+    if not hints:
+        return news
+    touched = [b for b in news if any(h in b for h in hints)]
+    if not touched:
+        return news
+    rest = [b for b in news if b not in touched]
+    return touched + rest
+
+
+def _promote_hint_bullets_first(
+    news: list[str],
+    raw_bullets: list[str],
+    hints: tuple[str, ...],
+) -> list[str]:
+    """在全量 raw_bullets 中找出命中 hints 的叙事行，整组前插到 news（保留去重顺序）。"""
+    if not hints or not raw_bullets:
+        return news
+    promoted: list[str] = []
+    seen: set[str] = set()
+    for b in raw_bullets:
+        if _is_noise_bullet(b) or _is_placeholder_line(b):
+            continue
+        if not any(h in b for h in hints):
+            continue
+        if _is_index_or_flow_bullet(b):
+            continue
+        key = _norm_title_key(b)
+        if key in seen:
+            continue
+        seen.add(key)
+        promoted.append(b)
+    if not promoted:
+        return news
+    rest = [b for b in news if _norm_title_key(b) not in seen]
+    return promoted + rest
+
+
 def _three_distinct_candidates(direction: str, raw_bullets: list[str]) -> list[dict[str, str]]:
     """
     三条候选须在标题上可区分：优先用不同快讯/事实行；不足时用「行情 / 对照 / 讲述结构」模板。
@@ -323,6 +389,10 @@ def _three_distinct_candidates(direction: str, raw_bullets: list[str]) -> list[d
     if not clean:
         clean = [b for b in raw_bullets if not _is_noise_bullet(b)] or list(raw_bullets)
     news = [b for b in clean if not _is_index_or_flow_bullet(b)]
+    news = _prefer_domain_news_order(news, direction)
+    dh = _strict_direction_hints(direction)
+    if dh:
+        news = _promote_hint_bullets_first(news, raw_bullets, dh)
     idx = [b for b in clean if _is_index_or_flow_bullet(b)]
 
     seen_keys: set[str] = set()

@@ -441,7 +441,7 @@ python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources marke
 
 - **禁止**只调 `fetch_market.py` / `fetch_hot_rank.py` 拼「半套」答复；**禁止**按用户措辞只拉 `market` 或只拉 `news`。  
 - **即使用户只说「今日行情」「今日热点」「快讯」「全量信息」之一**，也**同一动作**：仍跑 **`market,news,social` 全量**，**不得**拆成「先行情一条、再热点一条」或只渲染表格半段。  
-- **必须**将返回 JSON 中的 **`markdown_summary` 全文原样**发给用户（可加一行数据来源/时间说明），**不得**自行删减板块、不得把「行情」与「热点」拆成两次不同结构。`markdown_summary` 内含大盘与情绪、六大板块、大事件、全球宏观、热点、社媒、深度内容、中文告警等；**不再**由脚本自动拼接 Tavily 或任何「联网补充」段。大盘块顺序固定为三大指数 → 北向资金 → 其他情绪/资金。  
+- **必须**将返回 JSON 中的 **`markdown_summary` 全文原样**发给用户（可加一行数据来源/时间说明），**不得**自行删减板块、不得把「行情」与「热点」拆成两次不同结构；**不得**因某板块仅有「🧠 深度洞察」等占位行、无新快讯而整段省略该板块（易被误认为信源脚本故障）。`markdown_summary` 内含大盘与情绪、六大板块（深度条目已并入板块展示）、大事件、全球宏观、热点、社媒、中文告警等；**不再**含独立「深度内容」小节；**不再**由脚本自动拼接 Tavily 或任何「联网补充」段。大盘块顺序固定为三大指数 → 北向资金 → 其他情绪/资金。  
 - **纯拉数命令**：优先 **`query_market_facts.py`**（与 `ingest.py` 同源 JSON，且便于加载 workspace `.env`）；直接调 `ingest.py` 仅用于调试。脚本**不会**写入 `meta.websearch_required` / `meta.websearch_gaps`，也**不会**调用 `tavily-search`。若用户追问某缺口（如北向为 0、社媒为空），可由 Agent **自愿**使用会话内的 WebSearch 在对话中补充说明，且**不得**改写或声称替换了 `markdown_summary` / `sections` 中的 API 数值。  
 - 结尾可问一句「要不要就这个开一条稿？」—— 用户说「好」再走 `create_draft`。
 

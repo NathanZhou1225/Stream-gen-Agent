@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib import request as urlrequest
 
-from .sector_keywords import sectors_for_text
+from .sector_keywords import SECTOR_ORDER, sectors_for_text
 from .sentiment import classify_impact, classify_sentiment, extract_stock_mentions, sentiment_emoji
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,137 @@ _RSSHUB_ROUTE_ROWS: tuple[tuple[str, str, str], ...] = (
     ("kr36_rsshub", "36氪快讯(RSSHub)", "/36kr/newsflashes"),
 )
 
+# v0.1.9：六大板块垂直 RSSHub 矩阵（仅当配置了 FINANCE_RSSHUB_BASE_URL 时启用，替代扁平 _RSSHUB_ROUTE_ROWS）。
+# needs_probe：路由依赖上游站点/RSSHub 版本，部署后需在 sector_rsshub_matrix 中看 routes_failed 验收。
+SECTOR_DEEP_RSSHUB_ROUTES: dict[str, dict[str, list[dict[str, Any]]]] = {
+    "科技": {
+        "primary": [
+            {
+                "path": "/36kr/motif/32768",
+                "label": "36氪前沿科技专栏",
+                "key": "vertical_tech_kr36_motif_32768",
+                "needs_probe": True,
+            },
+            {
+                "path": "/36kr/newsflashes",
+                "label": "36氪快讯",
+                "key": "vertical_tech_kr36_newsflashes",
+                "needs_probe": False,
+            },
+        ],
+        "fallback": [
+            {
+                "path": "/wallstreetcn/live",
+                "label": "华尔街见闻快讯（宽池）",
+                "key": "vertical_tech_wscn_live_fb",
+                "needs_probe": False,
+            },
+        ],
+    },
+    "新能源": {
+        "primary": [
+            {
+                "path": "/jiemian/lists/84",
+                "label": "界面汽车/新能源",
+                "key": "vertical_ev_jiemian_84",
+                "needs_probe": True,
+            },
+        ],
+        "fallback": [
+            {
+                "path": "/36kr/newsflashes",
+                "label": "36氪快讯",
+                "key": "vertical_ev_kr36_fb",
+                "needs_probe": False,
+            },
+            {
+                "path": "/jin10",
+                "label": "金十数据（宽池）",
+                "key": "vertical_ev_jin10_fb",
+                "needs_probe": False,
+            },
+        ],
+    },
+    "港股": {
+        "primary": [
+            {
+                "path": "/gelonghui/live",
+                "label": "格隆汇快讯",
+                "key": "vertical_hk_gelonghui_live",
+                "needs_probe": True,
+            },
+        ],
+        "fallback": [
+            {
+                "path": "/wallstreetcn/live",
+                "label": "华尔街见闻快讯（宽池）",
+                "key": "vertical_hk_wscn_live_fb",
+                "needs_probe": False,
+            },
+        ],
+    },
+    "黄金": {
+        "primary": [
+            {
+                "path": "/jin10",
+                "label": "金十数据（贵金属/大宗线索）",
+                "key": "vertical_gold_jin10",
+                "needs_probe": False,
+            },
+        ],
+        "fallback": [
+            {
+                "path": "/wallstreetcn/live",
+                "label": "华尔街见闻快讯（宽池）",
+                "key": "vertical_gold_wscn_live_fb",
+                "needs_probe": False,
+            },
+        ],
+    },
+    "有色": {
+        "primary": [
+            {
+                "path": "/jin10",
+                "label": "金十数据（工业金属/大宗线索）",
+                "key": "vertical_metals_jin10",
+                "needs_probe": False,
+            },
+        ],
+        "fallback": [
+            {
+                "path": "/wallstreetcn/live",
+                "label": "华尔街见闻快讯（宽池）",
+                "key": "vertical_metals_wscn_live_fb",
+                "needs_probe": False,
+            },
+        ],
+    },
+    "银行": {
+        "primary": [
+            {
+                "path": "/yicai/brief",
+                "label": "第一财经简报",
+                "key": "vertical_bank_yicai_brief",
+                "needs_probe": False,
+            },
+            {
+                "path": "/jiemian/lists/4",
+                "label": "界面快报",
+                "key": "vertical_bank_jiemian_lists_4",
+                "needs_probe": False,
+            },
+        ],
+        "fallback": [
+            {
+                "path": "/36kr/newsflashes",
+                "label": "36氪快讯",
+                "key": "vertical_bank_kr36_fb",
+                "needs_probe": False,
+            },
+        ],
+    },
+}
+
 
 def _rsshub_base() -> str:
     return os.environ.get("FINANCE_RSSHUB_BASE_URL", "").strip().rstrip("/")
@@ -127,6 +258,114 @@ def merged_deep_source_list() -> list[dict[str, Any]]:
     if base:
         return _rsshub_layer_sources(base) + list(_BASE_DEEP_SOURCES)
     return list(_BASE_DEEP_SOURCES)
+
+
+def _title_dedup_key(title: str) -> str:
+    t = re.sub(r"\s+", "", (title or "").strip().lower())
+    return t[:120] if t else ""
+
+
+def _fetch_sector_vertical_rsshub(
+    base: str,
+    limit: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    """按六大板块遍历 RSSHub 路由；失败原因写入 errors，汇总进 matrix。"""
+    per_route_limit = max(8, min(24, max(4, limit) * 2))
+    hdr = {
+        "User-Agent": "Mozilla/5.0 (compatible; finance-source-ingest/0.5 sector-rsshub)",
+        "Accept": "application/rss+xml, application/atom+xml, */*",
+    }
+    timeout = 25
+    all_items: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    by_sector: dict[str, Any] = {}
+    errors: list[dict[str, Any]] = []
+
+    for sector in SECTOR_ORDER:
+        cfg = SECTOR_DEEP_RSSHUB_ROUTES.get(sector, {})
+        primary = list(cfg.get("primary") or [])
+        fallback = list(cfg.get("fallback") or [])
+        tried_detail: list[dict[str, Any]] = []
+        routes_ok: list[str] = []
+        routes_failed: list[dict[str, Any]] = []
+        sector_bucket: list[dict[str, Any]] = []
+
+        def run_phase(routes: list[dict[str, Any]], phase: str) -> None:
+            for spec in routes:
+                path = str(spec.get("path") or "").strip()
+                if not path.startswith("/"):
+                    path = "/" + path
+                key = str(spec.get("key") or path)
+                label = str(spec.get("label") or key)
+                needs_probe = bool(spec.get("needs_probe"))
+                tried_detail.append({
+                    "phase": phase,
+                    "path": path,
+                    "key": key,
+                    "label": label,
+                    "needs_probe": needs_probe,
+                })
+                src = {
+                    "key": key,
+                    "name": label,
+                    "type": "rss",
+                    "url": f"{base}{path}",
+                    "headers": hdr,
+                    "timeout": timeout,
+                }
+                items, errs = _fetch_rss(src, per_route_limit)
+                for e in errs:
+                    errors.append({
+                        "source": "deep_news",
+                        "stage": "sector_vertical_rsshub",
+                        "sector": sector,
+                        "path": path,
+                        "deep_route_key": key,
+                        "code": str(e.get("code") or "SECTOR_RSSHUB_ROUTE_FAILED"),
+                        "message": str(e.get("message") or "")[:400],
+                    })
+                if items:
+                    routes_ok.append(key)
+                    for raw in items:
+                        tit = str(raw.get("title") or "")
+                        url_s = str(raw.get("url") or "").strip()
+                        dk = _title_dedup_key(tit)
+                        dedup_token = dk if dk else (url_s[:200] if url_s else tit[:80])
+                        pair = (sector, dedup_token)
+                        if pair in seen_pairs:
+                            continue
+                        seen_pairs.add(pair)
+                        neo = dict(raw)
+                        neo["vertical_target_sector"] = sector
+                        neo["deep_route_key"] = key
+                        sector_bucket.append(neo)
+                else:
+                    last = errs[-1] if errs else {}
+                    routes_failed.append({
+                        "phase": phase,
+                        "path": path,
+                        "key": key,
+                        "code": str(last.get("code") or "SECTOR_RSSHUB_EMPTY"),
+                        "message": str(last.get("message") or "EMPTY_FEED")[:300],
+                    })
+
+        run_phase(primary, "primary")
+        if not sector_bucket:
+            run_phase(fallback, "fallback")
+
+        all_items.extend(sector_bucket)
+        by_sector[sector] = {
+            "routes_tried_detail": tried_detail,
+            "routes_ok": routes_ok,
+            "routes_failed": routes_failed,
+            "items_count": len(sector_bucket),
+        }
+
+    matrix: dict[str, Any] = {
+        "by_sector": by_sector,
+        "rsshub_base_url": base,
+    }
+    return all_items, matrix, errors
 
 
 # ——— 文本工具 ——————————————————————————————————————————————————————————
@@ -202,7 +441,11 @@ def _enrich(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         enriched["sentiment_emoji"] = sentiment_emoji(s)
         enriched["impact_level"] = classify_impact(text)
         enriched["stock_mentions"] = extract_stock_mentions(text)
-        enriched["sector_tags"] = sectors_for_text(text)
+        tags = list(sectors_for_text(text))
+        vts = enriched.get("vertical_target_sector")
+        if isinstance(vts, str) and vts in SECTOR_ORDER and vts not in tags:
+            tags.insert(0, vts)
+        enriched["sector_tags"] = tags
         out.append(enriched)
     return out
 
@@ -377,6 +620,7 @@ def fetch_deep_news_section(limit: int = 8) -> tuple[dict[str, Any], list[dict[s
       sources_tried  — 尝试的源 key 列表
       sources_ok     — 成功返回数据的源 key 列表
       total          — items 总数
+      sector_rsshub_matrix — 若配置了 FINANCE_RSSHUB_BASE_URL，为六大板块垂直路由矩阵元数据
 
     环境变量：
       FINANCE_DEEP_NEWS_PROVIDER=<key>  预留付费 API 接口，当前降级 RSS。
@@ -397,28 +641,61 @@ def fetch_deep_news_section(limit: int = 8) -> tuple[dict[str, Any], list[dict[s
     all_errors: list[dict[str, Any]] = []
     sources_tried: list[str] = []
     sources_ok: list[str] = []
+    sector_matrix: dict[str, Any] | None = None
+    base = _rsshub_base()
 
     per_limit = max(4, limit)
-    for src in merged_deep_source_list():
-        sources_tried.append(src["key"])
-        if src["type"] == "api_json":
-            items, errs = _fetch_wallstreetcn(src, per_limit)
-        elif src.get("url_candidates"):
-            items, errs = _fetch_rss_url_candidates(src, per_limit)
-        else:
-            items, errs = _fetch_rss(src, per_limit)
+    if base:
+        all_items, sector_matrix, route_errs = _fetch_sector_vertical_rsshub(base, limit)
+        all_errors.extend(route_errs)
+        for sec in SECTOR_ORDER:
+            m = (sector_matrix.get("by_sector") or {}).get(sec) or {}
+            for d in m.get("routes_tried_detail") or []:
+                k = str(d.get("key") or "").strip()
+                if k:
+                    sources_tried.append(k)
+            for k in m.get("routes_ok") or []:
+                sources_ok.append(str(k))
+        if not all_items:
+            logger.warning(
+                "deep_news: 六大板块垂直 RSSHub 无条目，降级直连 API/RSS（_BASE_DEEP_SOURCES）",
+            )
+            for src in _BASE_DEEP_SOURCES:
+                sources_tried.append(str(src["key"]))
+                if src["type"] == "api_json":
+                    items, errs = _fetch_wallstreetcn(src, per_limit)
+                elif src.get("url_candidates"):
+                    items, errs = _fetch_rss_url_candidates(src, per_limit)
+                else:
+                    items, errs = _fetch_rss(src, per_limit)
+                all_errors.extend(errs)
+                if items:
+                    sources_ok.append(str(src["key"]))
+                    all_items.extend(items)
+    else:
+        for src in merged_deep_source_list():
+            sources_tried.append(src["key"])
+            if src["type"] == "api_json":
+                items, errs = _fetch_wallstreetcn(src, per_limit)
+            elif src.get("url_candidates"):
+                items, errs = _fetch_rss_url_candidates(src, per_limit)
+            else:
+                items, errs = _fetch_rss(src, per_limit)
 
-        all_errors.extend(errs)
-        if items:
-            sources_ok.append(src["key"])
-            all_items.extend(items)
+            all_errors.extend(errs)
+            if items:
+                sources_ok.append(src["key"])
+                all_items.extend(items)
 
     enriched = _enrich(all_items)
 
-    return {
+    section: dict[str, Any] = {
         "items": enriched,
         "sources_tried": sources_tried,
         "sources_ok": sources_ok,
         "total": len(enriched),
-        "rsshub_base_url": _rsshub_base() or None,
-    }, all_errors
+        "rsshub_base_url": base or None,
+    }
+    if sector_matrix is not None:
+        section["sector_rsshub_matrix"] = sector_matrix
+    return section, all_errors

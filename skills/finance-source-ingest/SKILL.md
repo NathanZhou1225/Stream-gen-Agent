@@ -32,10 +32,11 @@ description: |
    - `.venv/bin/python skills/finance-source-ingest/scripts/ingest.py run --sources market,news,social ...`
    - 或在 `skills/finance-source-ingest/scripts/` 内：`../.venv/bin/python ingest.py run ...`（venv 建在 skill 根目录时）
 2. **stdout 为单个 JSON 对象**，含 `sections`、`errors`、`markdown_summary`。
-3. **事实以 `sections` 与 `errors` 为准**；`markdown_summary` 仅辅助阅读，不得从中补造数字。
-4. **`markdown_summary` 结构**：大盘与情绪（三大指数优先 → 北向资金 → 其他情绪/资金）→ 六大板块 **RSSHub 快讯**摘要（**每条带时间**；板块内不足时用宽池关键词回溯；仍无新闻时用行情侧补充或明确暂无）→ 大事件（国家/全球/政策/地缘/峰会类，不放公司业绩/午评/涨停分析）→ **全球宏观**（新浪7x24 + 证监会/人民银行 + 可选 CCTV）→ 今日热点讯息（仅金融相关）→ 社媒/人气榜探测 → 深度内容 → 中文告警。与上游 Agent 的「只发指数表」类输出**不**同义。
+3. **事实以 `sections` 与 `errors` 为准**；`markdown_summary` 仅辅助阅读，不得从中补造数字。配置 `FINANCE_RSSHUB_BASE_URL` 时，`sections.deep_news` 可含 **`sector_rsshub_matrix`**（六大板块垂直路由：每板块 `routes_tried_detail` / `routes_ok` / `routes_failed` / `items_count`），`meta.deep_news_sector_rsshub` 与之相同便于对拍。
+4. **`markdown_summary` 结构**：大盘与情绪（三大指数优先 → 北向资金 → 其他情绪/资金）→ 六大板块 **RSSHub 快讯**摘要（**每条带时间**；板块内不足时用宽池关键词回溯；仍无新闻时用行情侧补充或明确暂无；**深度层条目已并入各板块展示，无独立「深度内容」小节**）→ 大事件（国家/全球/政策/地缘/峰会类，不放公司业绩/午评/涨停分析）→ **全球宏观**（新浪7x24 + 证监会/人民银行 + 可选 CCTV）→ 今日热点讯息（仅金融相关）→ 社媒/人气榜探测 → 中文告警。机器侧完整深度列表仍以 JSON **`sections.deep_news`** 为准。与上游 Agent 的「只发指数表」类输出**不**同义。
 5. **缺口与告警**：接口失败、字段为空、板块未命中等情况写入 `errors` 并在 `markdown_summary` 的告警区用中文说明；**不再**输出 `meta.websearch_required` / `meta.websearch_gaps`，也不内嵌联网检索。
 6. **边界**：本 skill 为可迁移 API 信源层，**不调用** Agent WebSearch / Tavily。若上游 Agent 仍需人工联网核对，由 Agent 在对话中自行处理，且不得改写本 JSON 的 `sections` 数值事实。
+7. **T3 Router（v0.1.9）**：在组装前会对压缩菜单做单次 LLM 路由：每板块 **1～3 条**、优先深度逻辑、无重大事件时保留【强相关】行业/盘面动态，**仅**当菜单中完全无该板块相关信息时才 `[]`；去重同一事件多源快讯。结果写入 `sections.llm_router.items_by_sector`，主状态写入 `meta.llm_router_status`。超时/网关错/JSON 解析失败时回退 legacy，并写 `errors[].code=LLM_ROUTER_FAILED`。
 
 ## 铁律
 
