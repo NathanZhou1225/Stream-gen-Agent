@@ -1,0 +1,153 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "美股半导体指数跌超4%，高通重挫12%，英特尔大跌9.1%",
+  "generated_at": "2026-05-13T08:38:55+08:00",
+  "hotlist_meta": {
+    "primary_source": "tophub.today",
+    "secondary_source": "social_api(vvhan->akshare)",
+    "fallback_used": true,
+    "fallback_reason": "both_sources_unavailable"
+  },
+  "source_context": [
+    "【用户方向】美股半导体指数跌超4%，高通重挫12%，英特尔大跌9.1%",
+    "【ingest 关键词】['美股半导体指数跌超4%', '高通重挫12%', '英特尔大跌9.1%', '人工智能', 'AI', '算力', '芯片', '服务器', '大模型', '智算', 'GPU', '半导体', '科技', '新能源']",
+    "【领域标签】ai, teacher_focus",
+    "【事实短摘】\n- **三大指数**：**上证指数** 4214.4891 (-0.25%) / **深证成指** 15824.92 (-0.47%) / **创…\n- **北向资金**（尽力探测）：40.5543 亿元\n- 📡 指数源：新浪财经 hq.sinajs.cn\n- **行业强弱 Top**：非金属材料 (+2.59%)、电网设备 (+1.57%)、电力 (+1.50%)、元件 (+0.85%)、证券 (+…\n- **港股指数**（新浪）： 恒生指数 26347.91(-0.22%)、恒生科技指数 5070.61(-0.70%)、恒生中国企业指数 888…\n- **涨跌停统计**：涨停 0 家 / 跌停 暂缺\n- **主力净流入行业**（探测）：电力(+20.09亿)、电网设备(+14.32亿)、证券(+4.42亿)\n- **市场热词**（尽力探测）：AI、PCB、算力",
+    "provenance: finance-source-ingest|preflight_topic.py",
+    "【弱舆情提示】⚠️ 弱舆情热榜信号暂不可用（两路来源均失败），本轮选题基于行情/快讯/公告生成。",
+    "【信源状态】🔎 信源状态：可用[market、news]；降级[market(API_SCHEMA_CHANGE)]；不可用[social(DNS_FAIL)、tophub(TIMEOUT)]。",
+    "【领域证据】**港股指数**（新浪）： 恒生指数 26347.91(-0.22%)、恒生科技指数 5070.61(-0.70%)、恒生中国企业指数 8882.369(-0.",
+    "【领域增强来源】共抽取 9 条同域细节（行业/资金风向/快讯要点）"
+  ],
+  "candidates": [
+    {
+      "title": "美股半导体指数跌超4%，高通重挫12%，英特尔大跌9.1%｜盘面热点：芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值…",
+      "angle": "偏事实钩子：用本条快讯或数据开场，再扣回用户方向",
+      "thesis": "美股半导体指数跌超4%，高通重挫12%，英特尔大跌9.1%相关讨论与盘面事实正在共振，优先围绕「美股半导体指数跌超4%，高通重挫12%，英特尔大」展开。",
+      "evidence": [
+        {
+          "point": "芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独角兽”；宇树科技首款变形机甲售价公布** （财联社） | ",
+          "source_type": "news_flash",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**港股指数**（新浪）： 恒生指数 26347.91(-0.22%)、恒生科技指数 5070.61(-0.70%)、恒生中国企业指数 8882.369(-0.",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "事件：①芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独角兽”，这家公司已逐步向全球“AI Token运营",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- 🔹 🟢利好 [2026-05-13 08:11:37] **【九点特供】芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独角兽”；宇树科技首款变形机甲售价公布** （财联社） | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "事件：①芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独…",
+      "angle": "偏结构对照：与上条不同维度（板块/资金/节奏），避免重复口径",
+      "thesis": "美股半导体指数跌超4%，高通重挫12%，英特尔大跌9.1%相关讨论与盘面事实正在共振，优先围绕「事件：①芝商所将推出算力期货市场，分析师看好To」展开。",
+      "evidence": [
+        {
+          "point": "事件：①芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独角兽”，这家公司已逐步向全球“AI Token运营",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**港股指数**（新浪）： 恒生指数 26347.91(-0.22%)、恒生科技指数 5070.61(-0.70%)、恒生中国企业指数 8882.369(-0.",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独角兽”；宇树科技首款变形机甲售价公布** （财联社）",
+          "source_type": "news_flash",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- 事件：①芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独角兽”，这家公司已逐步向全球“AI Token运营商”转型；②宇树科技首款变形机甲售价公布，机构称当前人形机器人产业正处于从技术突破迈向规模化商业化的破晓时刻，这家公司正积极推进谐波减速器及执行… | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "影响：科技主线锚点：AI、算力、机器人；机器人是盘面交易抓手，重点看减速器、执行器、设备链和资金持续性。",
+      "angle": "偏讲述策略：把用户方向落成「观众能跟上的三段节奏」",
+      "thesis": "美股半导体指数跌超4%，高通重挫12%，英特尔大跌9.1%相关讨论与盘面事实正在共振，优先围绕「影响：科技主线锚点：AI、算力、机器人；机器人是」展开。",
+      "evidence": [
+        {
+          "point": "影响：科技主线锚点：AI、算力、机器人；机器人是盘面交易抓手，重点看减速器、执行器、设备链和资金持续性。 | provenance: finance-sourc",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**港股指数**（新浪）： 恒生指数 26347.91(-0.22%)、恒生科技指数 5070.61(-0.70%)、恒生中国企业指数 8882.369(-0.",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "芝商所将推出算力期货市场，分析师看好Token作为算力产出的智能价值单位，未来有望迅速发展出一批“独角兽”；宇树科技首款变形机甲售价公布** （财联社）",
+          "source_type": "news_flash",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- 影响：科技主线锚点：AI、算力、机器人；机器人是盘面交易抓手，重点看减速器、执行器、设备链和资金持续性。 | provenance: finance-source-ingest|preflight_topic.py"
+    }
+  ],
+  "preflight_meta": {
+    "direction": "美股半导体指数跌超4%，高通重挫12%，英特尔大跌9.1%",
+    "ingest_schema_version": "0.1.0",
+    "ingest_fetched_at": "2026-05-13T08:38:37+08:00",
+    "markdown_truncated": true,
+    "feishu_notice": "⚠️ 弱舆情热榜信号暂不可用（两路来源均失败），本轮选题基于行情/快讯/公告生成。",
+    "feishu_source_notice": "🔎 信源状态：可用[market、news]；降级[market(API_SCHEMA_CHANGE)]；不可用[social(DNS_FAIL)、tophub(TIMEOUT)]。",
+    "source_availability": {
+      "available": [
+        "market",
+        "news"
+      ],
+      "degraded": [
+        {
+          "source": "market",
+          "failure_type": "API_SCHEMA_CHANGE",
+          "detail": "TGB_HOT_FAILED"
+        }
+      ],
+      "unavailable": [
+        {
+          "source": "social",
+          "failure_type": "DNS_FAIL",
+          "detail": "SOCIAL_WB_HOT_FAILED"
+        },
+        {
+          "source": "tophub",
+          "failure_type": "TIMEOUT",
+          "detail": "hot_rank_script"
+        }
+      ]
+    },
+    "relevance_scores": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "relevance_avg": 1.0,
+    "domain_tags": [
+      "ai",
+      "teacher_focus"
+    ],
+    "source_context_compact": true,
+    "source_context_bullet_count": 8,
+    "candidate_evidence_pack_required": true,
+    "evidence_pack_instruction": "用户选定候选 1/2/3 后，先用 preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot.json> 生成该方向 evidence_pack；展示证据包后再进入 user-style 与大纲。"
+  },
+  "chosen": 2
+}

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Run finance-source-ingest and print a single JSON snapshot (stdout).
+"""Run finance-source-ingest and print a JSON snapshot on stdout.
 
-不再拼接 Tavily 或其它联网兜底；`markdown_summary` 与 `meta` 以 ingest 输出为准。
+默认走 summary-only 轻输出，减少会话上下文负担与 token 消耗。
+可用 --full 回退输出完整 snapshot（调试/排障用）。
 """
 
 from __future__ import annotations
@@ -86,16 +87,57 @@ def _run_finance_ingest(args: argparse.Namespace) -> dict[str, Any]:
     return _extract_json_object(proc.stdout)
 
 
+def _build_summary_view(snap: dict[str, Any]) -> dict[str, Any]:
+    meta = snap.get("meta") or {}
+    errors = snap.get("errors") or []
+    summary = str(snap.get("markdown_summary") or "")
+    out: dict[str, Any] = {
+        "ok": bool(snap.get("ok", True)),
+        "schema_version": snap.get("schema_version"),
+        "meta": {
+            "fetched_at": meta.get("fetched_at"),
+            "timezone": meta.get("timezone"),
+            "sources_requested": meta.get("sources_requested"),
+            "sources_ok": meta.get("sources_ok"),
+            "keywords": meta.get("keywords"),
+            # 便于诊断慢点：直接带 router/rewrite timing（如存在）
+            "llm_router_status": meta.get("llm_router_status"),
+            "llm_router_timing": meta.get("llm_router_timing"),
+            "sector_llm_rewrite_status": meta.get("sector_llm_rewrite_status"),
+            "sector_llm_rewrite_timing": meta.get("sector_llm_rewrite_timing"),
+        },
+        "errors": errors,
+        "markdown_summary": summary,
+        "invariants": snap.get("invariants"),
+    }
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run market facts (finance-source-ingest JSON on stdout)")
     parser.add_argument("--sources", default="market,news,social")
     parser.add_argument("--keywords", default="")
     parser.add_argument("--max-items", type=int, default=30)
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument(
+        "--summary-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="仅输出轻量字段（默认 true，减少上下文与 token）。",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="输出完整 snapshot（等价 --no-summary-only）。",
+    )
     args = parser.parse_args()
 
     snap = _run_finance_ingest(args)
-    print(json.dumps(snap, ensure_ascii=False, indent=2))
+    summary_only = bool(args.summary_only)
+    if args.full:
+        summary_only = False
+    payload = _build_summary_view(snap) if summary_only else snap
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

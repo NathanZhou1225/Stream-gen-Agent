@@ -34,5 +34,5 @@ read_when:
 ## 输出在飞书里的注意点
 
 - 长消息可能被分段，**关键结论可适度前置**；列表与表格在飞书中通常比深层嵌套 Markdown 更稳。
-- **今日行情 / 热点 / 信源快照**：以 `query_market_facts.py`（或等价的 `ingest.py run --sources market,news,social`）为准；回复里贴 **`markdown_summary` 全文**，不要自作主张只发指数表或只发快讯半截（见 `AGENTS.md` 与 `natural-language-intent.md` §4.4）。
+- **今日行情 / 热点 / 信源快照**：以 `query_market_facts.py`（或等价的 `ingest.py run --sources market,news,social`）为准；回复里贴 **`markdown_summary` 全文**，不要自作主张只发指数表或只发快讯半截（见 `AGENTS.md` 与 `skills/streamy-content-gen/prompts/fragments/intent-core.md` §4.4）。
 - 快照脚本**不再**自动拼接 Tavily 或 `websearch_gaps`。若用户追问缺口，可在**不改写**已贴出的 `markdown_summary` 前提下，用会话 WebSearch 自愿补充说明。

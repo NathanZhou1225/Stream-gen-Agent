@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -341,6 +342,300 @@ def _clip_flash_text(s: str, max_len: int = 160) -> str:
 
 def _item_text(it: dict[str, Any]) -> str:
     return f"{it.get('title') or ''} {it.get('clean_text') or ''} {it.get('summary') or ''} {it.get('detail') or ''}"
+
+
+_COLLECTION_TITLE_HINTS: tuple[str, ...] = (
+    "早报",
+    "早餐",
+    "要闻全览",
+    "盘前要点",
+    "盘前必读",
+    "环球市场",
+    "晨会精华",
+    "FM-Radio",
+    "音频",
+)
+
+_SECTOR_ANCHOR_TERMS: dict[str, tuple[str, ...]] = {
+    "科技": (
+        "OpenAI",
+        "英伟达",
+        "GPU",
+        "AI芯片",
+        "人工智能",
+        "AI",
+        "算力",
+        "芯片",
+        "半导体",
+        "大模型",
+        "光模块",
+        "CPO",
+        "数据中心",
+        "服务器",
+        "机器人",
+        "具身智能",
+        "云计算",
+        "存储",
+    ),
+    "新能源": (
+        "新能源",
+        "光伏",
+        "风电",
+        "储能",
+        "锂电",
+        "电池",
+        "充电桩",
+        "氢能",
+        "新能源车",
+        "电动车",
+        "电力",
+        "电网",
+        "绿电",
+        "智能电网",
+        "微电网",
+        "固态变压器",
+        "碳酸锂",
+        "锂价",
+        "锂矿",
+        "电池材料",
+        "正极材料",
+        "负极材料",
+    ),
+    "港股": ("港股", "恒生", "恒生科技", "南向", "北水", "港股通", "港交所", "中资股", "H股"),
+    "黄金": (
+        "黄金",
+        "金价",
+        "现货黄金",
+        "COMEX",
+        "贵金属",
+        "纽约期金",
+        "沪金",
+        "黄金ETF",
+        "金银比",
+        "伦敦金",
+        "央行购金",
+        "央行增持黄金",
+        "避险",
+        "地缘",
+        "冲突",
+        "美联储",
+        "降息",
+    ),
+    "有色": (
+        "有色",
+        "能源金属",
+        "工业金属",
+        "铜",
+        "铝",
+        "锌",
+        "镍",
+        "钴",
+        "锂",
+        "稀土",
+        "锂矿",
+        "伦铜",
+        "沪铜",
+        "LME",
+        "氧化铝",
+        "电解铝",
+        "碳酸锂",
+        "锂价",
+        "小金属",
+        "矿端",
+        "库存",
+    ),
+    "银行": (
+        "银行",
+        "信贷",
+        "息差",
+        "净息差",
+        "不良率",
+        "拨备",
+        "存款",
+        "贷款",
+        "LPR",
+        "降准",
+        "同业存款",
+        "Shibor",
+        "金融监管",
+    ),
+}
+
+_TECH_WEAK_NEGATIVE_TERMS: tuple[str, ...] = (
+    "爱奇艺",
+    "剧集",
+    "综艺",
+    "长视频",
+    "文娱",
+    "票房",
+    "影视",
+)
+
+_GOLD_FALSE_POSITIVE_TERMS: tuple[str, ...] = (
+    "黄金时代",
+    "黄金赛道",
+    "黄金十年",
+    "黄金窗口",
+    "黄金期",
+    "黄金周",
+    "黄金档",
+    "黄金地段",
+    "商业航天",
+)
+
+_BANK_BUSINESS_TERMS: tuple[str, ...] = (
+    "商业银行",
+    "银行股",
+    "股份行",
+    "城商行",
+    "农商行",
+    "信贷",
+    "息差",
+    "净息差",
+    "不良率",
+    "拨备",
+    "存款",
+    "贷款",
+    "LPR",
+    "降准",
+    "同业存款",
+    "Shibor",
+    "银行监管",
+    "资本充足率",
+)
+
+_BANK_FALSE_POSITIVE_TERMS: tuple[str, ...] = (
+    "信息差",
+    "认知差",
+    "智商税",
+    "白桦树汁",
+    "果汁",
+    "饮料",
+)
+
+_NEGATIVE_FINANCE_TERMS: tuple[str, ...] = (
+    "债务危机",
+    "债务逾期",
+    "账户被冻结",
+    "司法冻结",
+    "被诉",
+    "诉讼",
+    "亏损",
+    "利润暴跌",
+    "退市",
+    "ST",
+    "破产",
+    "违约",
+)
+
+_VAGUE_DISPLAY_TERMS: tuple[str, ...] = (
+    "可能",
+    "大概",
+    "或许",
+    "似乎",
+    "或将",
+    "有望",
+    "预计",
+)
+
+
+def _is_collection_title(title: str) -> bool:
+    return any(k in (title or "") for k in _COLLECTION_TITLE_HINTS)
+
+
+def _sector_anchor_hits(sec: str, title: str, body: str) -> list[str]:
+    blob = f"{title} {body}"
+    return [k for k in _SECTOR_ANCHOR_TERMS.get(sec, ()) if k and k in blob]
+
+
+def _has_negative_finance_terms(text: str) -> bool:
+    return any(k in (text or "") for k in _NEGATIVE_FINANCE_TERMS)
+
+
+def _sector_focus_terms(sec: str) -> tuple[str, ...]:
+    extra: dict[str, tuple[str, ...]] = {
+        "黄金": ("央行", "购金", "增持", "黄金储备", "金价", "现货黄金", "COMEX", "贵金属", "地缘", "冲突", "中东", "伊朗", "避险", "美联储", "降息"),
+        "有色": ("铜", "铝", "锂", "镍", "稀土", "碳酸锂", "锂价", "库存", "矿端", "供给", "需求"),
+    }
+    return tuple(dict.fromkeys((*_SECTOR_ANCHOR_TERMS.get(sec, ()), *extra.get(sec, ()))))
+
+
+def _sector_focused_sentence(sec: str, text: str, *, max_len: int = 150) -> str:
+    terms = _sector_focus_terms(sec)
+    if not terms:
+        return ""
+    sentences = re.split(r"[。！？；;\n]\s*", text or "")
+    picked: list[str] = []
+    for sent in sentences:
+        clean = _clean_display_text(sent)
+        if len(clean) < 8:
+            continue
+        if sec in {"黄金", "有色", "新能源"} and any(k in clean for k in _VAGUE_DISPLAY_TERMS):
+            continue
+        if any(k in clean for k in terms):
+            picked.append(clean)
+        if len("；".join(picked)) >= max_len or len(picked) >= 2:
+            break
+    return _clip_flash_text("；".join(picked), max_len=max_len) if picked else ""
+
+
+def _sector_item_is_usable(sec: str, it: dict[str, Any]) -> bool:
+    """板块可用性底线：进入展示前必须有可解释的行业/商品锚点。"""
+    title = _clean_display_text(str(it.get("title") or ""))
+    body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or it.get("detail") or ""))
+    anchors = _sector_anchor_hits(sec, title, body)
+    if not anchors:
+        return False
+    if _is_collection_title(title) and len(body) < 40:
+        return False
+    blob = f"{title} {body}"
+    if sec == "科技" and any(k in f"{title} {body}" for k in _TECH_WEAK_NEGATIVE_TERMS):
+        # 文娱/平台类文章只有在同时具备强科技锚点时才进科技板块。
+        strong = {"OpenAI", "英伟达", "GPU", "AI芯片", "人工智能", "AI", "算力", "芯片", "半导体", "CPO", "大模型"}
+        title_anchors = set(_sector_anchor_hits(sec, title, ""))
+        return any(a in strong for a in title_anchors)
+    if sec == "黄金":
+        if any(k in blob for k in _GOLD_FALSE_POSITIVE_TERMS):
+            return any(k in blob for k in ("金价", "现货黄金", "COMEX", "贵金属", "央行购金", "黄金储备", "黄金ETF", "沪金", "纽约期金"))
+        return bool(anchors)
+    if sec == "有色":
+        return bool(anchors)
+    if sec == "银行":
+        if any(k in blob for k in _BANK_FALSE_POSITIVE_TERMS):
+            return False
+        # “人民银行/央行”本身不等于银行板块，需有商业银行业务或监管锚点。
+        return any(k in blob for k in _BANK_BUSINESS_TERMS)
+    return True
+
+
+def _candidate_sectors_for_item(it: dict[str, Any], *, max_sectors: int = 2) -> list[str]:
+    hits: list[str] = []
+    for sec in _ROUTER_SECTORS:
+        if _sector_item_is_usable(sec, it):
+            hits.append(sec)
+    if "科技" in hits and "新能源" in hits:
+        ordered = ["科技", "新能源"] + [x for x in hits if x not in {"科技", "新能源"}]
+        return ordered[:max_sectors]
+    return hits[:max_sectors]
+
+
+def _annotate_item_for_sector(it: dict[str, Any], sec: str, *, line_source: str | None = None) -> dict[str, Any]:
+    out = dict(it)
+    sectors = _candidate_sectors_for_item(out, max_sectors=2)
+    if sec not in sectors:
+        sectors.insert(0, sec)
+    out["primary_sector"] = sectors[0] if sectors else sec
+    out["related_sectors"] = [s for s in sectors if s != out["primary_sector"]]
+    out["display_sector"] = sec
+    anchors = _sector_anchor_hits(
+        sec,
+        str(out.get("title") or ""),
+        str(out.get("clean_text") or out.get("summary") or out.get("detail") or ""),
+    )
+    out["sector_reason"] = "、".join(anchors[:4]) if anchors else sec
+    if line_source and not str(out.get("sector_line_source") or "").strip():
+        out["sector_line_source"] = line_source
+    return out
 
 
 def _is_finance_related(it: dict[str, Any]) -> bool:
@@ -806,38 +1101,7 @@ def _router_allowed_cross_sector_pair(sec_a: str, sec_b: str, it: dict[str, Any]
 
 def _router_keyword_strong_match(sec: str, title: str, body: str) -> bool:
     """不吃标签/垂直路由豁免的强相关判断，用于宽频道与降级输出。"""
-    blob = f"{title} {body}"
-    if sec == "科技":
-        return any(
-            k in blob
-            for k in (
-                "人工智能",
-                "AI",
-                "算力",
-                "芯片",
-                "半导体",
-                "大模型",
-                "GPU",
-                "光模块",
-                "CPO",
-                "信创",
-                "云计算",
-                "机器人",
-                "具身智能",
-                "数据中心",
-            )
-        )
-    if sec == "新能源":
-        return any(k in blob for k in ("新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩", "氢能", "新能源车", "电动车", "宁德时代", "微电网"))
-    if sec == "港股":
-        return any(k in blob for k in ("港股", "恒生", "南向", "港交所", "港股通", "恒生科技", "恒生指数", "中资股"))
-    if sec == "银行":
-        return any(k in blob for k in ("银行", "信贷", "息差", "净息差", "不良率", "拨备", "存款", "贷款", "LPR", "降准", "汇丰", "工行", "农行", "中行", "建行"))
-    if sec == "黄金":
-        return any(k in blob for k in ("黄金", "金价", "现货黄金", "COMEX", "贵金属", "纽约期金", "沪金", "黄金ETF", "金银比", "伦敦金", "央行增持黄金"))
-    if sec == "有色":
-        return any(k in blob for k in ("有色", "能源金属", "稀土", "工业金属", "铜", "铝", "锌", "镍", "钴", "锂矿", "伦铜", "沪铜", "LME", "氧化铝", "电解铝", "碳酸锂"))
-    return False
+    return _sector_item_is_usable(sec, {"title": title, "clean_text": body})
 
 
 def _router_source_requires_strict_match(it: dict[str, Any]) -> bool:
@@ -873,6 +1137,14 @@ def _sector_strong_match(
 ) -> bool:
     """板块强相关判定，避免弱相关误命中。"""
     blob = f"{title} {body}"
+    pseudo_item = {
+        "title": title,
+        "clean_text": body,
+        "sector_tags": list(item_tags or []),
+        "vertical_target_sector": vertical_target_sector or "",
+    }
+    if not _sector_item_is_usable(sec, pseudo_item):
+        return False
     # 银行板块先做反向排除，避免被标签豁免误放行
     if sec == "银行":
         analyst_terms = ("目标价", "评级")
@@ -913,8 +1185,12 @@ def _sector_strong_match(
             "贷款",
             "息差",
         )
+        if any(k in blob for k in _BANK_FALSE_POSITIVE_TERMS):
+            return False
         return any(k in blob for k in bank_terms)
     if sec == "黄金":
+        if any(k in blob for k in _GOLD_FALSE_POSITIVE_TERMS):
+            return any(k in blob for k in ("金价", "现货黄金", "COMEX", "贵金属", "央行购金", "黄金储备", "黄金ETF", "沪金", "纽约期金"))
         return any(
             k in blob
             for k in (
@@ -966,9 +1242,25 @@ def _sector_strong_match(
 
 _ROUTER_SECTORS: tuple[str, ...] = ("科技", "新能源", "港股", "黄金", "有色", "银行")
 _ROUTER_MAX_IDS_PER_SECTOR = 3
-_ROUTER_EMPTY_INSIGHT = "今日盘面受宏观大盘主导，暂无超预期产业事件。"
-_ROUTER_FILLED_FALLBACK_INSIGHT = "本板块出现若干强相关线索，需结合盘面继续确认主线。"
+_ROUTER_EMPTY_INSIGHT = "本轮未筛出高置信度板块资讯，暂不强行归因。"
+_ROUTER_FILLED_FALLBACK_INSIGHT = "已筛出高置信度线索，详见下方事件与影响。"
 _ROUTER_CANDIDATES_PER_SECTOR = 8
+_SECTOR_REWRITE_MAX_ITEMS = 5
+_SECTOR_REWRITE_VAGUE_TERMS: tuple[str, ...] = (
+    "可能",
+    "大概",
+    "或许",
+    "似乎",
+    "或将",
+    "有望",
+    "预计",
+    "有机会",
+    "值得关注",
+    "需关注",
+    "需观察",
+    "有待",
+    "不排除",
+)
 _ROUTER_SYSTEM_PROMPT = (
     "你是金融资讯Router。菜单已按 [科技, 新能源, 港股, 黄金, 有色, 银行] 分组。"
     "只在各板块自己的候选中选 ID。\n"
@@ -983,7 +1275,8 @@ _ROUTER_SYSTEM_PROMPT = (
 def _router_enabled() -> bool:
     raw = os.environ.get("FINANCE_LLM_ROUTER_ENABLED", "").strip()
     if not raw:
-        return True
+        # 默认关闭，避免纯信源拉取被 LLM router 阻塞 20-30s。
+        return False
     return raw in ("1", "true", "TRUE", "yes", "YES")
 
 
@@ -999,10 +1292,36 @@ def _router_menu_max_items() -> int:
 def _router_timeout_sec() -> int:
     raw = os.environ.get("FINANCE_LLM_ROUTER_TIMEOUT_SEC", "").strip()
     try:
-        v = int(raw) if raw else 30
+        # 默认 10s 保底，超时快速回退到 fallback_grouped。
+        v = int(raw) if raw else 10
     except ValueError:
-        v = 30
-    return max(10, min(45, v))
+        v = 10
+    return max(6, min(20, v))
+
+
+def _sector_rewrite_enabled() -> bool:
+    raw = os.environ.get("FINANCE_SECTOR_LLM_REWRITE_ENABLED", "").strip()
+    if not raw:
+        return False
+    return raw in ("1", "true", "TRUE", "yes", "YES")
+
+
+def _sector_rewrite_timeout_sec() -> int:
+    raw = os.environ.get("FINANCE_SECTOR_LLM_REWRITE_TIMEOUT_SEC", "").strip()
+    try:
+        v = int(raw) if raw else 8
+    except ValueError:
+        v = 8
+    return max(3, min(20, v))
+
+
+def _sector_rewrite_load_config() -> tuple[str, str, str]:
+    base = os.environ.get("FINANCE_SECTOR_LLM_BASE_URL", "").strip()
+    key = os.environ.get("FINANCE_SECTOR_LLM_API_KEY", "").strip()
+    model = os.environ.get("FINANCE_SECTOR_LLM_MODEL", "").strip()
+    if base and key and model:
+        return base.rstrip("/"), key, model
+    return _router_load_config()
 
 
 def _router_compact_retry_enabled() -> bool:
@@ -1120,7 +1439,7 @@ def _router_build_candidates(
         title = _clean_display_text(str(it.get("title") or "")).strip()
         body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or "")).strip()
         menu_summary = body[:80] + ("..." if len(body) > 80 else "")
-        raw = dict(it)
+        raw = _annotate_item_for_sector(it, sec, line_source=source_type)
         return {
             "title": title or body[:120],
             "summary": menu_summary,
@@ -1140,6 +1459,8 @@ def _router_build_candidates(
     def matches_sector(sec: str, it: dict[str, Any]) -> bool:
         title = str(it.get("title") or "")
         body = str(it.get("clean_text") or it.get("summary") or "")
+        if not _sector_item_is_usable(sec, it):
+            return False
         if _router_source_requires_strict_match(it):
             return _router_keyword_strong_match(sec, title, body)
         vts = str(it.get("vertical_target_sector") or "").strip()
@@ -1386,7 +1707,7 @@ def _build_sector_items_with_router(
                 if not str(base_item.get("sector_line_source") or "").strip():
                     base_item["sector_line_source"] = "llm_router"
                 base_item["llm_reason"] = reason_by_id.get(idx, "") or fallback_reason
-                items_by_sec[sec].append(base_item)
+                items_by_sec[sec].append(_annotate_item_for_sector(base_item, sec, line_source="llm_router"))
                 n_sec += 1
         return _dedupe_router_items_across_sectors(items_by_sec)
 
@@ -1501,6 +1822,540 @@ def _item_source_label(it: dict[str, Any]) -> str:
     if it.get("cross_source_hit"):
         return "财联社·RSSHub"
     return "RSSHub快讯"
+
+
+def _sector_event_summary(sec: str, it: dict[str, Any], title: str) -> str:
+    body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or it.get("detail") or ""))
+    if body and title and body.startswith(title[: min(12, len(title))]):
+        body = body[len(title) :].lstrip(" ，,。:-—")
+    if body and (_is_collection_title(title) or len(body) > 180):
+        focused = _sector_focused_sentence(sec, body, max_len=150)
+        if focused:
+            return focused
+    if body:
+        sentences = re.split(r"[。！？；;\n]\s*", body)
+        for sent in sentences:
+            clean = _clean_display_text(sent)
+            if len(clean) >= 12 and not any(k in clean for k in _VAGUE_DISPLAY_TERMS):
+                return _clip_flash_text(clean, max_len=150)
+        return _clip_flash_text(body, max_len=150)
+    if title:
+        return _clip_flash_text(title, max_len=120)
+    return "本条暂无可用正文摘要，请结合来源复核。"
+
+
+def _sector_subtheme(sec: str, title: str, body: str) -> str:
+    blob = f"{title} {body}"
+    if sec == "科技":
+        if "机器人" in blob or "具身智能" in blob:
+            return "robotics"
+        if any(k in blob for k in ("融资", "IPO", "红筹", "港股IPO", "估值")) and any(k in blob for k in ("大模型", "AI", "人工智能")):
+            return "ai_capital"
+        if any(k in blob for k in ("OpenAI", "英伟达", "GPU", "AI芯片", "算力", "数据中心", "服务器", "CPO", "光模块")):
+            return "compute"
+        if any(k in blob for k in ("AI社交", "AI应用", "卖货", "商业化", "录音笔", "会议", "多闪")):
+            return "ai_application"
+        if any(k in blob for k in ("AI幻觉", "system prompt", "大模型")):
+            return "model_quality"
+    if sec == "新能源":
+        if "电池安全" in blob:
+            return "ev_battery"
+        if any(k in blob for k in ("碳酸锂", "锂价", "锂矿", "电池材料", "正极材料", "负极材料", "锂电材料")):
+            return "lithium_cost"
+        if any(k in blob for k in ("电力", "电网", "储能", "绿电", "固态变压器", "铜会成为新石油")):
+            return "power_infra"
+        if any(k in blob for k in ("电池", "新能源车", "电动车", "汽车")):
+            return "ev_battery"
+    if sec == "黄金":
+        if any(k in blob for k in ("央行", "购金", "增持", "黄金储备")):
+            return "central_bank_gold"
+        if any(k in blob for k in ("战争", "冲突", "伊朗", "中东", "避险")):
+            return "safe_haven"
+    if sec == "有色":
+        if any(k in blob for k in ("铜", "伦铜", "沪铜")):
+            return "copper"
+        if any(k in blob for k in ("锂", "碳酸锂", "锂矿")):
+            return "lithium"
+        if any(k in blob for k in ("铝", "氧化铝", "电解铝")):
+            return "aluminum"
+        if any(k in blob for k in ("镍", "镍价")):
+            return "nickel"
+    if sec == "港股":
+        if any(k in blob for k in ("南向", "北水", "港股通")):
+            return "southbound"
+        if any(k in blob for k in ("SaaS", "软件", "云服务", "企业服务")):
+            return "hk_software"
+        if any(k in blob for k in ("IPO", "H股", "招股", "上市", "红筹")):
+            return "hk_ipo"
+    return "general"
+
+
+def _display_title_for_sector(sec: str, title: str, body: str) -> str:
+    if not _is_collection_title(title):
+        return title
+    anchors = _sector_focus_terms(sec)
+    candidates = re.split(r"[。！？；;]\s*", body)
+    for sent in candidates:
+        clean = _clean_display_text(sent)
+        if len(clean) < 12:
+            continue
+        if any(a in clean for a in anchors):
+            return _clip_flash_text(clean, max_len=46)
+    return title
+
+
+def _sector_impact_summary(sec: str, it: dict[str, Any], title: str, body: str) -> str:
+    anchors = _sector_anchor_hits(sec, title, body)
+    anchor_text = "、".join(anchors[:4]) if anchors else sec
+    subtheme = _sector_subtheme(sec, title, body)
+    if sec == "科技":
+        if subtheme == "robotics":
+            return f"科技主线锚点：{anchor_text}；机器人是盘面交易抓手，重点看减速器、执行器、设备链和资金持续性。"
+        if subtheme == "ai_capital":
+            return f"科技主线锚点：{anchor_text}；大模型融资/港股 IPO 预期强化 AI 资产证券化与产业资本入场叙事。"
+        if subtheme == "compute":
+            return f"科技主线锚点：{anchor_text}；关注 GPU、AI 芯片、数据中心和国产替代链条的供需变化。"
+        if subtheme == "ai_application":
+            return f"科技主线锚点：{anchor_text}；关注 AI 应用商业化、用户增长与大厂生态合作能否转成业绩线索。"
+        if subtheme == "model_quality":
+            return f"科技主线锚点：{anchor_text}；模型能力与可靠性议题升温，适合观察 AI 应用落地门槛。"
+        return f"科技主线锚点：{anchor_text}；优先关注算力、芯片、AI 应用或数据中心链条的资金映射。"
+    if sec == "新能源":
+        if subtheme == "power_infra":
+            return f"新能源联动锚点：{anchor_text}；算力扩张抬升电力基础设施重要性，关注储能、电网设备和绿电消纳。"
+        if subtheme == "lithium_cost":
+            return f"新能源联动锚点：{anchor_text}；锂价和电池材料价格影响电芯成本、锂电链利润分配与上游资源品弹性。"
+        if subtheme == "ev_battery":
+            return f"新能源联动锚点：{anchor_text}；电池安全与新能源车竞争影响产业链信任度和后续监管/标准预期。"
+        return f"新能源联动锚点：{anchor_text}；重点看电力设备、储能、绿电消纳或新能源车链条是否受益。"
+    if sec == "黄金":
+        return f"黄金锚点：{anchor_text}；关注避险情绪、央行购金、美元/美债利率与金价弹性的传导。"
+    if sec == "有色":
+        if subtheme == "copper":
+            return f"有色锚点：{anchor_text}；铜价、库存和矿端扰动影响工业金属定价与资源股弹性。"
+        if subtheme == "lithium":
+            return f"有色锚点：{anchor_text}；锂价变化牵动电池材料成本、锂矿利润和新能源链价格预期。"
+        if subtheme == "aluminum":
+            return f"有色锚点：{anchor_text}；铝价、氧化铝和电解铝供给约束影响产业链利润分配。"
+        if subtheme == "nickel":
+            return f"有色锚点：{anchor_text}；镍价和供给扰动影响不锈钢及电池材料链条预期。"
+        return f"有色锚点：{anchor_text}；关注具体金属品种的价格、库存、供给扰动与需求预期。"
+    if sec == "港股":
+        if subtheme == "southbound":
+            return f"港股锚点：{anchor_text}；南向资金和港股通变化直接影响恒生科技与中资资产风险偏好。"
+        if subtheme == "hk_software":
+            return f"港股锚点：{anchor_text}；SaaS/软件逆势线索反映港股科技资产的业绩韧性和估值修复可能。"
+        if subtheme == "hk_ipo":
+            return f"港股锚点：{anchor_text}；IPO/H股/红筹动态强化中资科技资产证券化与港股新经济供给。"
+        return f"港股锚点：{anchor_text}；关注恒生科技、南向资金与中资资产风险偏好的变化。"
+    if sec == "银行":
+        return f"银行锚点：{anchor_text}；关注净息差、信贷投放、同业存款定价与监管政策影响。"
+    return f"板块锚点：{anchor_text}。"
+
+
+def _sector_content_angle(sec: str, it: dict[str, Any], title: str, body: str) -> str:
+    subtheme = _sector_subtheme(sec, title, body)
+    if sec == "科技":
+        if subtheme == "robotics":
+            return "可从“机器人行情是不是硬科技新主线”切入，讲资金为何选择设备链和核心零部件。"
+        if subtheme == "ai_capital":
+            return "可从“大模型公司融资和赴港 IPO 预期升温”切入，讲 AI 公司如何从技术叙事走向资本化。"
+        if subtheme == "compute":
+            return "可从“AI 算力链的新变量”切入，追问国产替代、供给瓶颈或产业链受益环节。"
+        if subtheme == "ai_application":
+            return "可从“AI 应用从讲故事到卖产品”切入，判断用户增长和商业化是否支撑估值。"
+        if subtheme == "model_quality":
+            return "可从“AI 幻觉和模型可靠性卡住落地”切入，解释为什么应用爆发还需要基础能力突破。"
+        return "可从“硬科技主线是否延续”切入，结合盘面强弱筛选可讲的产业链节点。"
+    if sec == "新能源":
+        if subtheme == "power_infra":
+            return "可从“算力扩张背后的电力基础设施”切入，解释储能、电网设备和绿电消纳机会。"
+        if subtheme == "lithium_cost":
+            return "可从“锂价如何重定价锂电产业链利润”切入，讲清电池材料成本、锂矿弹性和整车端价格预期。"
+        if subtheme == "ev_battery":
+            return "可从“电池安全如何影响新能源车信任与监管标准”切入，连接产业链和消费端风险。"
+        return "可从“新能源链条景气修复或政策催化”切入，判断是短线情绪还是基本面变化。"
+    if sec == "黄金":
+        return "可从“避险与央行购金如何影响金价”切入，适合做宏观到资产价格的解释型内容。"
+    if sec == "有色":
+        if subtheme == "copper":
+            return "可从“铜价为何牵动工业金属和资源股”切入，讲库存、矿端扰动与需求预期。"
+        if subtheme == "lithium":
+            return "可从“锂价变化如何传导到电池材料和上游资源品”切入，区分成本压力与资源股弹性。"
+        if subtheme == "aluminum":
+            return "可从“铝价和供给约束如何影响有色链条”切入，讲氧化铝、电解铝和需求端验证。"
+        if subtheme == "nickel":
+            return "可从“镍价扰动如何影响不锈钢和电池材料”切入，判断是供给冲击还是需求修复。"
+        return "可从“商品价格与供需扰动如何映射 A 股资源品”切入，重点讲清具体金属品种。"
+    if sec == "港股":
+        if subtheme == "southbound":
+            return "可从“南向资金是否重新定价港股核心资产”切入，连接恒生科技和中资资产风险偏好。"
+        if subtheme == "hk_software":
+            return "可从“港股 SaaS/软件为何逆势”切入，讲业绩韧性、估值修复和科技资产分化。"
+        if subtheme == "hk_ipo":
+            return "可从“中资科技资产赴港证券化升温”切入，解释 IPO 供给和港股新经济定价。"
+        return "可从“港股风险偏好和南向资金是否回暖”切入，连接恒生科技与中资资产定价。"
+    if sec == "银行":
+        return "可从“利率、信贷和监管如何影响银行估值”切入，避免把泛宏观新闻误读成银行利好。"
+    return "可从事件本身的市场影响切入，补充盘面验证后再开稿。"
+
+
+def _sector_item_view_model(sec: str, it: dict[str, Any], *, tpart: str, s_prefix: str, src_label: str) -> dict[str, Any] | None:
+    title = _clean_display_text(str(it.get("title") or ""))
+    body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or it.get("detail") or title))
+    if _is_collection_title(title) and len(body) < 40:
+        return None
+    event = _sector_event_summary(sec, it, title)
+    impact = _sector_impact_summary(sec, it, title, body)
+    angle = _sector_content_angle(sec, it, title, body)
+    display_title = _display_title_for_sector(sec, title, body) or event
+    return {
+        "raw_item": it,
+        "title": title,
+        "body": body,
+        "display_title": display_title,
+        "event": event,
+        "impact": impact,
+        "angle": angle,
+        "tpart": tpart,
+        "s_prefix": s_prefix,
+        "src_label": src_label,
+    }
+
+
+def _format_sector_view_model_lines(vm: dict[str, Any]) -> list[str]:
+    display_title = str(vm.get("display_title") or vm.get("event") or "")
+    event = str(vm.get("event") or "")
+    impact = str(vm.get("impact") or "")
+    angle = str(vm.get("angle") or "")
+    tpart = str(vm.get("tpart") or "")
+    s_prefix = str(vm.get("s_prefix") or "")
+    src_label = str(vm.get("src_label") or "")
+    lines = [f"- 🔹 {s_prefix}{tpart} **{display_title}** （{src_label}）"]
+    lines.append(f"  - 事件：{event}")
+    lines.append(f"  - 影响：{impact}")
+    lines.append(f"  - 角度：{angle}")
+    return lines
+
+
+def _format_sector_item_lines(sec: str, it: dict[str, Any], *, tpart: str, s_prefix: str, src_label: str) -> list[str]:
+    vm = _sector_item_view_model(sec, it, tpart=tpart, s_prefix=s_prefix, src_label=src_label)
+    return _format_sector_view_model_lines(vm) if vm else []
+
+
+def _sector_rewrite_text_has_vague_terms(text: str) -> bool:
+    return any(term in (text or "") for term in _SECTOR_REWRITE_VAGUE_TERMS)
+
+
+def _sector_rewrite_build_prompt(sec: str, insight: str, view_models: list[dict[str, Any]]) -> tuple[str, str]:
+    items = [
+        {
+            "index": idx,
+            "title": str(vm.get("display_title") or vm.get("title") or ""),
+            "source": str(vm.get("src_label") or ""),
+            "event": str(vm.get("event") or ""),
+            "impact": str(vm.get("impact") or ""),
+            "angle": str(vm.get("angle") or ""),
+        }
+        for idx, vm in enumerate(view_models[:_SECTOR_REWRITE_MAX_ITEMS])
+    ]
+    system_prompt = (
+        "你是金融自媒体板块快照润色器，只负责把已给事实改写得更像研究员口径。\n"
+        "Safety Boundary:\n"
+        "1. 只能使用输入里的标题、事件、影响、角度和来源信息，不得新增事实、数值、机构名、时间或行情。\n"
+        "2. 不得改变数字、涨跌方向、主体关系和板块归因；不确定就沿用原文。\n"
+        "3. 不参与选新闻、不删除新闻、不改变 index；items 必须逐条返回。\n"
+        "4. insight 只能一句话，事件/影响/角度要短句、自然、可直接发飞书。\n"
+        "5. 严禁使用模糊性表达！金融自媒体最忌讳“可能、大概、或许”。润色时把“可能利好”改为更具确定性的逻辑关联，例如“直接利好算力租赁环节”。"
+    )
+    user_prompt = (
+        f"板块：{sec}\n"
+        f"规则洞察：{insight}\n"
+        "请返回严格 JSON：{\"insight\":\"一句板块洞察\",\"items\":[{\"index\":0,\"event\":\"...\",\"impact\":\"...\",\"angle\":\"...\"}]}\n"
+        "输入条目：\n"
+        + json.dumps(items, ensure_ascii=False)
+    )
+    return system_prompt, user_prompt
+
+
+def _sector_rewrite_parse_json(raw: str) -> dict[str, Any]:
+    s = (raw or "").strip()
+    try:
+        obj = json.loads(s)
+    except json.JSONDecodeError:
+        m = re.search(r"\{[\s\S]*\}", s)
+        if not m:
+            raise ValueError("sector rewrite 输出无法解析为 JSON object") from None
+        obj = json.loads(m.group(0))
+    if not isinstance(obj, dict):
+        raise ValueError("sector rewrite 输出根节点必须为 object")
+    return obj
+
+
+def _sector_rewrite_call_llm(
+    sec: str,
+    view_models: list[dict[str, Any]],
+    insight: str,
+    *,
+    base: str,
+    key: str,
+    model: str,
+    timeout_sec: int,
+) -> tuple[str, list[dict[str, Any]]]:
+    system_prompt, user_prompt = _sector_rewrite_build_prompt(sec, insight, view_models)
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.15,
+        "max_tokens": 900,
+        "response_format": {"type": "json_object"},
+    }
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    req = urlrequest.Request(
+        f"{base}/chat/completions",
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urlrequest.urlopen(req, timeout=max(1, timeout_sec), context=ssl.create_default_context()) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib_error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"sector rewrite HTTP {e.code}: {detail[:500]}") from e
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"sector rewrite 请求失败: {e!s}") from e
+    choices = payload.get("choices") or []
+    if not choices:
+        raise RuntimeError("sector rewrite 响应无 choices")
+    content = str(((choices[0] or {}).get("message") or {}).get("content") or "")
+    obj = _sector_rewrite_parse_json(content)
+    rewritten_insight = _clean_display_text(str(obj.get("insight") or ""))
+    if not rewritten_insight or _sector_rewrite_text_has_vague_terms(rewritten_insight):
+        raise ValueError("sector rewrite insight 为空或包含模糊性表达")
+    items = obj.get("items")
+    if not isinstance(items, list) or len(items) != len(view_models):
+        raise ValueError("sector rewrite items 数量不匹配")
+    by_index: dict[int, dict[str, str]] = {}
+    for entry in items:
+        if not isinstance(entry, dict):
+            raise ValueError("sector rewrite item 必须为 object")
+        idx = entry.get("index")
+        if not isinstance(idx, int) or idx < 0 or idx >= len(view_models) or idx in by_index:
+            raise ValueError("sector rewrite item index 非法")
+        rewritten_fields: dict[str, str] = {}
+        for field in ("event", "impact", "angle"):
+            value = _clean_display_text(str(entry.get(field) or ""))
+            if not value or _sector_rewrite_text_has_vague_terms(value):
+                raise ValueError(f"sector rewrite {field} 为空或包含模糊性表达")
+            rewritten_fields[field] = _clip_flash_text(value, max_len=180)
+        by_index[idx] = rewritten_fields
+    if set(by_index) != set(range(len(view_models))):
+        raise ValueError("sector rewrite item index 未覆盖全部条目")
+    out: list[dict[str, Any]] = []
+    for idx, vm in enumerate(view_models):
+        neo = dict(vm)
+        neo.update(by_index[idx])
+        out.append(neo)
+    return _clip_flash_text(rewritten_insight, max_len=90), out
+
+
+def _rewrite_sector_view_models_concurrently(
+    sector_payloads: dict[str, dict[str, Any]],
+    errors: list[dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    if not _sector_rewrite_enabled():
+        return {}, {"status": "disabled_by_env", "status_by_sector": {}, "timing_by_sector": {}}
+    callable_sectors = {
+        sec: payload
+        for sec, payload in sector_payloads.items()
+        if payload.get("view_models")
+    }
+    if not callable_sectors:
+        return {}, {"status": "no_items", "status_by_sector": {}, "timing_by_sector": {}}
+    try:
+        base, key, model = _sector_rewrite_load_config()
+    except Exception as exc:  # noqa: BLE001
+        errors.append(
+            {
+                "source": "sector_llm_rewrite",
+                "stage": "config",
+                "code": "SECTOR_LLM_REWRITE_CONFIG_MISSING",
+                "message": str(exc)[:500],
+            }
+        )
+        return {}, {"status": "config_missing", "status_by_sector": {}, "timing_by_sector": {}}
+    timeout_sec = _sector_rewrite_timeout_sec()
+    rewrites: dict[str, dict[str, Any]] = {}
+    status_by_sector: dict[str, str] = {}
+    timing_by_sector: dict[str, float] = {}
+    t_all = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=min(6, len(callable_sectors))) as executor:
+        future_to_sec = {}
+        for sec, payload in callable_sectors.items():
+            t0 = time.perf_counter()
+            future = executor.submit(
+                _sector_rewrite_call_llm,
+                sec,
+                list(payload.get("view_models") or []),
+                str(payload.get("insight") or ""),
+                base=base,
+                key=key,
+                model=model,
+                timeout_sec=timeout_sec,
+            )
+            future_to_sec[future] = (sec, t0)
+        for future in as_completed(future_to_sec):
+            sec, t0 = future_to_sec[future]
+            timing_by_sector[sec] = round(time.perf_counter() - t0, 3)
+            try:
+                insight, vms = future.result()
+            except Exception as exc:  # noqa: BLE001
+                status_by_sector[sec] = "fallback_rule"
+                errors.append(
+                    {
+                        "source": "sector_llm_rewrite",
+                        "stage": sec,
+                        "code": "SECTOR_LLM_REWRITE_FAILED",
+                        "message": str(exc)[:500],
+                    }
+                )
+                continue
+            status_by_sector[sec] = "ok"
+            rewrites[sec] = {"insight": insight, "view_models": vms}
+    for sec in callable_sectors:
+        status_by_sector.setdefault(sec, "fallback_rule")
+    overall = "ok" if rewrites and len(rewrites) == len(callable_sectors) else ("partial_fallback" if rewrites else "fallback_rule")
+    return rewrites, {
+        "status": overall,
+        "enabled": True,
+        "timeout_sec": timeout_sec,
+        "model": model,
+        "status_by_sector": status_by_sector,
+        "timing_by_sector": timing_by_sector,
+        "total": round(time.perf_counter() - t_all, 3),
+    }
+
+
+def _sector_sentiment_label(sec: str, title: str, body: str, it: dict[str, Any]) -> tuple[str, str]:
+    blob = f"{title} {body}"
+    subtheme = _sector_subtheme(sec, title, body)
+    if sec == "黄金":
+        if any(k in blob for k in ("金价下跌", "金价走低", "现货黄金跌", "黄金跌", "贵金属下跌")):
+            return _s_emoji("利空"), "利空"
+        if subtheme in {"central_bank_gold", "safe_haven"} or any(k in blob for k in ("避险", "央行购金", "央行增持黄金", "地缘冲突")):
+            return _s_emoji("利好"), "利好"
+    if sec == "新能源" and subtheme == "lithium_cost":
+        if _has_negative_finance_terms(blob):
+            return _s_emoji("利空"), "利空"
+        if any(k in blob for k in ("锂价下跌", "碳酸锂下跌", "价格下行", "价格回落", "供给过剩")):
+            return _s_emoji("利空"), "利空"
+        if any(k in blob for k in ("锂价上涨", "碳酸锂上涨", "价格反弹", "涨价", "供给收缩")):
+            return _s_emoji("利好"), "利好"
+        return _s_emoji("中性"), "中性"
+    if sec == "新能源" and _has_negative_finance_terms(blob):
+        return _s_emoji("利空"), "利空"
+    if sec == "有色":
+        if any(k in blob for k in ("铜价上涨", "铝价上涨", "锂价上涨", "镍价上涨", "价格反弹", "涨价", "库存下降", "供给收缩")):
+            return _s_emoji("利好"), "利好"
+        if any(k in blob for k in ("铜价下跌", "铝价下跌", "锂价下跌", "镍价下跌", "价格回落", "库存上升", "供给过剩")):
+            return _s_emoji("利空"), "利空"
+    s_hint = str(it.get("sentiment_hint") or "").strip()
+    s_emoji = str(it.get("sentiment_emoji") or "").strip()
+    if not s_hint:
+        s_hint = classify_sentiment(blob)
+        s_emoji = _s_emoji(s_hint)
+    elif not s_emoji:
+        s_emoji = _s_emoji(s_hint)
+    return s_emoji, s_hint
+
+
+def _rule_sector_insight(sec: str, items: list[dict[str, Any]]) -> str:
+    if not items:
+        return _ROUTER_EMPTY_INSIGHT
+    themes = [_sector_subtheme(sec, str(it.get("title") or ""), str(it.get("clean_text") or it.get("summary") or "")) for it in items]
+    titles_blob = " ".join(str(it.get("title") or "") for it in items)
+    if sec == "科技":
+        bits: list[str] = []
+        if "robotics" in themes:
+            bits.append("机器人盘面活跃")
+        if "ai_capital" in themes:
+            bits.append("大模型融资/港股 IPO 预期升温")
+        if "compute" in themes:
+            bits.append("AI 算力链仍是硬科技抓手")
+        if "ai_application" in themes:
+            bits.append("AI 应用商业化线索增多")
+        if "model_quality" in themes:
+            bits.append("模型可靠性议题升温")
+        return "；".join(bits[:3]) + "。" if bits else "科技线索集中在 AI 与硬科技方向，需结合盘面确认主线。"
+    if sec == "新能源":
+        if "power_infra" in themes:
+            return "算力扩张把电力、储能和电网设备推到新能源叙事前台。"
+        if "lithium_cost" in themes:
+            return "锂价和电池材料成本是新能源链条的核心变量，关注上游资源品弹性与中游利润压力。"
+        if "ev_battery" in themes:
+            return "新能源车链条关注点转向电池安全、标准与消费者信任。"
+    if sec == "黄金":
+        if "central_bank_gold" in themes and "safe_haven" in themes:
+            return "央行购金与地缘避险共振，黄金线索同时具备宏观和事件催化。"
+        if "central_bank_gold" in themes:
+            return "央行购金仍是黄金叙事核心，关注金价弹性和储备需求。"
+        if "safe_haven" in themes:
+            return "地缘冲突抬升避险需求，黄金适合做宏观风险解释线。"
+    if sec == "有色":
+        if "copper" in themes:
+            return "有色线索聚焦铜价、库存与矿端扰动，适合观察资源品映射。"
+        if "lithium" in themes:
+            return "有色线索聚焦锂价与新能源链条需求预期。"
+        if "aluminum" in themes:
+            return "有色线索聚焦铝价与供给约束。"
+        if "nickel" in themes:
+            return "有色线索聚焦镍价与供给扰动，需区分不锈钢和电池材料两条需求线。"
+    if sec == "港股":
+        if "southbound" in themes or any(k in titles_blob for k in ("南向", "北水")):
+            return "港股关注南向资金与恒生科技风险偏好，资金面是主要观察点。"
+        if "hk_software" in themes:
+            return "港股 SaaS/软件线索强调科技资产分化，逆势品种需看业绩韧性和估值修复。"
+        if "hk_ipo" in themes or any(k in titles_blob for k in ("IPO", "H股", "招股")):
+            return "港股线索集中在新股/IPO 与中资科技资产证券化。"
+    if sec == "银行":
+        return "银行线索应聚焦信贷、息差、同业存款和监管定价变化，避免泛央行新闻误读。"
+    return "本板块已有可用线索，建议结合盘面强弱再判断开稿优先级。"
+
+
+def _backfill_hotspots_to_sectors(
+    enriched_by_sec: dict[str, list[dict[str, Any]]],
+    buckets: list[list[dict[str, Any]]],
+    *,
+    max_per_sector: int = 6,
+) -> dict[str, list[dict[str, Any]]]:
+    """将高价值热点反哺六大板块，防止 OpenAI 芯片等只留在今日热点区。"""
+    out = {sec: list(enriched_by_sec.get(sec) or []) for sec in SECTOR_ORDER}
+    seen: dict[str, set[str]] = {
+        sec: {_title_dedup_key(str(x.get("title") or "")) for x in items if isinstance(x, dict)}
+        for sec, items in out.items()
+    }
+    for bucket in buckets:
+        for it in bucket:
+            if not isinstance(it, dict):
+                continue
+            sectors = _candidate_sectors_for_item(it, max_sectors=2)
+            if not sectors:
+                continue
+            key = _title_dedup_key(str(it.get("title") or ""))
+            if not key:
+                continue
+            for sec in sectors:
+                if len(out.get(sec) or []) >= max_per_sector or key in seen.setdefault(sec, set()):
+                    continue
+                annotated = _annotate_item_for_sector(it, sec, line_source="hotspot_backfill")
+                annotated["hotspot_backfilled"] = True
+                out.setdefault(sec, []).append(annotated)
+                seen[sec].add(key)
+    return out
 
 
 def _depth_source_rank(it: dict[str, Any]) -> int:
@@ -1740,6 +2595,287 @@ def _build_hotspot_top5(
     return pool[:5]
 
 
+_TOP_STORY_DATA_TERMS: tuple[str, ...] = (
+    "涨超",
+    "跌超",
+    "涨停",
+    "跌停",
+    "%",
+    "亿元",
+    "亿港元",
+    "亿美元",
+    "Token",
+    "净买入",
+    "净流入",
+    "中标",
+    "融资",
+    "IPO",
+    "上市",
+)
+
+_TOP_STORY_CONFLICT_TERMS: tuple[str, ...] = (
+    "但",
+    "却",
+    "暴跌",
+    "暴涨",
+    "危机",
+    "债务",
+    "冻结",
+    "诉讼",
+    "受挫",
+    "逆势",
+    "分歧",
+    "暗战",
+    "冲突",
+    "交火",
+    "换帅",
+)
+
+_TOP_STORY_LOW_VALUE_TERMS: tuple[str, ...] = (
+    "白桦树汁",
+    "智商税",
+    "目标价",
+    "评级",
+    "早餐",
+    "早报",
+    "24小时",
+    "要闻全览",
+)
+
+
+def _top_story_clean_direction_text(text: str) -> str:
+    cleaned = _clean_display_text(text)
+    replacements = (
+        ("这次可能很不一样", "这次利率路径不一样"),
+        ("可能很不一样", "利率路径不一样"),
+        ("可能", ""),
+        ("大概", ""),
+        ("或许", ""),
+        ("似乎", ""),
+        ("或将", "将"),
+        ("有望", ""),
+        ("预计", ""),
+    )
+    for old, new in replacements:
+        cleaned = cleaned.replace(old, new)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"[，,：:｜| ]+$", "", cleaned).strip()
+    return cleaned
+
+
+def _top_story_sector_labels(it: dict[str, Any], fallback_sec: str = "") -> list[str]:
+    labels: list[str] = []
+    for sec in (
+        fallback_sec,
+        str(it.get("display_sector") or ""),
+        str(it.get("primary_sector") or ""),
+    ):
+        if sec in SECTOR_ORDER and sec not in labels:
+            labels.append(sec)
+    if labels:
+        for sec in (
+            str(it.get("candidate_sector") or ""),
+            str(it.get("vertical_target_sector") or ""),
+        ):
+            if sec in SECTOR_ORDER and sec not in labels:
+                labels.append(sec)
+        for sec in it.get("sector_tags") or []:
+            s = str(sec).strip()
+            if s in SECTOR_ORDER and s not in labels:
+                labels.append(s)
+    if not labels and fallback_sec:
+        for sec in _candidate_sectors_for_item(it, max_sectors=2):
+            if sec not in labels:
+                labels.append(sec)
+    return labels[:2]
+
+
+def _top_story_score(it: dict[str, Any], *, sector_hint: str = "", now_dt: datetime | None = None) -> float:
+    txt = _item_text(it)
+    title = str(it.get("title") or "")
+    body = str(it.get("clean_text") or it.get("summary") or "")
+    score = 0.0
+    sectors = _top_story_sector_labels(it, sector_hint)
+    if sectors:
+        score += 1.2
+    score += min(1.6, 0.35 * len(sectors))
+    if any(k in txt for k in _TOP_STORY_DATA_TERMS):
+        score += 1.8
+    if any(k in txt for k in _TOP_STORY_CONFLICT_TERMS):
+        score += 1.5
+    if any(k in txt for k in ("AI", "OpenAI", "算力", "芯片", "半导体", "储能", "光伏", "南向", "央行购金", "金价", "信贷")):
+        score += 1.2
+    if any(k in txt for k in ("政策", "监管", "美联储", "央行", "地缘", "冲突", "加息", "降息")):
+        score += 1.0
+    if len(body) >= 80:
+        score += 0.6
+    if len(body) >= 180:
+        score += 0.4
+    if _depth_source_rank(it) >= 2:
+        score += 0.6
+    if any(k in title for k in ("为什么", "怎么", "？", "如何")):
+        score += 0.5
+    if any(k in txt for k in _TOP_STORY_LOW_VALUE_TERMS):
+        score -= 1.8
+    if "source_kind" in it and it.get("source_kind") == "macro_hot":
+        score += 0.4
+    dt = _parse_published_at(str(it.get("published_at") or ""))
+    ref = now_dt or datetime.now(timezone(timedelta(hours=8)))
+    if dt is not None:
+        age_h = max(0.0, (ref - dt).total_seconds() / 3600.0)
+        if age_h <= 4:
+            score += 1.0
+        elif age_h <= 12:
+            score += 0.6
+        elif age_h <= 36:
+            score += 0.2
+    if len(title.strip()) <= 6:
+        score -= 2.0
+    if not _is_finance_related(it) and not sectors:
+        score -= 2.0
+    return score
+
+
+def _top_story_title_direction(it: dict[str, Any], sectors: list[str]) -> str:
+    title = _top_story_clean_direction_text(str(it.get("title") or ""))
+    body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or ""))
+    blob = f"{title} {body}"
+    primary = sectors[0] if sectors else ""
+    if primary == "科技":
+        if any(k in blob for k in ("OpenAI", "大模型", "MaaS", "算力", "AI", "芯片", "半导体")):
+            return f"AI 算力链的新变量：{_clip_flash_text(title, max_len=34)}"
+        return f"硬科技主线延续性：{_clip_flash_text(title, max_len=34)}"
+    if primary == "新能源":
+        if any(k in blob for k in ("储能", "电网", "电力", "光伏")):
+            return f"新能源从产业事件切入：{_clip_flash_text(title, max_len=34)}"
+        return f"新能源链条景气再定价：{_clip_flash_text(title, max_len=34)}"
+    if primary == "港股":
+        if any(k in blob for k in ("南向", "港股通", "净买入")):
+            return f"南向资金重新定价港股：{_clip_flash_text(title, max_len=34)}"
+        return f"港股新经济资产证券化：{_clip_flash_text(title, max_len=34)}"
+    if primary == "黄金":
+        return f"黄金避险与利率交易：{_clip_flash_text(title, max_len=34)}"
+    if primary == "有色":
+        return f"资源品价格如何映射产业链：{_clip_flash_text(title, max_len=34)}"
+    if primary == "银行":
+        return f"信贷与银行估值观察：{_clip_flash_text(title, max_len=34)}"
+    return _clip_flash_text(title, max_len=42) or "今日值得开稿线索"
+
+
+def _top_story_reason(it: dict[str, Any], sectors: list[str]) -> str:
+    txt = _item_text(it)
+    bits: list[str] = []
+    if sectors:
+        main = sectors[0]
+        related = [s for s in sectors[1:] if s != main]
+        if related:
+            bits.append(f"主线：{main}；关联：" + " / ".join(related))
+        else:
+            bits.append(f"主线：{main}")
+    if any(k in txt for k in _TOP_STORY_DATA_TERMS):
+        bits.append("带有明确数据或资金锚点")
+    if any(k in txt for k in _TOP_STORY_CONFLICT_TERMS):
+        bits.append("自带冲突/反差，适合短视频讲清楚")
+    if any(k in txt for k in ("政策", "监管", "央行", "美联储", "地缘", "冲突")):
+        bits.append("具备宏观或政策催化")
+    if len(bits) < 2 and _depth_source_rank(it) >= 2:
+        bits.append("深度来源提供了可复述背景")
+    if not bits:
+        bits.append("具备可讲的市场触发点")
+    return "；".join(bits[:3]) + "。"
+
+
+def _top_story_fact_anchor(sec: str, it: dict[str, Any]) -> str:
+    title = _clean_display_text(str(it.get("title") or ""))
+    event = _sector_event_summary(sec, it, title) if sec else _clean_display_text(str(it.get("clean_text") or it.get("summary") or title))
+    src = _item_source_label(it)
+    src_part = f"来源：{src}；" if src else ""
+    return src_part + _clip_flash_text(event or title, max_len=120)
+
+
+def _build_top_story_lines(
+    sector_payloads: dict[str, dict[str, Any]],
+    hotspot_items: list[dict[str, Any]],
+    major_event_items: list[dict[str, Any]],
+    *,
+    fetched_at: str,
+    limit: int = 3,
+) -> list[str]:
+    now_dt = _parse_published_at(fetched_at) or datetime.now(timezone(timedelta(hours=8)))
+    candidates: list[tuple[float, datetime, str, dict[str, Any]]] = []
+    seen_source: set[int] = set()
+
+    def add_candidate(it: dict[str, Any], sec: str = "") -> None:
+        if not isinstance(it, dict):
+            return
+        obj_id = id(it)
+        if obj_id in seen_source:
+            return
+        seen_source.add(obj_id)
+        if _is_wire_brief(it) and not any(k in _item_text(it) for k in _TOP_STORY_DATA_TERMS):
+            return
+        score = _top_story_score(it, sector_hint=sec, now_dt=now_dt)
+        if score < 2.4:
+            return
+        dt = _parse_published_at(str(it.get("published_at") or "")) or now_dt
+        candidates.append((score, dt, sec, it))
+
+    for sec, payload in sector_payloads.items():
+        for vm in payload.get("view_models") or []:
+            raw = vm.get("raw_item") if isinstance(vm, dict) else None
+            if isinstance(raw, dict):
+                add_candidate(raw, sec)
+    for it in hotspot_items:
+        add_candidate(it, "")
+    for it in major_event_items:
+        add_candidate(it, "")
+
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    lines: list[str] = []
+    seen_keys: set[str] = set()
+    used_primary: set[str] = set()
+    rank = 1
+    deferred: list[tuple[str, dict[str, Any], list[str]]] = []
+
+    def append_story(it: dict[str, Any], sectors: list[str]) -> None:
+        nonlocal rank
+        main_sec = sectors[0] if sectors else ""
+        lines.append(f"**Top {rank}｜标题方向**：{_top_story_title_direction(it, sectors)}")
+        lines.append(f"- 为什么值得写：{_top_story_reason(it, sectors)}")
+        lines.append(f"- 事实锚点：{_top_story_fact_anchor(main_sec, it)}")
+        if main_sec:
+            used_primary.add(main_sec)
+        rank += 1
+
+    for _, _, sec_hint, it in candidates:
+        title = _clean_display_text(str(it.get("title") or ""))
+        key = _title_dedup_key(title)
+        if not key or key in seen_keys:
+            continue
+        sectors = _top_story_sector_labels(it, sec_hint)
+        if not sectors and sec_hint:
+            sectors = [sec_hint]
+        main_sec = sectors[0] if sectors else ""
+        if main_sec and main_sec in used_primary and len(used_primary) < min(limit, len(SECTOR_ORDER)):
+            deferred.append((key, it, sectors))
+            continue
+        seen_keys.add(key)
+        append_story(it, sectors)
+        if rank > limit:
+            break
+    if rank <= limit:
+        for key, it, sectors in deferred:
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            append_story(it, sectors)
+            if rank > limit:
+                break
+    if not lines:
+        return ["- （本轮未筛出足够清晰的开稿主线；建议先看六大板块异动。）"]
+    return lines
+
+
 def _build_live_stream_markdown(
     sections: dict[str, Any],
     errors: list[dict[str, Any]],
@@ -1883,21 +3019,15 @@ def _build_live_stream_markdown(
             list(other_flash_items),
             list(macro_items_raw),
         )
+    enriched_by_sec = _backfill_hotspots_to_sectors(
+        enriched_by_sec,
+        [gm_items, deep_items_for_sectors, list(other_flash_items), list(macro_items_raw)],
+        max_per_sector=6,
+    )
 
-    sector_lines: list[str] = []
-    # 固定六大板块顺序，杜绝空板块合并标题
     fixed_sector_order = ["科技", "新能源", "港股", "黄金", "有色", "银行"]
+    sector_render_payloads: dict[str, dict[str, Any]] = {}
     for sec in fixed_sector_order:
-        if sector_lines:
-            sector_lines.append("")
-        sector_lines.append(f"**【{sec}】**")
-        # LLM Router 模式：紧随标题输出板块洞察（即便 items 为空也必须输出）
-        if llm_router_ok:
-            has_items_hint = bool(enriched_by_sec.get(sec) or [])
-            fallback_insight = _ROUTER_FILLED_FALLBACK_INSIGHT if has_items_hint else _ROUTER_EMPTY_INSIGHT
-            insight_text = str(llm_insights.get(sec) or "").strip() or fallback_insight
-            sector_lines.append(f"🧠 **板块洞察**：{insight_text}")
-            sector_lines.append("")
         raw_sec_items = enriched_by_sec.get(sec) or []
         # 板块内按标题去重（保留正文最长的版本），再取 top-5
         _sec_seen: dict[str, dict[str, Any]] = {}
@@ -1973,12 +3103,15 @@ def _build_live_stream_markdown(
         sec_items.sort(
             key=lambda x: (
                 _sector_source_rank(x, sec),
+                0 if _is_collection_title(_clean_display_text(str(x.get("title") or ""))) else 1,
                 _parse_published_at(str(x.get("published_at") or "")) or datetime.min.replace(tzinfo=timezone(timedelta(hours=8))),
             ),
             reverse=True,
         )
-        sec_items = sec_items[:6]
+        sec_items = sec_items[:4]
         out_n = 0
+        displayed_items: list[dict[str, Any]] = []
+        view_models: list[dict[str, Any]] = []
         for it in sec_items:
             if not isinstance(it, dict):
                 continue
@@ -1991,58 +3124,65 @@ def _build_live_stream_markdown(
                 _clean_display_text(str(it.get("clean_text") or it.get("summary") or it.get("title") or "")),
                 max_len=120,
             )
-            if not llm_router_ok:
-                if not _sector_strong_match(
-                    sec,
-                    title,
-                    body,
-                    item_tags=it.get("sector_tags") or [],
-                    vertical_target_sector=str(it.get("vertical_target_sector") or ""),
-                ):
-                    continue
-            # 情绪标注
-            s_emoji = str(it.get("sentiment_emoji") or "").strip()
-            s_hint = str(it.get("sentiment_hint") or "").strip()
-            if not s_hint:
-                _txt = f"{title} {body}"
-                s_hint = classify_sentiment(_txt)
-                s_emoji = _s_emoji(s_hint)
+            if not _sector_strong_match(
+                sec,
+                title,
+                body,
+                item_tags=it.get("sector_tags") or [],
+                vertical_target_sector=str(it.get("vertical_target_sector") or ""),
+            ):
+                continue
+            # 情绪按展示板块重算，避免同一宏观新闻在黄金/有色等板块被误标。
+            s_emoji, s_hint = _sector_sentiment_label(sec, title, body, it)
             s_prefix = f"{s_emoji}{s_hint} " if s_emoji and s_hint else ""
             src_label = _item_source_label(it)
-            if llm_router_ok:
-                # 深度合成渲染：只展示标题与来源；reason 保留在 JSON，不污染飞书正文
-                if title:
-                    sector_lines.append(f"- 🔹 {s_prefix}{tpart} **{title}** （{src_label}）")
-                    sector_lines.append("")
-                    out_n += 1
-            else:
-                # Legacy 渲染：时间+标题+正文摘要+情绪+来源
-                src_suffix = f" _[{src_label}]_" if src_label else ""
-                src = str(it.get("sector_line_source") or "")
-                extra_note = ""
-                if src == "recent_keyword":
-                    extra_note = " *〔关键词回溯〕*"
-                elif src == "tagged_catchup":
-                    extra_note = " *〔同板块补位〕*"
-                if it.get("cross_source_hit"):
-                    extra_note += " *〔双源共振〕*"
-                if title or body:
-                    if title and body and not body.startswith(title[:min(10, len(title))]):
-                        line = f"- {s_prefix}{tpart} **{title}** — {body}{extra_note}{src_suffix}"
-                    elif title:
-                        line = f"- {s_prefix}{tpart} **{title}**{extra_note}{src_suffix}"
-                    else:
-                        line = f"- {s_prefix}{tpart} {body}{extra_note}{src_suffix}"
-                    sector_lines.append(line)
-                    out_n += 1
-        # LLM 模式：洞察已在标题后输出，item 为空时无需额外行
-        # 非 LLM 模式：行情补位保底三条
+            view_model = _sector_item_view_model(sec, it, tpart=tpart, s_prefix=s_prefix, src_label=src_label)
+            if view_model:
+                view_models.append(view_model)
+                displayed_items.append(it)
+                out_n += 1
+        raw_insight = str(llm_insights.get(sec) or "").strip()
+        generic_insights = {
+            "",
+            _ROUTER_EMPTY_INSIGHT,
+            _ROUTER_FILLED_FALLBACK_INSIGHT,
+            "本板块出现若干强相关线索，需结合盘面继续确认主线。",
+        }
+        insight_text = raw_insight if llm_router_ok and raw_insight not in generic_insights and out_n > 0 else _rule_sector_insight(sec, displayed_items)
+        fill_lines: list[str] = []
         if not llm_router_ok and out_n < 3:
             for fill_line in _market_sector_fill_lines(sec, m, min_count=3 - out_n):
-                sector_lines.append(fill_line)
+                fill_lines.append(fill_line)
                 out_n += 1
                 if out_n >= 3:
                     break
+        sector_render_payloads[sec] = {
+            "insight": insight_text,
+            "view_models": view_models,
+            "displayed_items": displayed_items,
+            "fill_lines": fill_lines,
+        }
+
+    sector_rewrites, sector_rewrite_meta = _rewrite_sector_view_models_concurrently(sector_render_payloads, errors)
+    sections["sector_llm_rewrite"] = sector_rewrite_meta
+
+    sector_lines: list[str] = []
+    # 固定六大板块顺序，杜绝空板块合并标题
+    for sec in fixed_sector_order:
+        payload = sector_render_payloads.get(sec) or {}
+        rewrite = sector_rewrites.get(sec) or {}
+        insight_text = str(rewrite.get("insight") or payload.get("insight") or _ROUTER_EMPTY_INSIGHT)
+        view_models = list(rewrite.get("view_models") or payload.get("view_models") or [])
+        if sector_lines:
+            sector_lines.append("")
+        sector_lines.append(f"**【{sec}】**")
+        sector_lines.append(f"🧠 **板块洞察**：{insight_text}")
+        sector_lines.append("")
+        for vm in view_models:
+            sector_lines.extend(_format_sector_view_model_lines(vm))
+            sector_lines.append("")
+        for fill_line in payload.get("fill_lines") or []:
+            sector_lines.append(str(fill_line))
 
     all_news_items: list[dict[str, Any]] = []
     for bucket in [n.get("items") or [], n.get("items_other_flash") or [], gm_items, deep_items_for_sectors]:
@@ -2156,6 +3296,14 @@ def _build_live_stream_markdown(
     if not social_lines:
         social_lines.append("- （社媒/人气榜 API 暂不可用或本轮无条目）")
 
+    top_story_lines = _build_top_story_lines(
+        sector_render_payloads,
+        hotspot_items,
+        major_event_items_for_dedup,
+        fetched_at=fetched_at,
+        limit=3,
+    )
+
     error_lines: list[str] = []
     router_status = str((sections.get("llm_router") or {}).get("status") or "")
     if router_status in {"ok", "ok_compact_retry"}:
@@ -2191,9 +3339,19 @@ def _build_live_stream_markdown(
         "CLS_AKSHARE_IMPORT_FAILED": "AkShare 财联社快讯模块不可用（仅 RSSHub 生效）。",
         "NEWS_RSSHUB_REPAIR_SUGGESTED": "可授权 Agent 执行 RSSHub 更新脚本后重试（支持飞书/微信确认）。",
         "WALLSTREETCN_API_EMPTY": "华尔街见闻 API 返回空条目（直连路径）。",
+        "SECTOR_LLM_REWRITE_CONFIG_MISSING": "板块小 LLM 润色已开启但模型网关未配置，当前使用规则文案。",
+        "SECTOR_LLM_REWRITE_FAILED": "板块小 LLM 润色失败或输出不合规，当前使用规则文案。",
     }
     error_lines.append(f"**告警（中文说明，最多 6 条）**（{len(errors)}）：")
     error_lines.append(f"- {router_diag}")
+    rewrite_meta = sections.get("sector_llm_rewrite") or {}
+    rewrite_status = str(rewrite_meta.get("status") or "")
+    if rewrite_status == "ok":
+        error_lines.append("- ✍️ 板块小 LLM 润色：六板块均已完成润色")
+    elif rewrite_status == "partial_fallback":
+        error_lines.append("- ✍️ 板块小 LLM 润色：部分板块 LLM失效，当前使用规则文案")
+    elif rewrite_status:
+        error_lines.append("- ✍️ 板块小 LLM 润色：LLM失效，当前使用规则文案")
     if errors:
         for e in errors[:6]:
             code = str(e.get("code") or "")
@@ -2216,6 +3374,9 @@ def _build_live_stream_markdown(
 
 **社媒 / 人气榜（探测）**
 {chr(10).join(social_lines)}
+
+### 【✍️ 今日值得开稿 Top 3】（选题雷达 · 标题方向 / 为什么值得写 / 事实锚点）
+{chr(10).join(top_story_lines)}
 """
     # v0.1.9：不再单独渲染「深度内容」Markdown 区；`sections.deep_news` 仍输出，
     # 且已并入上方「核心板块异动」等逻辑（见 _enrich_sectors_from_all_sources）。
@@ -2411,6 +3572,13 @@ def build_snapshot(
         meta_extra["llm_router_timing"] = sections["llm_router"]["router_timing"]
 
     md = _build_live_stream_markdown(sections, errors, fetched_at)
+    _rewrite_meta = sections.get("sector_llm_rewrite") or {}
+    if _rewrite_meta:
+        meta_extra["sector_llm_rewrite_status"] = _rewrite_meta.get("status") or ""
+        meta_extra["sector_llm_rewrite_status_by_sector"] = _rewrite_meta.get("status_by_sector") or {}
+        meta_extra["sector_llm_rewrite_timing"] = _rewrite_meta.get("timing_by_sector") or {}
+        if _rewrite_meta.get("timeout_sec"):
+            meta_extra["sector_llm_rewrite_timeout_sec"] = _rewrite_meta.get("timeout_sec")
     ok = True
 
     snapshot: dict[str, Any] = {

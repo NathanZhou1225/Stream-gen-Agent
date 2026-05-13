@@ -24,7 +24,7 @@ description: |
 ## 调用契约
 
 0. **stream-gen 用户侧纯拉数（P0）**：若当前 workspace 是 `workspace-stream-gen`，且用户只要「拉今日信源 / 今日行情 / 今日热点 / 全量信息」，推荐用包装脚本（与 `ingest.py` 同一 JSON，便于统一加载 `.env`）：
-   - `python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`
+  - `python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`
    - 该包装**仅**调用本 skill 并原样输出 JSON，**不再**拼接 Tavily 或其它联网附录。
    - 直接调用 `ingest.py` 仍用于底层调试、CI、或其它编排。
 1. 在 workspace 下推荐路径（与 OpenClaw 软链一致）：

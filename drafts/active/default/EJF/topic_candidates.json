@@ -1,0 +1,137 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "4月经济：油价冲击的验证时刻",
+  "generated_at": "2026-05-08T15:40:00+08:00",
+  "hotlist_meta": {
+    "primary_source": "finance-source-ingest",
+    "secondary_source": "social_api",
+    "fallback_used": true,
+    "fallback_reason": "partial_sources_unavailable"
+  },
+  "source_context": [
+    "【用户方向】4月经济：油价冲击的验证时刻",
+    "【核心事实】4月经济进入油价冲击验证期：前期工业生产、企业盈利仍处改善阶段，后续经济基本面或有承压",
+    "【大盘现状】上证指数 4179.95 (+0.00%) / 深证成指 15563.8 (-0.50%) / 创业板指 3796.13 (-0.96%)",
+    "【北向资金】39.23 亿元",
+    "【行业强弱】军工装备(+3.31%)、军工电子(+2.38%)、电机(+2.36%)涨幅居前；电池、风电、猪肉、煤炭跌幅居前",
+    "【主力净流入】军工装备(+51.71亿)、汽车零部件(+34.10亿)、消费电子(+22.20亿)",
+    "【大事件】波兰央行计划增持105吨黄金，金价短线拉升；金融产品网络营销管理办法发布；AI牛市预期延续"
+  ],
+  "candidates": [
+    {
+      "title": "4月经济验证期！油价冲击来袭，哪些板块在提前避险？",
+      "angle": "偏实战信号：用油价冲击的传导逻辑开场，直接给盘面资金流向信号",
+      "thesis": "油价对经济的传导已进入验证期，工业生产和企业盈利的改善阶段可能面临拐点，军工、黄金等避险板块的资金异动已经给出明确信号。",
+      "evidence": [
+        {
+          "point": "4月经济进入油价冲击验证期：前期工业生产、企业盈利仍处改善阶段，后续基本面或有承压",
+          "source_type": "macro",
+          "source_ref": "格隆汇首页深度",
+          "confidence": "high"
+        },
+        {
+          "point": "军工装备板块今日大涨3.31%，主力资金净流入51.71亿元，成为资金避险首选",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "波兰央行计划增持105吨黄金，现货黄金短线拉升约10美元，报4738.32美元/盎司",
+          "source_type": "global",
+          "source_ref": "华尔街见闻",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- 4月经济：油价冲击的验证时刻 | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "创业板跌0.96%！油价冲击下，为什么军工和机器人反而逆势走强？",
+      "angle": "偏结构对照：对比下跌板块和逆势板块，揭示资金调仓逻辑",
+      "thesis": "油价冲击导致市场风格切换，资金从新能源（电池、风电）和周期（煤炭）流出，涌入军工、机器人等硬科技主线，结构性机会清晰。",
+      "evidence": [
+        {
+          "point": "创业板指今日缩量跌0.96%，电池、风电、猪肉、煤炭等板块跌幅居前",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "商业航天、机器人概念逆势走强，航发科技、航天动力、航天长峰等十余股涨停",
+          "source_type": "market",
+          "source_ref": "新浪财经7x24",
+          "confidence": "high"
+        },
+        {
+          "point": "电机板块涨幅2.36%，主力资金净流入汽车零部件34.10亿、消费电子22.20亿，硬科技主线获资金青睐",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- 创业板指缩量跌近1%，商业航天、机器人概念逆势走强 | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "油价冲击！4月经济承压信号出现，散户该怎么调整仓位？",
+      "angle": "偏操作策略：给散户明确的仓位调整建议，符合老丁实战派风格",
+      "thesis": "油价冲击的传导效应正在显现，4月经济基本面承压信号明确，散户需遵循「顶底双重验证」原则，调整持仓结构，布局避险主线。",
+      "evidence": [
+        {
+          "point": "今日沪深京三市成交3.08万亿，个股涨多跌少，约3600股飘红，但黄白二线分化明显，微盘股指数刷新历史新高",
+          "source_type": "market",
+          "source_ref": "市场数据",
+          "confidence": "high"
+        },
+        {
+          "point": "北向资金净流入39.23亿元，南向资金净买入达100亿港元，内外资金风格分化",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "《金融产品网络营销管理办法》发布，监管政策落地，市场不确定性增加",
+          "source_type": "policy",
+          "source_ref": "人民银行",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- 4月经济基本面或有承压 + 监管政策落地 | provenance: finance-source-ingest|preflight_topic.py"
+    }
+  ],
+  "preflight_meta": {
+    "direction": "4月经济：油价冲击的验证时刻",
+    "ingest_schema_version": "0.1.0",
+    "ingest_fetched_at": "2026-05-08T15:24:10+08:00",
+    "markdown_truncated": false,
+    "feishu_notice": "⚠️ 部分信源不可用（淘股吧、问财、微博热搜），已采用东财人气榜等备用数据源。",
+    "feishu_source_notice": "🔎 信源状态：可用[market、news、social(东财)]；不可用[social(DNS_FAIL)、tophub(API_CHANGE)]。",
+    "source_availability": {
+      "available": [
+        "market",
+        "news",
+        "social_em"
+      ],
+      "unavailable": [
+        {
+          "source": "social",
+          "failure_type": "DNS_FAIL",
+          "detail": "SOCIAL_WB_HOT_FAILED"
+        },
+        {
+          "source": "tgb",
+          "failure_type": "API_CHANGE",
+          "detail": "TGB_HOT_FAILED"
+        }
+      ]
+    },
+    "relevance_scores": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "relevance_avg": 1.0
+  },
+  "chosen": 2
+}

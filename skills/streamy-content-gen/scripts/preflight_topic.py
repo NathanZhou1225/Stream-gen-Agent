@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -35,9 +37,29 @@ SOURCE_CONTEXT_BULLET_CAP = 8
 # 飞书/对话可见的「热点摘要」条数（与 SKILL 契约一致，控制篇幅）
 FEISHU_DIGEST_MAX = 8
 FEISHU_DIGEST_LINE_CHARS = 220
+# 拉取信息后、选题前可追问的单条详情上限
+DETAIL_OPTIONS_MAX = 6
+DETAIL_SUMMARY_CHARS = 220
+DETAIL_TEXT_CHARS = 900
+EVIDENCE_PACK_DETAIL_MAX = 5
 HOTLIST_DOWN_NOTICE = "⚠️ 弱舆情热榜信号暂不可用（两路来源均失败），本轮选题基于行情/快讯/公告生成。"
 CST = timezone(timedelta(hours=8))
-HOT_RANK_RETRY = 2
+
+
+def _env_int(name: str, default: int, *, min_v: int, max_v: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    try:
+        v = int(raw) if raw else default
+    except ValueError:
+        v = default
+    return max(min_v, min(max_v, v))
+
+
+# 热榜默认快速失败，避免 preflight 在弱网场景下卡 60-100s。
+# 如需增强热榜鲁棒性，可通过环境变量调高重试与超时。
+HOT_RANK_RETRY = _env_int("PREFLIGHT_HOT_RANK_RETRY", 0, min_v=0, max_v=3)
+HOT_RANK_TIMEOUT_SEC = _env_int("PREFLIGHT_HOT_RANK_TIMEOUT_SEC", 8, min_v=4, max_v=30)
+HOT_RANK_TIMEOUT_STEP_SEC = _env_int("PREFLIGHT_HOT_RANK_TIMEOUT_STEP_SEC", 4, min_v=0, max_v=15)
 
 DOMAIN_LEXICON: dict[str, tuple[str, ...]] = {
     "ai": ("人工智能", "AI", "算力", "芯片", "服务器", "大模型", "智算", "GPU", "半导体"),
@@ -495,6 +517,382 @@ def _source_ref_from_line(line: str) -> str:
     if "指数" in s or "北向" in s or "成交额" in s:
         return "market_snapshot"
     return "ingest_markdown_summary"
+
+
+def _clip_text(text: str, max_len: int) -> str:
+    s = re.sub(r"\s+", " ", (text or "").replace("\xa0", " ")).strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1].rstrip("，、；;:： ") + "…"
+
+
+def _item_body_text(item: dict[str, Any]) -> str:
+    for key in ("clean_text", "summary", "detail", "content", "description", "title"):
+        val = str(item.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _item_source_ref(item: dict[str, Any], default_source: str) -> str:
+    src = str(item.get("source_name") or item.get("platform") or default_source or "").strip()
+    ts = str(item.get("published_at") or item.get("time") or "").strip()
+    if src and ts:
+        return f"{src} {ts[:19].replace('T', ' ')}"
+    return src or ts or default_source or "ingest_snapshot"
+
+
+def _public_detail_option(option: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in option.items() if not k.startswith("_") and v not in (None, "")}
+
+
+def _detail_options_from_snapshot(snapshot: dict[str, Any], md_summary: str) -> list[dict[str, Any]]:
+    """
+    从同一份 ingest snapshot 抽取可追问详情的条目。
+
+    只返回已有信源字段，不联网、不补造；后续 `--detail-id` 会用同样规则复算并取回单条详情。
+    """
+    sections = snapshot.get("sections") or {}
+    pools: list[tuple[str, str, list[dict[str, Any]]]] = []
+
+    llm_router = sections.get("llm_router") or {}
+    by_sector = llm_router.get("items_by_sector") or {}
+    if isinstance(by_sector, dict):
+        for sec, rows in by_sector.items():
+            if isinstance(rows, list):
+                pools.append((f"llm_router.{sec}", str(sec), rows))
+
+    news = sections.get("news") or {}
+    news_by_sector = news.get("items_by_sector") or {}
+    if isinstance(news_by_sector, dict):
+        for sec, rows in news_by_sector.items():
+            if isinstance(rows, list):
+                pools.append((f"news.{sec}", str(sec), rows))
+    if isinstance(news.get("items_other_flash"), list):
+        pools.append(("news.other_flash", "今日热点", news.get("items_other_flash") or []))
+
+    for source_path, label in (
+        ("deep_news.items", "深度内容"),
+        ("global_macro.items", "大事件"),
+        ("macro_hot.items", "热点"),
+        ("social.items", "社媒"),
+    ):
+        head, tail = source_path.split(".", 1)
+        sec = sections.get(head) or {}
+        rows = sec.get(tail) or []
+        if isinstance(rows, list):
+            pools.append((source_path, label, rows))
+
+    options: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_option(
+        *,
+        title: str,
+        body: str,
+        source_type: str,
+        source_ref: str,
+        source_path: str,
+        sector: str | None = None,
+        raw_line: str | None = None,
+    ) -> None:
+        title_clean = _clip_text(title or body, 88)
+        body_clean = _clip_text(body or title, DETAIL_TEXT_CHARS)
+        if not title_clean or not body_clean:
+            return
+        key = _norm_title_key(f"{title_clean}{body_clean[:40]}")
+        if not key or key in seen:
+            return
+        seen.add(key)
+        detail_id = f"D{len(options) + 1}"
+        options.append(
+            {
+                "detail_id": detail_id,
+                "title": title_clean,
+                "summary": _clip_text(body_clean, DETAIL_SUMMARY_CHARS),
+                "source_type": source_type,
+                "source_ref": source_ref,
+                "source_path": source_path,
+                "sector": sector,
+                "_detail_text": body_clean,
+                "_raw_line": raw_line,
+            }
+        )
+
+    for source_path, label, rows in pools:
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            body = _item_body_text(item)
+            if not title and not body:
+                continue
+            add_option(
+                title=title or body,
+                body=body or title,
+                source_type=label,
+                source_ref=_item_source_ref(item, label),
+                source_path=source_path,
+                sector=label if label in DOMAIN_LEXICON.get("teacher_focus", ()) else None,
+            )
+            if len(options) >= DETAIL_OPTIONS_MAX:
+                return options
+
+    for line in _markdown_bullet_lines(md_summary, cap=DETAIL_OPTIONS_MAX * 2):
+        if _is_noise_bullet(line) or _is_placeholder_line(line):
+            continue
+        add_option(
+            title=_title_from_bullet_line(line, max_len=88),
+            body=line[2:].strip() if line.strip().startswith("- ") else line.strip(),
+            source_type=_source_type_from_line(line),
+            source_ref=_source_ref_from_line(line),
+            source_path="markdown_summary",
+            raw_line=line,
+        )
+        if len(options) >= DETAIL_OPTIONS_MAX:
+            break
+
+    return options
+
+
+def _build_detail_payload(snapshot: dict[str, Any], detail_id: str) -> dict[str, Any]:
+    md_summary = str(snapshot.get("markdown_summary") or "")
+    options = _detail_options_from_snapshot(snapshot, md_summary)
+    wanted = (detail_id or "").strip().upper()
+    for opt in options:
+        if str(opt.get("detail_id") or "").upper() != wanted:
+            continue
+        public = _public_detail_option(opt)
+        detail_text = str(opt.get("_detail_text") or opt.get("summary") or "").strip()
+        return {
+            **public,
+            "detail_text": detail_text,
+            "usage_hint": "将本条详情展示给用户后，再询问是否进入选题与风格选择；不得基于该详情直接越级生成大纲/逐字稿。",
+        }
+    raise ValueError(f"detail_id 不存在：{detail_id}；可用值为 {[x.get('detail_id') for x in options]}")
+
+
+def _candidate_index_from_arg(candidate_id: str, total: int) -> int:
+    raw = (candidate_id or "").strip().upper()
+    if raw.startswith("C"):
+        raw = raw[1:]
+    try:
+        n = int(raw)
+    except ValueError as e:
+        raise ValueError(f"candidate_id 必须是 1~{total} 或 C1/C2/C3；当前={candidate_id!r}") from e
+    if n < 1 or n > total:
+        raise ValueError(f"candidate_id 越界：当前候选共 {total} 条（合法 1~{total}）")
+    return n
+
+
+def _evidence_pack_units(text: str) -> set[str]:
+    s = re.sub(r"\s+", "", text or "")
+    units: set[str] = set()
+    for token in re.split(r"[，。、；;:：!！?？|｜/\-—\s]+", text or ""):
+        token = token.strip()
+        if len(token) >= 2:
+            units.add(token[:12])
+    for words in DOMAIN_LEXICON.values():
+        for word in words:
+            if word and word in s:
+                units.add(word)
+    # 中文无空格时，用短 n-gram 保底，避免“油价冲击验证时刻”整句匹配不到。
+    compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", s)
+    for n in (2, 3):
+        for i in range(max(0, len(compact) - n + 1)):
+            piece = compact[i : i + n]
+            if len(piece) == n:
+                units.add(piece)
+            if len(units) > 80:
+                break
+    return {x for x in units if len(x) >= 2}
+
+
+def _candidate_match_text(candidate: dict[str, Any], direction: str) -> str:
+    parts = [
+        direction,
+        str(candidate.get("title") or ""),
+        str(candidate.get("thesis") or ""),
+        str(candidate.get("angle") or ""),
+        str(candidate.get("evidence_anchor") or ""),
+    ]
+    ev = candidate.get("evidence")
+    if isinstance(ev, list):
+        for row in ev:
+            if isinstance(row, dict):
+                parts.append(str(row.get("point") or ""))
+                parts.append(str(row.get("source_ref") or ""))
+    return " ".join(parts)
+
+
+def _detail_match_score(option: dict[str, Any], units: set[str]) -> int:
+    text = " ".join(
+        str(option.get(k) or "")
+        for k in ("title", "summary", "source_type", "source_ref", "sector", "_detail_text", "_raw_line")
+    )
+    if not text or not units:
+        return 0
+    return sum(1 for u in units if u and u in text)
+
+
+def _evidence_rows_from_details(details: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for opt in details:
+        title = str(opt.get("title") or opt.get("summary") or "").strip()
+        if not title:
+            continue
+        stype = str(opt.get("source_type") or "snapshot_detail")
+        rows.append(
+            {
+                "point": _clip_text(title, 88),
+                "source_type": stype,
+                "source_ref": str(opt.get("source_ref") or opt.get("source_path") or "ingest_snapshot"),
+                "confidence": _confidence_for_source(stype),
+            }
+        )
+    return rows[:3]
+
+
+def _run_targeted_detail_fetch(
+    *,
+    finance_root: Path,
+    out_dir: Path,
+    query: str,
+    max_items: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    ingest_py = _resolve_ingest(finance_root)
+    if not ingest_py.is_file():
+        return None, {"ok": False, "reason": f"ingest.py missing: {ingest_py}"}
+    target_dir = out_dir / "candidate_evidence"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        _resolve_finance_venv_python(finance_root),
+        str(ingest_py),
+        "run",
+        "--sources",
+        "market,news,social",
+        "--keywords",
+        _keywords_from_direction(query),
+        "--max-items",
+        str(max(1, int(max_items))),
+        "--out-dir",
+        str(target_dir),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str((finance_root / "scripts").resolve()),
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    except Exception as e:  # noqa: BLE001
+        return None, {"ok": False, "reason": f"{type(e).__name__}: {e}"}
+    if proc.returncode != 0:
+        return None, {"ok": False, "reason": (proc.stderr or proc.stdout or "nonzero_exit").strip()[:500]}
+    snap_path = target_dir / "snapshot.json"
+    try:
+        snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return None, {"ok": False, "reason": f"snapshot_parse_failed: {type(e).__name__}: {e}"}
+    return snapshot, {"ok": True, "snapshot_path": str(snap_path), "keywords": _keywords_from_direction(query)}
+
+
+def _build_candidate_evidence_pack(
+    *,
+    topic_payload: dict[str, Any],
+    snapshot: dict[str, Any],
+    candidate_id: str,
+    finance_root: Path,
+    out_dir: Path,
+    allow_targeted_fetch: bool,
+    max_items: int,
+) -> dict[str, Any]:
+    candidates = topic_payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError("topic_payload.candidates 为空或不是数组")
+    n = _candidate_index_from_arg(candidate_id, len(candidates))
+    candidate = candidates[n - 1]
+    if not isinstance(candidate, dict):
+        raise ValueError(f"candidates[{n}] 不是 JSON object")
+
+    direction = str(topic_payload.get("direction") or (topic_payload.get("preflight_meta") or {}).get("direction") or "")
+    match_text = _candidate_match_text(candidate, direction)
+    units = _evidence_pack_units(match_text)
+    md_summary = str(snapshot.get("markdown_summary") or "")
+    details = _detail_options_from_snapshot(snapshot, md_summary)
+    scored = sorted(
+        [(opt, _detail_match_score(opt, units)) for opt in details],
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    matched = [opt for opt, score in scored if score > 0][:EVIDENCE_PACK_DETAIL_MAX]
+    targeted_fetch: dict[str, Any] = {"attempted": False, "ok": False}
+
+    if len(matched) < 2 and allow_targeted_fetch:
+        query = " ".join(
+            x
+            for x in (
+                direction,
+                str(candidate.get("title") or ""),
+                str(candidate.get("thesis") or ""),
+            )
+            if x
+        )
+        fetched_snapshot, fetch_meta = _run_targeted_detail_fetch(
+            finance_root=finance_root,
+            out_dir=out_dir,
+            query=query,
+            max_items=max_items,
+        )
+        targeted_fetch = {"attempted": True, **fetch_meta}
+        if fetched_snapshot:
+            fetched_details = _detail_options_from_snapshot(
+                fetched_snapshot,
+                str(fetched_snapshot.get("markdown_summary") or ""),
+            )
+            fetched_scored = sorted(
+                [(opt, _detail_match_score(opt, units)) for opt in fetched_details],
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            for opt, score in fetched_scored:
+                if score <= 0:
+                    continue
+                key = _norm_title_key(str(opt.get("title") or opt.get("summary") or ""))
+                if any(_norm_title_key(str(x.get("title") or x.get("summary") or "")) == key for x in matched):
+                    continue
+                opt = dict(opt)
+                opt["source_path"] = f"targeted_fetch:{opt.get('source_path')}"
+                matched.append(opt)
+                if len(matched) >= EVIDENCE_PACK_DETAIL_MAX:
+                    break
+
+    public_details = [_public_detail_option(x) for x in matched[:EVIDENCE_PACK_DETAIL_MAX]]
+    candidate_evidence = candidate.get("evidence") if isinstance(candidate.get("evidence"), list) else []
+    detail_rows = _evidence_rows_from_details(matched)
+    source_gaps = []
+    if len(public_details) < 2:
+        source_gaps.append("当前 snapshot 与一次定向补充中，能强匹配该候选方向的详情不足 2 条；大纲应只使用已列证据，避免补造。")
+
+    return {
+        "candidate_id": f"C{n}",
+        "candidate_index": n,
+        "candidate_title": str(candidate.get("title") or ""),
+        "candidate_thesis": str(candidate.get("thesis") or ""),
+        "direction": direction,
+        "core_facts": [
+            row
+            for row in candidate_evidence
+            if isinstance(row, dict)
+        ][:3],
+        "detailed_sources": public_details,
+        "argument_boosters": detail_rows,
+        "source_gaps": source_gaps,
+        "targeted_fetch": targeted_fetch,
+        "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。",
+    }
 
 
 def _build_evidence_for_candidate(
@@ -1032,13 +1430,18 @@ def _build_topic_payload(
             "domain_tags": domain_tags,
             "source_context_compact": True,
             "source_context_bullet_count": len(compact_facts),
+            "candidate_evidence_pack_required": True,
+            "evidence_pack_instruction": "用户选定候选 1/2/3 后，先用 preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot.json> 生成该方向 evidence_pack；展示证据包后再进入 user-style 与大纲。",
         },
     }
 
 
 def main() -> None:
+    t0_all = time.perf_counter()
+    timing: dict[str, float] = {}
+
     p = argparse.ArgumentParser(description="带方向开稿：拉取 finance-source-ingest 事实并输出 topic_payload JSON")
-    p.add_argument("--direction", required=True, help="用户自然语言选题方向")
+    p.add_argument("--direction", help="用户自然语言选题方向")
     p.add_argument(
         "--finance-root",
         type=Path,
@@ -1047,9 +1450,115 @@ def main() -> None:
     )
     p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="ingest --out-dir 目录")
     p.add_argument("--max-items", type=int, default=5, help="传入 ingest 的 --max-items")
+    p.add_argument("--snapshot-path", type=Path, help="读取已有 snapshot.json（详情模式可用）")
+    p.add_argument("--detail-id", help="详情模式：从 snapshot 中读取指定 detail_id（如 D1）")
+    p.add_argument("--topic-payload-file", type=Path, help="证据包模式：读取上轮 topic_payload JSON 文件")
+    p.add_argument("--candidate-id", help="证据包模式：候选方向编号（1/2/3 或 C1/C2/C3）")
+    p.add_argument("--allow-targeted-fetch", action="store_true", help="证据包不足时允许按候选方向做一次定向补充拉取")
     args = p.parse_args()
 
-    direction = args.direction.strip()
+    if args.candidate_id:
+        snap_path = (args.snapshot_path or (args.out_dir / "snapshot.json")).resolve()
+        topic_payload_path = args.topic_payload_file.resolve() if args.topic_payload_file else None
+        if not snap_path.is_file():
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_EVIDENCE_SNAPSHOT_MISSING",
+                        "message": "证据包模式未找到 snapshot.json",
+                        "hint": f"请传 --snapshot-path 指向 preflight 上轮返回的 snapshot_path。当前路径: {snap_path}",
+                    },
+                }
+            )
+        if topic_payload_path is None or not topic_payload_path.is_file():
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_EVIDENCE_TOPIC_PAYLOAD_MISSING",
+                        "message": "证据包模式未找到 topic_payload JSON",
+                        "hint": "请将上轮返回的 topic_payload 保存为 JSON，并用 --topic-payload-file 指向它。",
+                    },
+                }
+            )
+        try:
+            snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
+            topic_payload = json.loads(topic_payload_path.read_text(encoding="utf-8"))
+            evidence_pack = _build_candidate_evidence_pack(
+                topic_payload=topic_payload,
+                snapshot=snapshot,
+                candidate_id=str(args.candidate_id),
+                finance_root=args.finance_root.resolve(),
+                out_dir=args.out_dir,
+                allow_targeted_fetch=bool(args.allow_targeted_fetch),
+                max_items=max(1, int(args.max_items)),
+            )
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_EVIDENCE_PACK_FAILED",
+                        "message": str(e),
+                        "hint": "请确认 candidate_id 来自上一轮候选编号，topic_payload_file 与 snapshot_path 属于同一轮 preflight。",
+                    },
+                }
+            )
+        _exit_ok(
+            {
+                "ok": True,
+                "mode": "candidate_evidence_pack",
+                "evidence_pack": evidence_pack,
+                "snapshot_path": str(snap_path),
+                "topic_payload_file": str(topic_payload_path),
+                "hint_ok": "先展示 evidence_pack；用户确认后再进入 user-style 选择/绑定，不得同轮越级输出大纲/逐字稿。",
+            }
+        )
+
+    if args.detail_id:
+        snap_path = (args.snapshot_path or (args.out_dir / "snapshot.json")).resolve()
+        if not snap_path.is_file():
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_DETAIL_SNAPSHOT_MISSING",
+                        "message": "详情模式未找到 snapshot.json",
+                        "hint": f"请传 --snapshot-path 指向 preflight 上轮返回的 snapshot_path。当前路径: {snap_path}",
+                    },
+                }
+            )
+        try:
+            snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
+            detail_payload = _build_detail_payload(snapshot, str(args.detail_id))
+            detail_options = [
+                _public_detail_option(x)
+                for x in _detail_options_from_snapshot(snapshot, str(snapshot.get("markdown_summary") or ""))
+            ]
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_DETAIL_BUILD_FAILED",
+                        "message": str(e),
+                        "hint": "请确认 detail_id 来自上一轮 preflight 返回的 detail_options[]，且 snapshot_path 未被覆盖。",
+                    },
+                }
+            )
+        _exit_ok(
+            {
+                "ok": True,
+                "mode": "detail",
+                "detail_payload": detail_payload,
+                "detail_options": detail_options,
+                "snapshot_path": str(snap_path),
+                "hint_ok": "先展示 detail_payload；随后询问用户是否进入选题与风格选择，不得同轮越级输出大纲/逐字稿。",
+            }
+        )
+
+    direction = (args.direction or "").strip()
     if not direction:
         _exit_ok(
             {
@@ -1097,6 +1606,7 @@ def main() -> None:
     ]
     cwd = str((finance_root / "scripts").resolve())
 
+    t_ingest_start = time.perf_counter()
     try:
         proc = subprocess.run(
             cmd,
@@ -1129,6 +1639,8 @@ def main() -> None:
             }
         )
 
+    timing["ingest_sec"] = round(time.perf_counter() - t_ingest_start, 3)
+
     if proc.returncode != 0:
         raw = (proc.stderr or proc.stdout or "").strip()
         if "Traceback" in raw or "Error" in raw:
@@ -1159,6 +1671,7 @@ def main() -> None:
             }
         )
 
+    t_snapshot_parse_start = time.perf_counter()
     try:
         snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
@@ -1173,8 +1686,11 @@ def main() -> None:
             }
         )
 
+    timing["snapshot_parse_sec"] = round(time.perf_counter() - t_snapshot_parse_start, 3)
+
     hot_rank_py = _resolve_hot_rank_fetcher()
     hot_rank: dict[str, Any] = {"ok": False, "lists": [], "errors": [{"item": "hot_rank_script", "reason": "missing"}]}
+    t_hot_rank_start = time.perf_counter()
     if hot_rank_py.is_file():
         last_reason = "unknown"
         for i in range(HOT_RANK_RETRY + 1):
@@ -1184,7 +1700,7 @@ def main() -> None:
                     cwd=str(SCRIPTS_DIR.resolve()),
                     capture_output=True,
                     text=True,
-                    timeout=25 + i * 8,
+                    timeout=HOT_RANK_TIMEOUT_SEC + i * HOT_RANK_TIMEOUT_STEP_SEC,
                     check=False,
                 )
                 if hr.returncode == 0 and (hr.stdout or "").strip():
@@ -1202,8 +1718,10 @@ def main() -> None:
                 "lists": [],
                 "errors": [{"item": "hot_rank_script", "reason": last_reason, "retry_count": HOT_RANK_RETRY}],
             }
+    timing["hot_rank_sec"] = round(time.perf_counter() - t_hot_rank_start, 3)
 
     md_summary = str(snapshot.get("markdown_summary") or "")
+    t_payload_start = time.perf_counter()
     try:
         payload = _build_topic_payload(direction, snapshot, md_summary, hot_rank, domain_tags)
     except Exception as e:  # noqa: BLE001
@@ -1217,6 +1735,8 @@ def main() -> None:
                 },
             }
         )
+    timing["build_payload_sec"] = round(time.perf_counter() - t_payload_start, 3)
+    timing["total_sec"] = round(time.perf_counter() - t0_all, 3)
 
     digest = _feishu_digest_bullets(md_summary)
     _exit_ok(
@@ -1224,13 +1744,15 @@ def main() -> None:
             "ok": True,
             "topic_payload": payload,
             "feishu_digest_bullets": digest,
+            "evidence_pack_instruction": "先将 topic_payload 落入 topic_picking 并展示三候选；用户选择 1/2/3 后，使用 --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot_path> 生成该候选方向的 evidence_pack，再进入风格选择。",
             "feishu_notice": payload.get("preflight_meta", {}).get("feishu_notice"),
             "feishu_source_notice": payload.get("preflight_meta", {}).get("feishu_source_notice"),
             "snapshot_path": str(snap_path),
             "ingest_keywords_used": kw,
             "ingest_keywords_expanded": kw_list,
             "domain_tags": domain_tags,
-            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并落盘。飞书选题轮只回复：候选（标题+thesis+3 evidence）+ 选号指令；默认不展示信源状态/大盘/快讯摘要（除非用户显式要求回看来源）。禁止同一轮写大纲/逐字稿；选题确认后再 outline_refining",
+            "preflight_timing": timing,
+            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并展示三候选。用户选择候选后，先生成并展示该候选 evidence_pack，再进入 user-style 选择/绑定。禁止同一轮写大纲/逐字稿。",
         }
     )
 

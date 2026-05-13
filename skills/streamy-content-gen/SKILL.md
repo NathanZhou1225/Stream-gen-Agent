@@ -2,7 +2,7 @@
 name: streamy-content-gen
 description: |
   Streamy 短视频/口播：Draft 多阶段（topic_picking → outline_refining → script_refining）与合规闸；支持 finance-source-ingest 事实管道。
-  带明确方向开稿：须先 preflight_topic.py；topic_picking 当轮仅展示候选（每条必须含标题+核心论点+3条论据）；draft_id 须为 draft_manager 三字符 + active/default 目录；禁止同轮越级输出大纲/逐字稿/分镜成稿。
+  带明确方向开稿：须先 preflight_topic.py；先进入 topic_picking 展示候选，用户选定候选后必须生成该方向 evidence_pack，再进入 user-style 与大纲；候选每条必须含标题+核心论点+3条论据；draft_id 须为 draft_manager 三字符 + active/default 目录；禁止同轮越级输出大纲/逐字稿/分镜成稿。
 ---
 
 # streamy-content-gen
@@ -21,12 +21,14 @@ description: |
    **唯一例外**：用户明确只要「闲聊讲解、不要落盘、不要 draft」，且未触发本技能 Playbook。
 
 3. **单次回复边界（带方向开稿路径）**  
-   执行完 `preflight_topic.py` 的 **同一轮** 助手工作中：允许 **shell 跑脚本** + **`draft_manager update --stage topic_picking` 一次** + 对用户的 **短回复**。  
-  短回复仅保留：  
-   - **① 可选选题方向**（`candidates`：每条含标题 + 核心论点 + 3 条论据）；  
-   - **②** 一句「请回复序号选定选题后再进大纲」。  
+   执行完 `preflight_topic.py` 后，允许将返回的 **`topic_payload`** 作为唯一 JSON 体执行 **`draft_manager update --stage topic_picking` 一次**，并展示候选（每条含标题 + 核心论点 + 3 条论据）+ 选号指令；**不得**同轮继续写大纲/逐字稿。  
+  用户选定 1/2/3 后，先执行 **方向证据包闸**：  
+   - 用 `draft_manager update --set-chosen <N>` 记录所选候选；  
+   - 将同轮 `topic_payload` 保存为 JSON，并调用 `preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot_path>` 生成 **该候选方向的 `evidence_pack`**；  
+   - 用 `draft_manager update --set-evidence-pack-file <evidence_pack.json>` 将证据包落入 Draft 审计链；  
+   - 只向用户展示 `evidence_pack`（核心事实、详细来源、论据补强点、缺口）；用户确认后才进入 user-style 选择/绑定。  
   默认**不展示**信源状态/大盘行情/市场焦点/事实摘要（除非用户显式要求回看数据来源）。  
-   **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/natural-language-intent.md` §4.4**：必须执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
+  **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/fragments/intent-core.md` §4.4**（经 `natural-language-intent.md` 索引引入）：必须执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
    **纯拉数**：`query_market_facts.py` 仅调用 `finance-source-ingest` 并输出 JSON（与 `ingest.py` 同源），**不**再拼接 Tavily。纯拉数场景仍可用 `ingest.py` 调试；面向用户展示推荐 `query_market_facts.py` 以便统一加载 `.env`。  
    **禁止**仅用三条候选标题复述用户原话却 **不展示** 任何 ingest 事实锚点（用户会误以为未拉信源）。  
    **同一轮内不得**再调用模型写 `outline_refining` / `script_refining` 内容，也不得在聊天里预写大纲/逐字稿「代替」落盘。
@@ -46,8 +48,21 @@ cd skills/streamy-content-gen
 python3 scripts/preflight_topic.py --direction '用户的自然语言方向'
 ```
 
-- 脚本 **stdout** 为 **单一 JSON**：成功时 `ok: true` 且含 **`topic_payload`**（内含 `source_context[]` 与 `candidates[]`：`evidence_anchor` 绑定 **不同** 列表行，`title` 为 **可区分的规则钩子**（快讯/指数/讲述视角组合，**非**「用户原句 + ·解读/·影响」）；失败时 `ok: false` 且含 **`error`**（`code` / `message` / `hint`），**不会输出整段 Python Traceback**。
-- **后续步骤（仅此一步，禁止同轮续写大纲）**：将返回体中的 **`topic_payload`** 作为 **`draft_manager update --stage topic_picking`** 的 JSON 体（字段对齐：`source_context`、`candidates`），**写入 `drafts/`**。对用户侧回复仅给 **draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**（详见上文「单次回复边界」），**不得**在同一轮继续生成大纲或逐字稿。
+- 脚本 **stdout** 为 **单一 JSON**：成功时 `ok: true` 且含 **`topic_payload`**（内含 `source_context[]` 与 `candidates[]`：`evidence_anchor` 绑定 **不同** 列表行，`title` 为 **可区分的规则钩子**（快讯/指数/讲述视角组合，**非**「用户原句 + ·解读/·影响」）、`evidence_pack_instruction` 与 `snapshot_path`；失败时 `ok: false` 且含 **`error`**（`code` / `message` / `hint`），**不会输出整段 Python Traceback**。
+- **方向证据包步骤（新增，位于用户选择候选与 user-style 之间）**：用户选择 1/2/3 后，先基于同轮 snapshot 与所选候选生成该方向证据包。执行：
+
+```bash
+python3 scripts/preflight_topic.py \
+  --candidate-id 2 \
+  --topic-payload-file '<上轮 topic_payload.json>' \
+  --snapshot-path '<上轮 snapshot_path>' \
+  --allow-targeted-fetch
+```
+
+  该命令优先从同一份 `snapshot.json` 匹配候选方向相关来源；若强匹配不足且带 `--allow-targeted-fetch`，允许做一次定向补充拉取。展示 `evidence_pack` 后再询问/执行 user-style 选择与绑定。
+- **证据包落盘**：展示前/后必须执行 `draft_manager update --draft <DID> --set-evidence-pack-file <evidence_pack.json>`；工具会在 `outline_refining` 前检查 `candidate_evidence_pack.json`，缺失则返回 `EVIDENCE_PACK_REQUIRED_BEFORE_OUTLINE`。
+- **后续步骤（禁止同轮续写大纲）**：证据包展示完成且用户确认继续后，先完成 user-style 门禁，再推进 `outline_refining`。对用户侧 topic 回复仅给 **draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**；证据包回复仅给该方向证据包，不得混入其它候选或随机信源详情。
+- **安全批量 helper（可选）**：为减少工具来回，可用 `scripts/stream_gen_workflow_helper.py start-topic --direction '<方向>'` 打包创建 Draft、preflight 与 topic 落盘；用户选候选后可用 `scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N> --topic-payload-file <file> --snapshot-path <snapshot>` 打包 set-chosen 与 evidence_pack 落盘。helper 只覆盖非决策段；候选选择、证据包确认、user-style 选择仍必须停下来等用户。
 - **弱耦合**：脚本通过 **subprocess** 调用相邻技能 `finance-source-ingest/scripts/ingest.py`（默认同级目录 `../finance-source-ingest`）；若部署布局不同，使用 `--finance-root` 指向该技能根目录。
 
 ## Draft ID 与目录契约（P0）
@@ -70,16 +85,34 @@ drafts/active/default/<draft_id>/topic_candidates.json   # topic_picking 起
 
 **正确做法**：新建稿一律走 **`draft_manager create`**（或你们环境中与之等价的唯一入口），后续 **`draft_manager update` / `set_chosen`** 只引用该命令返回/写入 `meta.json` 的 **`draft_id`**。主题、长标题只写入 `meta.json` / `topic_candidates` 等字段，**不要**把可读 slug 当目录名替代三字符 id。
 
+## Draft 结构诊断与制作指导硬门禁（P0）
+
+- 禁止直接写 `outline.md` / `script.md` / `meta.json` 推阶段；大纲、逐字稿必须通过 `draft_manager update --stage outline_refining|script_refining --payload-file <json>` 生成对应 `.json` 与 `.md`。
+- 若怀疑历史稿绕过工具，先执行：
+
+```bash
+python3 skills/streamy-content-gen/scripts/draft_manager.py doctor --draft <DID> --json
+python3 skills/streamy-content-gen/scripts/draft_manager.py doctor --draft <DID> --include-archive --since-days 7 --json
+```
+
+- `doctor` 报 `DIRECT_WRITE_OUTLINE_MD` / `DIRECT_WRITE_SCRIPT_MD` 时，该稿不能视为完成了 v0.1.8 制作指导；需要重新用结构化 payload 落盘，确保大纲 `production_hint` 与逐字稿 `production_appendix` 四块存在。
+- 工具侧已拦截：进入 `script_refining` 前会检查上游大纲是否由 `draft_manager` 写过并包含 `production_hint`；`finalize` 前会检查逐字稿是否由 `draft_manager` 写过并包含 `production_appendix`。
+- **降耗但不降质**：生成大纲/逐字稿 payload 后，正式 `update` 前先执行同 stage 的 `--validate-only --json`；逐字稿默认读 `prompts/fragments/script-core.md` + `prompts/fragments/script-min-schema.md`，不要传 `stage/style_id/compliance/display_markdown` 等多余字段。不得用 `role: "host"` 或跳过 `user_style_context` 来绕过事实证据、风格适配门禁。
+- **会话费控（新增）**：定稿时优先使用  
+  `python3 skills/streamy-content-gen/scripts/draft_manager.py finalize --draft <DID> --min-context-reset`  
+  该开关会在归档后执行最小上下文清理（仅处理 `agents/stream-gen/sessions/*` 历史会话文件与失效会话索引，不触碰 `drafts/`、`memory/`、规则文件）。
+
 ## 与 finance-source-ingest 的关系
 
 - `preflight_topic.py` 默认 `--out-dir /tmp/finance_data/`，并读取其中 **`snapshot.json`** 的 **`markdown_summary`** 折叠进 `source_context`（超长截断以降低 Token）。
 - 完整「ingest → FactSnapshot → 手写 payload」高阶管道仍以 `adapter_ingest_to_fact_snapshot.py` 等为准；**带方向开稿** 优先走本脚本的 **轻量闭环**。
 - `finance-source-ingest` 保持可迁移、脚本内不调用联网搜索。若 Agent 仍需人工核对缺口，由会话策略自行决定；不得把联网结果伪装为 ingest 原始信源或覆盖 `sections` 中的 API 数值。
 
-## 个性化风格（user-style-manager，可选）
+## 个性化风格（user-style-manager，开稿硬门禁）
 
 - **数据位置**：`{WORKSPACE_ROOT}/user_data/style_memory.db`（**不**在 `skills/` 内，便于 skills 分卷迁移时不带走用户库）。**禁止**把用户原文/切片写进本 `SKILL.md`。
 - **user_id**：与 `draft_manager` 一致，优先环境变量 `OPENCLAW_USER_ID`；多用户/生产应配置，否则将共用默认用户下的风格行。
+- **开稿前风格确认（P0）**：进入 `topic_picking` 后、推进 `outline_refining` 前，必须先列出当前所有可用 user-style 并询问用户选择。没有用户选择并绑定 `style_id` 时，不得直接生成大纲；不得用“默认风格/通用风格”绕过该步骤。
 - **选风格**：用户**显式**说「用某风格」或从列表点选后，将对应 `style_id` 写入该 Draft 的 `meta`：
   - **建稿时**：`draft_manager create --style-id <UUID>`
   - **已存在 Draft**：`draft_manager update --draft <DID> --set-style-id <UUID>`；清空：同一命令加 `--clear-style`（与整阶段 `--stage` / `--set-chosen` 互斥，**分次**调用）
@@ -99,6 +132,7 @@ python3 skills/user-style-manager/scripts/style_cli.py get-context --style-id <U
 将 **stdout** 的文本块原样或略排版写入当日 `update --payload-file` 的 JSON 的 `user_style_context`。**不得**把敏感信息写入 `meta.json`（`meta` 只保留 `style_id` UUID）。
 
 - **与 topic 阶段**：`topic_picking` **不**强制带 `user_style_context`；风格块主要在 **大纲 / 逐字稿** 阶段约束语气与例句。
+- **工具硬拦**：`draft_manager update --stage outline_refining/script_refining` 在 `meta.style_id` 为空时会返回错误；正确补救是先列出风格并 `--set-style-id`，不要手写 `outline.md`、`script.md` 或直接改 `meta.json` 绕过工具。
 
 ## 迁移性
 

@@ -1,27 +1,12 @@
 #!/bin/bash
-# Stream-Gen 会话清理脚本
-# 定期清理旧的会话备份和重置文件
+# Stream-Gen 会话清理脚本（安全版）
+# 不直接删除会话文件，统一搬运到 sessions/_session_cleanup_archive/
 
-SESSION_DIR="/root/.openclaw/agents/stream-gen/sessions"
+set -euo pipefail
 
-echo "=== Stream-Gen Session Cleanup ==="
-echo "Before cleanup:"
-du -sh "$SESSION_DIR"
-find "$SESSION_DIR" -name "*.jsonl*" | wc -l
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-# 1. 删除超过7天的.reset备份文件
-echo ""
-echo "1. Cleaning .reset files older than 7 days..."
-find "$SESSION_DIR" -name "*.reset*" -type f -mtime +7 -delete
-
-# 2. 删除超过14天的非活跃会话文件（保留最近5个活跃文件）
-echo ""
-echo "2. Cleaning old session files (keep most recent 5)..."
-cd "$SESSION_DIR"
-ls -t *.jsonl 2>/dev/null | tail -n +6 | xargs -r rm -v
-
-echo ""
-echo "After cleanup:"
-du -sh "$SESSION_DIR"
-find "$SESSION_DIR" -name "*.jsonl*" | wc -l
+echo "=== Stream-Gen Session Cleanup (safe archive mode) ==="
+"$PYTHON_BIN" "$SCRIPT_DIR/reset_min_context.py" --keep-latest 1 --compact-sessions-json
 echo "=== Done ==="

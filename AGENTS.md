@@ -60,11 +60,13 @@
 
 ## 行情 / 热点「只看数」（飞书常见问法）
 
-用户只要**拉行情、拉热点、信源快照、今日全量**等（**单说其中一词也算**）且**不开稿**时：见 **`skills/streamy-content-gen/prompts/natural-language-intent.md` §4.4** — 必须 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30`**，并把 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户；禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后结束，禁止拆成只跑 `fetch_market.py`、禁止按用户措辞只拉 `market` 或 `news`、禁止拆成两条消息各贴一半。
+用户只要**拉行情、拉热点、信源快照、今日全量**等（**单说其中一词也算**）且**不开稿**时：见 **`skills/streamy-content-gen/prompts/fragments/intent-core.md` §4.4**（经 `natural-language-intent.md` 索引）— 必须 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`**，并把 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户；禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后结束，禁止拆成只跑 `fetch_market.py`、禁止按用户措辞只拉 `market` 或 `news`、禁止拆成两条消息各贴一半。
 
 ## 开稿阶段回复边界（新增）
 
 - 进入带方向开稿后，`topic_picking` 默认只回：`#<DID>` + 候选（标题/核心论点/3条论据）+ 选号提示。
+- 用户确认选题后、进入 `outline_refining` 前，必须先生成并展示该候选方向的 `evidence_pack`（`preflight_topic.py --candidate-id <N> --topic-payload-file ... --snapshot-path ...`），并用 `draft_manager update --set-evidence-pack-file` 落盘；再执行 user-style 门禁：列出 `user-style-manager` 中全部可用风格、让用户选择、并用 `draft_manager update --set-style-id` 绑定；未落盘证据包或 `style_id` 为空时不得生成大纲/逐字稿。
+- `outline.md` / `script.md` / `meta.json` 不得手写或用 edit/write 直接改；大纲与逐字稿必须用 `draft_manager update --stage ... --payload-file ...` 落盘。若怀疑已有稿被绕过，先跑 `draft_manager.py doctor --draft <DID> --json`；归档稿加 `--include-archive`。
 - 进入 `outline_refining` / `script_refining` 后，只回当前阶段产物与确认动作。
 - 除非用户明确要求“回看数据/快讯来源”，否则不再拼接「信源状态/大盘行情/市场焦点/事实依据」块。
 
