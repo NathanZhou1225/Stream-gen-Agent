@@ -13,6 +13,7 @@ import ssl
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urlrequest
@@ -30,6 +31,7 @@ from fetchers import (
 )
 from fetchers.sector_keywords import SECTOR_KEYWORDS, SECTOR_ORDER, sectors_for_text
 from fetchers.sentiment import classify_impact, classify_sentiment, extract_stock_mentions, sentiment_emoji as _s_emoji
+from fetchers.social_intelligence import enhance_social_intelligence
 
 logger = logging.getLogger(__name__)
 
@@ -1008,6 +1010,55 @@ def _router_event_dedup_key(it: dict[str, Any]) -> str:
         return k
     body = _clean_display_text(str(it.get("clean_text") or it.get("summary") or ""))[:120]
     return _title_dedup_key(body)
+
+
+def _social_intel_item_dedupe_key(it: dict[str, Any]) -> str:
+    """社交情报汇总前去重：优先稳定 id/url，其次路由风格标题键 + 时间 + 来源。"""
+    if not isinstance(it, dict):
+        return ""
+    for k in ("id", "link", "url", "guid"):
+        v = it.get(k)
+        if v is not None and str(v).strip():
+            return f"{k}:{str(v).strip()}"
+    pub = str(it.get("published_at") or it.get("pub_time") or it.get("date") or "")
+    src = str(it.get("source") or it.get("platform") or "")
+    dk = _router_event_dedup_key(it)
+    return f"h:{src}|{pub}|{dk}"
+
+
+def _dedupe_social_intel_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        k = _social_intel_item_dedupe_key(it)
+        if not k:
+            k = f"anon:{id(it)}"
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(it)
+    return out
+
+
+def _workspace_stream_gen_root() -> Path:
+    """``pipeline.py`` 位于 ``…/skills/finance-source-ingest/scripts/``。"""
+    return Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _finance_db_path_for_social_hist() -> Path:
+    env = os.environ.get("FINANCE_DB_PATH", "").strip()
+    if env:
+        return Path(env)
+    return _workspace_stream_gen_root() / "user_data" / "finance_sources.db"
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)).strip())
+    except ValueError:
+        return default
 
 
 def _dedupe_router_items_across_sectors(
@@ -2996,6 +3047,52 @@ def _build_live_stream_markdown(
 
     block_market = "\n".join(f"- {x}" for x in src_bits) + mood_tail
 
+    # --- 社交情报：情绪量化指标板块 ---
+    social_intel = sections.get("social_intelligence") or {}
+    agg_metrics = social_intel.get("aggregate_metrics") or {}
+    
+    social_intel_bits: list[str] = []
+    if agg_metrics:
+        avg_sent = float(
+            agg_metrics.get("headline_sentiment", agg_metrics.get("avg_sentiment", 0)) or 0
+        )
+        sent_label = agg_metrics.get("sentiment_label", "中性")
+        fg_index = agg_metrics.get("fear_greed_index", 50)
+        fg_label = agg_metrics.get("fear_greed_label", "中性")
+        fg_emoji = agg_metrics.get("fear_greed_emoji", "⬜")
+        reversal = agg_metrics.get("reversal_signal") or {}
+        
+        # 情绪分数可视化（-1到1映射到5档）
+        sent_emoji = "🟢" if avg_sent > 0.3 else "🟡" if avg_sent > 0 else "🟠" if avg_sent > -0.3 else "🔴"
+        social_intel_bits.append(f"**整体情绪分**：{avg_sent:.2f} ({sent_emoji} {sent_label})")
+        social_intel_bits.append(f"**恐惧贪婪指数**：{fg_index:.1f} ({fg_emoji} {fg_label})")
+        
+        # 反转信号提示
+        if reversal.get("signal") != 0:
+            rev_dir = reversal.get("direction", "")
+            rev_reason = reversal.get("reason", "")
+            rev_stren = reversal.get("strength", 0)
+            rev_emoji = "⚠️" if rev_dir == "short" else "💡"
+            social_intel_bits.append(f"{rev_emoji} **信号提示**：{rev_reason}（强度：{rev_stren:.2f}）")
+        
+        # 股票情绪汇总（Top 3）
+        stock_sents = social_intel.get("stock_sentiments") or {}
+        if stock_sents:
+            sorted_stocks = sorted(
+                stock_sents.items(),
+                key=lambda x: abs(x[1].get("avg_sentiment", 0)),
+                reverse=True
+            )[:3]
+            if sorted_stocks:
+                stock_lines = []
+                for stock, data in sorted_stocks:
+                    ss = data.get("avg_sentiment", 0)
+                    se = "🟢" if ss > 0.2 else "🔴" if ss < -0.2 else "⚪"
+                    stock_lines.append(f"{stock}({se} {ss:.2f})")
+                social_intel_bits.append("**个股情绪极值**：" + "、".join(stock_lines))
+    
+    block_social_intel = ("\n".join(f"- {x}" for x in social_intel_bits)) if social_intel_bits else ""
+
     by_sec = n.get("items_by_sector") or {}
     other_flash_items = n.get("items_other_flash") or []
     macro_items_raw = macro_sec.get("items") or []
@@ -3358,10 +3455,14 @@ def _build_live_stream_markdown(
             msg = error_cn.get(code) or str(e.get("message") or "接口调用失败")
             error_lines.append(f"- **{code}**：{msg}")
 
+    social_intel_section = f"""
+### 【🧠 情绪量化指标】（社交情报分析）
+{block_social_intel}""" if block_social_intel else ""
+
     markdown = f"""## 📊 今日信源全量快照 ({fetched_at})
 
 ### 【📈 大盘与情绪】
-{block_market}
+{block_market}{social_intel_section}
 
 ### 【🎯 核心板块异动】（全信源 · 六大板块精选 3-5 条 · 情绪+来源标注）
 {chr(10).join(sector_lines)}
@@ -3571,6 +3672,157 @@ def build_snapshot(
     if sections["llm_router"]["router_timing"]:
         meta_extra["llm_router_timing"] = sections["llm_router"]["router_timing"]
 
+    # --- 社交情报分析：量化情绪、热度、恐惧贪婪指数 ---
+    all_news_items: list[dict[str, Any]] = []
+    # 收集所有新闻条目
+    for _bucket in ("items", "items_other_flash"):
+        for _it in (sections.get("news") or {}).get(_bucket) or []:
+            if isinstance(_it, dict):
+                all_news_items.append(_it)
+    # 收集板块新闻
+    _router_sec = (sections.get("llm_router") or {}).get("items_by_sector") or {}
+    if isinstance(_router_sec, dict):
+        for _sec_name, _sec_data in _router_sec.items():
+            if isinstance(_sec_data, dict):
+                for _it in _sec_data.get("items") or []:
+                    if isinstance(_it, dict):
+                        all_news_items.append(_it)
+    # 收集宏观
+    for _it in (sections.get("macro_hot") or {}).get("items") or []:
+        if isinstance(_it, dict):
+            all_news_items.append(_it)
+    # 收集社媒
+    for _it in (sections.get("social") or {}).get("items") or []:
+        if isinstance(_it, dict):
+            all_news_items.append(_it)
+
+    unique_intel_items = _dedupe_social_intel_items(all_news_items)
+
+    hist_run_s: list[float] = []
+    hist_run_b: list[float] = []
+    hist_fg: list[float] = []
+    hist_load: dict[str, Any] = {"from_db": False, "loaded_runs": 0}
+    max_hist = max(1, _int_env("FINANCE_SOCIAL_INTEL_HISTORY_RUNS", 30))
+
+    if (
+        unique_intel_items
+        and truthy_env("FINANCE_SOCIAL_INTEL_HISTORY_ENABLED", "1")
+    ):
+        db_path = _finance_db_path_for_social_hist()
+        if db_path.is_file():
+            try:
+                import sqlite3
+
+                from storage import fetch_social_intel_run_history
+
+                _conn = sqlite3.connect(str(db_path))
+                _conn.row_factory = sqlite3.Row
+                try:
+                    _rows = fetch_social_intel_run_history(
+                        _conn, max_hist,
+                    )
+                    for _r in _rows:
+                        hist_run_s.append(float(_r["headline_sentiment"]))
+                        hist_run_b.append(float(_r["mean_buzz_score"]))
+                        hist_fg.append(float(_r["fear_greed_index"]))
+                    hist_load = {
+                        "from_db": True,
+                        "loaded_runs": len(_rows),
+                        "db_path": str(db_path),
+                        "max_requested": max_hist,
+                    }
+                finally:
+                    _conn.close()
+            except Exception as _ex:
+                logger.warning("social_intel DB history load failed: %s", _ex)
+                hist_load = {"from_db": False, "error": str(_ex)[:240]}
+
+    if unique_intel_items:
+        social_intel_result = enhance_social_intelligence(
+            unique_intel_items,
+            historical_fg=hist_fg if hist_fg else None,
+            historical_run_sentiments=hist_run_s if hist_run_s else None,
+            historical_run_buzz=hist_run_b if hist_run_b else None,
+        )
+    else:
+        social_intel_result = {
+            "enhanced_items": [],
+            "aggregate_metrics": {},
+            "stock_sentiments": {},
+        }
+
+    _si_field_keys = (
+        "sentiment_score",
+        "sentiment_label",
+        "author_type",
+        "author_weight",
+        "weighted_sentiment",
+        "buzz_score",
+        "buzz_zscore",
+    )
+    _proto_by_key: dict[str, dict[str, Any]] = {}
+    for _it in unique_intel_items:
+        _dk = _social_intel_item_dedupe_key(_it)
+        if _dk:
+            _proto_by_key[_dk] = _it
+    for _it in all_news_items:
+        if not isinstance(_it, dict) or "sentiment_score" in _it:
+            continue
+        _dk = _social_intel_item_dedupe_key(_it)
+        _proto = _proto_by_key.get(_dk)
+        if not _proto:
+            continue
+        for _fk in _si_field_keys:
+            if _fk in _proto:
+                _it[_fk] = _proto[_fk]
+
+    sections["social_intelligence"] = social_intel_result
+    _agg_si = social_intel_result.get("aggregate_metrics") or {}
+    meta_extra["social_intelligence"] = {
+        "avg_sentiment": _agg_si.get("avg_sentiment"),
+        "headline_sentiment": _agg_si.get("headline_sentiment"),
+        "platform_weighted_sentiment": _agg_si.get("platform_weighted_sentiment"),
+        "sentiment_label": _agg_si.get("sentiment_label"),
+        "fear_greed_index": _agg_si.get("fear_greed_index"),
+        "fear_greed_label": _agg_si.get("fear_greed_label"),
+        "fear_greed_scope": _agg_si.get("fear_greed_scope"),
+        "mean_buzz_score": _agg_si.get("mean_buzz_score"),
+        "dedupe_input_count": len(all_news_items),
+        "dedupe_unique_count": len(unique_intel_items),
+        "history": hist_load,
+    }
+
+    if (
+        unique_intel_items
+        and _agg_si
+        and truthy_env("FINANCE_SOCIAL_INTEL_HISTORY_ENABLED", "1")
+        and truthy_env("FINANCE_SOCIAL_INTEL_HISTORY_APPEND", "1")
+    ):
+        _dbp = _finance_db_path_for_social_hist()
+        try:
+            import sqlite3
+
+            from storage import append_social_intel_run_history
+
+            _dbp.parent.mkdir(parents=True, exist_ok=True)
+            _c2 = sqlite3.connect(str(_dbp))
+            try:
+                append_social_intel_run_history(
+                    _c2,
+                    recorded_at=fetched_at,
+                    headline_sentiment=float(_agg_si.get("headline_sentiment") or 0.0),
+                    mean_buzz_score=float(_agg_si.get("mean_buzz_score") or 0.0),
+                    fear_greed_index=float(_agg_si.get("fear_greed_index") or 50.0),
+                    dedupe_unique_count=len(unique_intel_items),
+                    source_kind="legacy_pipeline",
+                )
+            finally:
+                _c2.close()
+            meta_extra["social_intelligence"]["history_append"] = "ok"
+        except Exception as _ex:
+            logger.warning("social_intel DB history append failed: %s", _ex)
+            meta_extra["social_intelligence"]["history_append"] = f"failed:{str(_ex)[:120]}"
+    
     md = _build_live_stream_markdown(sections, errors, fetched_at)
     _rewrite_meta = sections.get("sector_llm_rewrite") or {}
     if _rewrite_meta:

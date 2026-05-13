@@ -1,52 +1,208 @@
+# finance-source-ingest（Finance Newsbox 采集层）v0.2.2
+
+## 角色定位
+
+**金融信息采集箱（Ingest Layer）**。与外部数据源对抗，执行抓取、LLM 清洗、入库，是整个内容流水线的"数据水源"。
+
+- **只做**：抓取 → 标准化 → raw 入库 → LLM 清洗 → prune → stdout 极简 JSON
+- **不做**：选题、观点生成、Router、markdown_summary（已迁移到 `finance-draft-manager`）
+
 ---
-name: finance-source-ingest
-description: |
-  独立金融信源聚合：AkShare 行情（A 股指数、北向、行业强弱）、可选新浪海外/大宗备源、
-  六大板块快讯（**必选** `FINANCE_RSSHUB_BASE_URL`：RSSHub `wallstreetcn/live` + `jin10` + `36kr/newsflashes`，feedparser + 关键词过滤）、新浪7x24全球宏观、证监会/央行公告（可选 TUSHARE_TOKEN+CCTV）、深度层（同 RSSHub 基址 + 直连华尔街见闻/第一财经/金十/界面）、社媒热点（微博热搜 → AkShare 淘股吧/东财 → 百度热搜降级）；可选第三方 JSON；输出单 JSON + markdown_summary，不调 LLM、不写 drafts、不内嵌 Tavily。
-  OpenClaw 无单独「激活」开关：出现在技能列表即可用；仅需 Python 依赖（akshare、feedparser）与可选环境变量增强数据，不要求 Tushare/财联社 key 作为本 skill 前提。
-  当用户需要「拉一手实时数据 / 信源快照 / 选题前事实包」且不想只依赖 streamy-content-gen 内嵌 fetch 时启用本 skill。
-  典型触发词：信源、行情快照、AkShare、拉数据、RSS、热点 API、finance-source-ingest、ingest run。
-  不触发：已明确只要产出逐字稿且走 streamy-content-gen 全流程时，可继续只用 streamy-content-gen。
+
+## 调用约定
+
+### A. 标准入库（v0.2.2 新路径）
+
+```bash
+python scripts/ingest.py run \
+  --sources market,news,social \
+  --keywords "AI 算力" \
+  --max-items 30 \
+  --prune-days 7
+```
+
+**stdout**（极简 JSON，供程序解析）：
+
+```json
+{
+  "ok": true,
+  "inserted": 25,
+  "updated": 3,
+  "cleaned": 18,
+  "pruned": 0,
+  "started_at": "2026-05-13T01:30:00+00:00",
+  "finished_at": "2026-05-13T01:30:18+00:00",
+  "db_path": "/root/.openclaw/workspace-stream-gen/user_data/finance_sources.db"
+}
+```
+
+加 `--preview` 附加最近 5 条新闻标题（调试用）。
+
+### B. 旧路径兼容（给 `query_market_facts.py` / `preflight_topic.py` 使用）
+
+```bash
+python scripts/ingest.py legacy --sources market,news,social --keywords "AI"
+```
+
+输出完整 `snapshot.json` + `markdown_summary`，与旧版行为一致。
+
+### C. 修复 RSSHub
+
+```bash
+python scripts/ingest.py repair-rsshub --decision confirm
+```
+
 ---
 
-# finance-source-ingest
+## 参数说明
 
-## 何时启用
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--sources` | `market,news,social` | 逗号分隔，可用值: `market` `news` `social` `macro` `deep` `policy` `all` |
+| `--keywords` | 空 | 关键词过滤（空格分隔），传给各 Collector |
+| `--max-items` | `30` | 每个 Collector 最大条目数 |
+| `--prune-days` | `7` | 清理多少天前的数据（每次 run 自动执行） |
+| `--db` | `user_data/finance_sources.db` | DB 路径（可用 `FINANCE_DB_PATH` 环境变量覆盖） |
+| `--no-clean` | 关闭 | 跳过 LLM 清洗（fast mode） |
+| `--preview` | 关闭 | 附加最近 5 条新闻供调试 |
 
-用户或上游 Agent 需要 **当日/实时金融事实**（A 股指数、北向、行业强弱、可选海外、RSSHub 六大板块快讯、社媒热点多级降级或第三方热点 JSON）用于选题或事实锚点，且不希望通过 `streamy-content-gen` 内嵌脚本耦合时。
+---
 
-## OpenClaw：没有「点一下激活」
+## 环境变量
 
-- 本 skill **不是**「未配置 key = 未安装」。只要网关/会话的 `<available_skills>` 里已有 `finance-source-ingest`，**skill 即视为可用**。
-- **必须做的**只有：部署机能执行 `ingest.py`（需一次出网以装依赖）。**换目录 / 迁服务器后**勿拷贝旧 `.venv`；首次用 `python3 scripts/ingest.py` 会**自动**建 `.venv` 并 `pip install -r` 再重载（可 `FINANCE_INGEST_NO_AUTO_VENV=1` 关闭，见 README）。亦可用 **`./scripts/bootstrap_venv.sh`** 手跑。`preflight_topic` 会优先使用兄弟目录 `finance-source-ingest/.venv/bin/python`（无则 `python3` 会触发自举直到 `.venv` 存在）。
-- **快讯门禁**：`FINANCE_RSSHUB_BASE_URL`（如 `http://127.0.0.1:1200`，无尾斜杠）自建 RSSHub；`news` 源依赖 **feedparser** 拉取 `wallstreetcn/live`、`jin10`、`36kr/newsflashes` 并做关键词白名单过滤。**不配则 `sections.news` 为空**并产生告警。深度层仍可用同基址优先 RSSHub 再回退直连。其它可选：`FINANCE_SOURCE_OVERSEAS_STUB=1`；`FINANCE_SOURCE_SOCIAL_API_URL`；`TUSHARE_TOKEN` + `tushare` 用于 CCTV。行情主路径 **AkShare 不需要 Tushare**。
+| 变量 | 说明 |
+|------|------|
+| `FINANCE_INGEST_LLM_CLEAN_ENABLED` | 默认 `1`（开启 LLM 清洗）；设 `0` 关闭 |
+| `FINANCE_INGEST_LLM_CLEAN_MODEL` | 清洗模型，空时回退 `OPENCLAW_ARK_MODEL` |
+| `FINANCE_INGEST_LLM_CLEAN_BASE_URL` | 清洗网关，空时回退 `OPENCLAW_ARK_BASE_URL` |
+| `FINANCE_INGEST_LLM_CLEAN_API_KEY` | 清洗密钥，空时回退 `OPENCLAW_ARK_API_KEY` |
+| `FINANCE_INGEST_LLM_CLEAN_TIMEOUT_SEC` | 默认 `25`（单次 HTTP 读超时；仍报错可再加到 `45`） |
+| `FINANCE_INGEST_LLM_CLEAN_MAX_TOKENS` | 默认 `1024`（补全 max_tokens，避免中文 JSON+tags 被截断导致解析失败） |
+| `FINANCE_INGEST_LLM_CLEAN_BATCH_SIZE` | 默认 `10`（每批从库中取几条；每条各调用 1 次 LLM） |
+| `FINANCE_INGEST_LLM_CLEAN_MAX_ROUNDS_PER_RUN` | 默认 `0` = 不限制批次数，当次 `run`/`clean` 一直洗到无 `pending`；设为**正数**（如 `30`）则每轮最多洗这么多批，适合 cron 控制单次耗时，剩余 `pending` 由下次定时任务继续 |
+| `FINANCE_DB_PATH` | DB 文件路径（覆盖默认） |
+| `FINANCE_SOCIAL_INTEL_HISTORY_ENABLED` | 默认 `1`：读表 `social_intel_run_history` 最近 N 次 run（**合并** `legacy_pipeline` + `ingest_run`），参与 FG 与反转；`0` 关闭（`ingest.py run` 收尾也不再 append） |
+| `FINANCE_SOCIAL_INTEL_HISTORY_RUNS` | 默认 `30`，最多读入的历史 run 条数 |
+| `FINANCE_SOCIAL_INTEL_HISTORY_APPEND` | 默认 `1`：仅 **legacy `build_snapshot`** 成功后在 DB **追加**一行（`source_kind=legacy_pipeline`）；`0` 不写 |
+| `FINANCE_SOCIAL_INTEL_INGEST_APPEND` | 默认 `1`：**`ingest.py run`** 收尾对「本窗新闻」算聚合并 append（`source_kind=ingest_run`）；`0` 关闭 |
+| `FINANCE_SOCIAL_INTEL_INGEST_LOOKBACK_MINUTES` | 默认 `120`，与 ``run.started_at`` 取较早者作为 ``fetched_at`` 下限，扩大本窗 |
+| `FINANCE_SOCIAL_INTEL_INGEST_MAX_NEWS` | 默认 `500`，本窗最多取多少条新闻参与计算 |
 
-## 调用契约
+**Base URL**：填 `https://api.deepseek.com` 或 `https://api.deepseek.com/v1` 均可（脚本会自动拼到 `/v1/chat/completions`）。
 
-0. **stream-gen 用户侧纯拉数（P0）**：若当前 workspace 是 `workspace-stream-gen`，且用户只要「拉今日信源 / 今日行情 / 今日热点 / 全量信息」，推荐用包装脚本（与 `ingest.py` 同一 JSON，便于统一加载 `.env`）：
-  - `python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`
-   - 该包装**仅**调用本 skill 并原样输出 JSON，**不再**拼接 Tavily 或其它联网附录。
-   - 直接调用 `ingest.py` 仍用于底层调试、CI、或其它编排。
-1. 在 workspace 下推荐路径（与 OpenClaw 软链一致）：
-   - `cd $OPENCLAW_WORKSPACE`（一般为 `workspace-streamy`）
-   - `.venv/bin/python skills/finance-source-ingest/scripts/ingest.py run --sources market,news,social ...`
-   - 或在 `skills/finance-source-ingest/scripts/` 内：`../.venv/bin/python ingest.py run ...`（venv 建在 skill 根目录时）
-2. **stdout 为单个 JSON 对象**，含 `sections`、`errors`、`markdown_summary`。
-3. **事实以 `sections` 与 `errors` 为准**；`markdown_summary` 仅辅助阅读，不得从中补造数字。配置 `FINANCE_RSSHUB_BASE_URL` 时，`sections.deep_news` 可含 **`sector_rsshub_matrix`**（六大板块垂直路由：每板块 `routes_tried_detail` / `routes_ok` / `routes_failed` / `items_count`），`meta.deep_news_sector_rsshub` 与之相同便于对拍。
-4. **`markdown_summary` 结构**：大盘与情绪（三大指数优先 → 北向资金 → 其他情绪/资金）→ 六大板块 **RSSHub 快讯**摘要（**每条带时间**；板块内不足时用宽池关键词回溯；仍无新闻时用行情侧补充或明确暂无；**深度层条目已并入各板块展示，无独立「深度内容」小节**）→ 大事件（国家/全球/政策/地缘/峰会类，不放公司业绩/午评/涨停分析）→ **全球宏观**（新浪7x24 + 证监会/人民银行 + 可选 CCTV）→ 今日热点讯息（仅金融相关）→ 社媒/人气榜探测 → 中文告警。机器侧完整深度列表仍以 JSON **`sections.deep_news`** 为准。与上游 Agent 的「只发指数表」类输出**不**同义。
-5. **缺口与告警**：接口失败、字段为空、板块未命中等情况写入 `errors` 并在 `markdown_summary` 的告警区用中文说明；**不再**输出 `meta.websearch_required` / `meta.websearch_gaps`，也不内嵌联网检索。
-6. **边界**：本 skill 为可迁移 API 信源层，**不调用** Agent WebSearch / Tavily。若上游 Agent 仍需人工联网核对，由 Agent 在对话中自行处理，且不得改写本 JSON 的 `sections` 数值事实。
-7. **T3 Router（v0.1.9）**：`sections.deep_news` 与板块快讯分池后**交替并入** Router 菜单（避免纯按时间截断把 36氪/界面/金十等深度源挤出）；单次 LLM 路由要求每板块 **2～4 条**且【信息配比】：**必须**同时覆盖盘面快讯（财联社、新浪等）与产业/基本面源（深度层常见来源），禁止快讯独占；**仅**当菜单中完全无该板块相关信息时才 `[]`。默认菜单约 **28** 条（`FINANCE_LLM_ROUTER_MENU_MAX_ITEMS` 可调）。结果写入 `sections.llm_router.items_by_sector`，`meta.llm_router_status`。失败回退 legacy，`errors[].code=LLM_ROUTER_FAILED`。
+### 仅补洗积压（不抓取）
 
-## 铁律
+```bash
+python scripts/ingest.py clean
+# 或限制本命令最多 20 批：python scripts/ingest.py clean --max-rounds 20
+# 将 failed 改回 pending 再全量重试：python scripts/ingest.py clean --retry-failed
+```
 
-- 不写 `drafts/`，不调 `draft_manager.py`。
-- **指数主路径**：新浪财经 `hq.sinajs.cn` 三大指数；在此之后**默认仍会尝试** AkShare 探测北向/行业/涨跌停/情绪（失败则字段为空并记入 `errors`，不静默跳过）。若部署机对东财 **WAF 极严** 可设 **`FINANCE_SOURCE_SKIP_AKSHARE_PROBE=1`** 关闭扩展探测（仅指数）。
-- 海外新浪块仅当 `FINANCE_SOURCE_OVERSEAS_STUB=1`。
-- 社媒自爬 v0.1 不可用；无 `FINANCE_SOURCE_SOCIAL_API_URL` 时使用 **微博热搜 → AkShare → 百度热搜** 多级降级；自爬仍仅占位。
+**每次 `run` 入库后，会自动分批洗完所有 `pending` 吗？**
 
-## 与 streamy-content-gen
+- **默认**（`FINANCE_INGEST_LLM_CLEAN_MAX_ROUNDS_PER_RUN` 未设或设为 **`0`**）：**会**。`ingest.py run` 在本次执行内会**多轮**取 `pending` → 调 LLM → 写回，直到库里没有 `pending`（单条失败会进 `failed`，不再占 `pending`）。
+- **若为正整数**（如 `30`）：**单次** `run`（或 `clean`）**最多**洗这么多**批**；每批条数 = `FINANCE_INGEST_LLM_CLEAN_BATCH_SIZE`。剩余的 `pending` 留给**下一次**定时任务或你再执行一次 `ingest.py clean`。**「慢慢洗」**：把该变量设小 + 依赖多次 cron / 手写多跑几次即可。
 
-v0.1 **不自动串联**；后续由集成方案定义（例如在 topic 阶段 shell 调用本 CLI 并将 JSON 注入 `source_context`）。
+你只看到 **2 条** `clean_*` 有值，通常是因为之前只跑过**带限制的补洗**（例如测试时 `MAX_ROUNDS=1` 且 `BATCH_SIZE=2`）。要对当前积压**全部洗完**：在项目根执行 **`python scripts/ingest.py clean`**（保持默认 `MAX_ROUNDS=0`），或跑一次 **`ingest.py run`**（不要加 `--no-clean`）；耗时 ≈ `pending 条数 × 单次 LLM 耗时`（串行逐条调用），条数多时可跑十几分钟以上。
 
-上游 Agent 迁移时：`finance-source-ingest` 与 `query_market_facts.py` 负责可脚本化信源；联网核对由 Agent 策略自行定义，不再与本 skill 输出强耦合。
+---
+
+## 目录结构
+
+```
+finance-source-ingest/
+├── collectors/           # 采集器（Newsbox 模式，各信源独立）
+│   ├── base.py           # BaseCollector 抽象类
+│   ├── sina_market.py    # 新浪三大指数 + 北向
+│   ├── sina_live.py      # 新浪7x24宏观快讯
+│   ├── cls_telegraph.py  # 财联社电报
+│   ├── rsshub.py         # RSSHub 六大板块
+│   ├── deep_news.py      # 直连深度资讯
+│   ├── policy_gov.py     # 监管公告
+│   └── social_hot.py     # 社媒热搜
+├── models/               # Pydantic-like dataclass 数据契约
+│   ├── item.py           # RawNewsItem / CleanedFields
+│   ├── market.py         # MarketSnapshot
+│   ├── sentiment.py      # SentimentHotItem
+│   └── run.py            # IngestRun
+├── fetchers/             # P0 兼容层（P1 清除，collectors 内部使用）
+├── storage.py            # SQLite init/upsert/prune/query
+├── cleaner.py            # LLM 清洗层（默认开启，失败不阻断）
+├── setup_cron.sh         # 安装/移除 cron 定时任务
+└── scripts/
+    └── ingest.py         # 统一入口（run / clean / legacy / init-db / prune / repair-rsshub）
+```
+
+---
+
+## 定时采集（cron）
+
+```bash
+./setup_cron.sh --dry-run    # 预览三条 cron 条目
+./setup_cron.sh --install    # 写入 crontab（周一~五 09:00/12:00/17:00）
+./setup_cron.sh --remove     # 移除
+```
+
+---
+
+## 数据库位置
+
+`workspace-stream-gen/user_data/finance_sources.db`（可 `FINANCE_DB_PATH` 覆盖）
+
+### 核心表
+
+| 表 | 说明 |
+|----|------|
+| `news_items` | 新闻/快讯，含 raw 与 clean 双层字段 |
+| `market_snapshots` | 大盘指数快照 |
+| `sentiment_hot` | 社媒热搜情绪 |
+| `ingest_runs` | 每次 `ingest.py run` 结束瞬间的统计快照（**见下文**，与逐条清洗状态不是同一张「真相表」） |
+| `social_intel_run_history` | 每次快照级一行：`source_kind` 为 **`legacy_pipeline`**（legacy `build_snapshot`）或 **`ingest_run`**（`ingest.py run` 收尾）；读历史时**两种合并**参与 FG。与 `news_items` 等同按 ``prune_old(days)`` 清理（见 `storage.prune_old`） |
+| `source_state` | 各信源最后抓取状态 |
+
+### 清洗状态以哪张表为准？
+
+**以 `news_items` 为准**，看列 **`llm_clean_status`**：
+
+| 取值 | 含义 |
+|------|------|
+| `pending` | 已入库，**尚未**成功跑完 LLM 清洗（或正在排队等待下几批） |
+| `done` | 已成功写回 `clean_title` / `clean_summary` / `sector` 等清洗字段 |
+| `failed` | 该条清洗调用失败（如超时、API 错误），**raw 仍在**；可修了配置后重试（需后续「重置 pending」能力或手工更新，当前以新入库条目为主） |
+
+图形化工具里若只展开 **`ingest_runs`**，看到 **`cleaned = 0`**：**不代表**库里每一条都是脏数据——那只是**那一场 run 结束时**，统计字段里记下的数字。
+
+- **`ingest_runs` 的一行不会**在你后来单独跑 `ingest.py clean` 之后被改写成新数字；历史行永远保留当时那次 `run` 的摘要。
+- 要看**现在**有多少条已清洗，请查 **`news_items`**，例如：
+
+```sql
+SELECT llm_clean_status, COUNT(*) FROM news_items GROUP BY llm_clean_status;
+```
+
+### 为什么界面里「好像一直未清洗」？
+
+常见原因：
+
+1. **看错行**：盯的是 **`ingest_runs.cleaned`**（历史快照），而不是 **`news_items.llm_clean_status`**。
+2. **那一次 `run` 时清洗没真正跑成**：例如未加载 `.env`、缺 API Key、`BASE_URL` 曾经拼错（已通过自动补 `/v1` 修复）、或用了 `--no-clean`；此时 `ingest_runs.inserted` 可以很大，但 `cleaned` 仍为 0，且多数行会长期停在 `pending`（若 LLM 全部失败则会落到 `failed`）。
+3. **积压条数多**：若设置了 `FINANCE_INGEST_LLM_CLEAN_MAX_ROUNDS_PER_RUN` 为正数，**单轮**只会洗掉部分批次，剩余仍是 `pending`，需要下一次 `run`/`clean` 继续。
+4. **行数 2556 vs 256**：以 **`SELECT COUNT(*) FROM news_items`** 为准；和别的环境/备份库或看错表名时数字会对不上。
+
+`ingest.py run` 成功时的 stdout 会带 **`cleaned`**、**`clean_rounds`**、**`pending_clean_remain`**，便于和库里对上。
+
+---
+
+## 下游依赖
+
+- **finance-draft-manager**：读 DB（如 `db_snapshot.py`），组装开稿素材；**不**负责入库清洗
+- **streamy-content-gen**：飞书「今日讯息」默认 **`query_market_facts.py`（DB）**；显式 `--live-fetch` 才走 `ingest.py legacy` 实时拉取。DB 路径可透传 **`--since-hours` / `--major-since-hours` / `--db-timeout` / `--no-router` / `--no-rewrite`**（见该脚本 `--help`）。
+
+### Legacy 全量快照里的 `social_intelligence`（`scripts/pipeline.py` · `build_snapshot`）
+
+与 Newsbox `ingest.py run` 并行存在的 **legacy 编排**仍会产出 `markdown_summary` 与完整 `sections`。其中社交情报增强约定如下：
+
+- **汇总前去重**：`_dedupe_social_intel_items`（优先 `id` / `link` / `url` / `guid`，否则 `来源 + 发布时间 + 路由风格标题键`），避免同一条在多 bucket 重复抬高均值与 FG；`meta.social_intelligence.dedupe_*` 可观测输入/去重后条数。
+- **逐条写回**：`enhance_social_intelligence` **原地**写入去重后的代表条目；`build_snapshot` 末尾再按 dedupe 键把同一逻辑条目的**其它 dict 副本**（如快讯列表与 Router 列表各持一份对象时）拷回相同量化字段，避免「一条有分、一条没有」。
+- **聚合口径**：`avg_sentiment` 为简单平均；`platform_weighted_sentiment` 为按来源平台词典权重的加权平均；Markdown 与 `sentiment_label` 使用的 headline 为 **`headline_sentiment`**（有来源分组时与平台加权一致）。
+- **恐惧贪婪**：`aggregate_metrics.fear_greed_scope` 为 `batch_relative` 时表示 FG 仅用**当次 run 内**逐条序列的分位；为 `db_run_history` 时表示已拼接 SQLite 表 **`social_intel_run_history`** 中最近 N 次（**legacy + ingest_run 合并**）的 headline / 池均 buzz，再在「run 级序列 + 本 run 聚合点」上算 FG；反转检测使用历史 FG（0–100）+ 当前 FG。表由 `storage` 幂等建表；**legacy** 成功后默认 append（`FINANCE_SOCIAL_INTEL_HISTORY_APPEND`）；**`ingest.py run`** 收尾默认 append（`FINANCE_SOCIAL_INTEL_INGEST_APPEND`）。**`db_snapshot.py`** 只读、不写。`storage.prune_old(days)` 与 `news_items` 等**同一 cutoff** 删除过期 `social_intel_run_history` 行。
+- **DB 快照**：`finance-draft-manager/scripts/db_snapshot.py` 读库拼飞书摘要时，对窗口内新闻 / Router 结果 / 深度 / `sentiment_hot` 聚合后调用同一 **`enhance_social_intelligence`**（与 ingest 同源），并传入与 legacy 相同的历史序列（若库中已有 legacy 写入的 `social_intel_run_history`）。

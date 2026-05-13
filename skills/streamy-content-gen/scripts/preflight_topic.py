@@ -25,6 +25,7 @@ from typing import Any
 # streamy-content-gen 根目录（本文件位于 scripts/）
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = Path(__file__).resolve().parent
+WORKSPACE_ROOT = SKILL_ROOT.parent.parent  # workspace-stream-gen/
 # 与 finance-source-ingest 为同 skills/ 下兄弟目录（可迁移：仅依赖此相对布局）
 DEFAULT_FINANCE_SIBLING = SKILL_ROOT.parent / "finance-source-ingest"
 # 默认写入 workspace 内，避免沙箱/权限导致的 /tmp 写入失败
@@ -768,7 +769,7 @@ def _run_targeted_detail_fetch(
     cmd = [
         _resolve_finance_venv_python(finance_root),
         str(ingest_py),
-        "run",
+        "legacy",
         "--sources",
         "market,news,social",
         "--keywords",
@@ -1455,6 +1456,12 @@ def main() -> None:
     p.add_argument("--topic-payload-file", type=Path, help="证据包模式：读取上轮 topic_payload JSON 文件")
     p.add_argument("--candidate-id", help="证据包模式：候选方向编号（1/2/3 或 C1/C2/C3）")
     p.add_argument("--allow-targeted-fetch", action="store_true", help="证据包不足时允许按候选方向做一次定向补充拉取")
+    p.add_argument(
+        "--source-mode",
+        choices=["db", "legacy"],
+        default="db",
+        help="数据源模式：db（默认，从本地数据库读取，不联网）/ legacy（实时抓取，需要网络）",
+    )
     args = p.parse_args()
 
     if args.candidate_id:
@@ -1572,91 +1579,150 @@ def main() -> None:
         )
 
     finance_root: Path = args.finance_root.resolve()
-    ingest_py = _resolve_ingest(finance_root)
-    if not ingest_py.is_file():
-        _exit_ok(
-            {
-                "ok": False,
-                "error": {
-                    "code": "PREFLIGHT_INGEST_NOT_FOUND",
-                    "message": "未检测到外部信源技能（ingest.py 不存在）",
-                    "hint": f"请确认 finance-source-ingest 与 streamy-content-gen 为兄弟目录，或传 --finance-root 指向该技能根目录。期望路径: {ingest_py}",
-                },
-            }
-        )
-
     kw, domain_tags, kw_list = _expand_keywords(direction)
     out_dir: Path = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    py_exe = _resolve_finance_venv_python(finance_root)
+    source_mode = getattr(args, "source_mode", "db")
 
-    cmd = [
-        py_exe,
-        str(ingest_py),
-        "run",
-        "--sources",
-        "market,news,social",
-        "--keywords",
-        kw,
-        "--max-items",
-        str(max(1, int(args.max_items))),
-        "--out-dir",
-        str(out_dir),
-    ]
-    cwd = str((finance_root / "scripts").resolve())
-
+    # ── 数据源分叉：默认 DB，--source-mode legacy 才实时抓 ────────────────────
     t_ingest_start = time.perf_counter()
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
+
+    if source_mode == "db":
+        # DB 路径：调用 db_snapshot.py，写 snapshot.json 到 out_dir
+        _db_script = (
+            SKILL_ROOT.parent
+            / "finance-draft-manager"
+            / "scripts"
+            / "db_snapshot.py"
         )
-    except subprocess.TimeoutExpired:
-        _exit_ok(
-            {
-                "ok": False,
-                "error": {
-                    "code": "PREFLIGHT_INGEST_TIMEOUT",
-                    "message": "finance-source-ingest 执行超时",
-                    "hint": "请检查网络或 AkShare/东财可用性后重试",
-                },
-            }
-        )
-    except OSError as e:
-        _exit_ok(
-            {
-                "ok": False,
-                "error": {
-                    "code": "PREFLIGHT_INGEST_OS_ERROR",
-                    "message": str(e),
-                    "hint": "无法启动子进程，请检查 Python 路径与权限",
-                },
-            }
-        )
+        _py_exe = _resolve_finance_venv_python(finance_root)
+        _cmd = [
+            _py_exe,
+            str(_db_script),
+            "--since-hours", "24",
+            "--sources", "market,news,social",
+            "--keywords", kw,
+            "--out-dir", str(out_dir),
+        ]
+        try:
+            _proc = subprocess.run(
+                _cmd,
+                cwd=str(WORKSPACE_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_DB_SNAPSHOT_TIMEOUT",
+                        "message": "db_snapshot.py 执行超时（20s）",
+                        "hint": "数据库可能损坏，请检查 user_data/finance_sources.db",
+                    },
+                }
+            )
+        except OSError as e:
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_DB_SNAPSHOT_OS_ERROR",
+                        "message": str(e),
+                        "hint": f"db_snapshot.py 启动失败，脚本路径: {_db_script}",
+                    },
+                }
+            )
+
+        if _proc.returncode not in (0, 2):
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_DB_SNAPSHOT_FAILED",
+                        "message": "db_snapshot.py 非正常退出",
+                        "hint": (_proc.stderr or _proc.stdout or "")[:600],
+                    },
+                }
+            )
+
+    else:
+        # legacy 路径：实时抓取（--source-mode legacy 显式触发）
+        ingest_py = _resolve_ingest(finance_root)
+        if not ingest_py.is_file():
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_INGEST_NOT_FOUND",
+                        "message": "未检测到外部信源技能（ingest.py 不存在）",
+                        "hint": f"请确认 finance-source-ingest 与 streamy-content-gen 为兄弟目录，或传 --finance-root 指向该技能根目录。期望路径: {ingest_py}",
+                    },
+                }
+            )
+
+        py_exe = _resolve_finance_venv_python(finance_root)
+        _cmd = [
+            py_exe,
+            str(ingest_py),
+            "legacy",
+            "--sources", "market,news,social",
+            "--keywords", kw,
+            "--max-items", str(max(1, int(args.max_items))),
+            "--out-dir", str(out_dir),
+        ]
+        try:
+            _proc = subprocess.run(
+                _cmd,
+                cwd=str((finance_root / "scripts").resolve()),
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_INGEST_TIMEOUT",
+                        "message": "finance-source-ingest 执行超时",
+                        "hint": "请检查网络或 AkShare/东财可用性后重试",
+                    },
+                }
+            )
+        except OSError as e:
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_INGEST_OS_ERROR",
+                        "message": str(e),
+                        "hint": "无法启动子进程，请检查 Python 路径与权限",
+                    },
+                }
+            )
+
+        if _proc.returncode != 0:
+            raw = (_proc.stderr or _proc.stdout or "").strip()
+            tail = "ingest 子进程报错；请检查 finance-source-ingest 的 venv、fetchers 与网络。" \
+                if ("Traceback" in raw or "Error" in raw) \
+                else (raw.replace("\n", " ")[:800] or "(无 stderr)")
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_INGEST_FAILED",
+                        "message": f"ingest 退出码 {_proc.returncode}",
+                        "hint": "请手动提供事实锚点或修复 finance-source-ingest 环境。" + tail,
+                    },
+                }
+            )
 
     timing["ingest_sec"] = round(time.perf_counter() - t_ingest_start, 3)
-
-    if proc.returncode != 0:
-        raw = (proc.stderr or proc.stdout or "").strip()
-        if "Traceback" in raw or "Error" in raw:
-            tail = "ingest 子进程报错（已省略 Python Traceback）；请检查 finance-source-ingest 的 venv、fetchers 与网络。"
-        else:
-            tail = raw.replace("\n", " ")[:800] if raw else "(无 stderr)"
-        _exit_ok(
-            {
-                "ok": False,
-                "error": {
-                    "code": "PREFLIGHT_INGEST_FAILED",
-                    "message": f"ingest 退出码 {proc.returncode}",
-                    "hint": "请手动提供事实锚点或修复 finance-source-ingest 环境。" + tail,
-                },
-            }
-        )
 
     snap_path = out_dir / "snapshot.json"
     if not snap_path.is_file():
@@ -1665,8 +1731,8 @@ def main() -> None:
                 "ok": False,
                 "error": {
                     "code": "PREFLIGHT_SNAPSHOT_MISSING",
-                    "message": "ingest 成功但未找到 snapshot.json",
-                    "hint": f"检查 --out-dir 与 ingest 写盘权限: {snap_path}",
+                    "message": "未找到 snapshot.json",
+                    "hint": f"检查 --out-dir 与写盘权限: {snap_path}",
                 },
             }
         )
@@ -1681,7 +1747,7 @@ def main() -> None:
                 "error": {
                     "code": "PREFLIGHT_SNAPSHOT_PARSE",
                     "message": str(e),
-                    "hint": "snapshot.json 损坏或非 JSON，请重新运行 ingest",
+                    "hint": "snapshot.json 损坏或非 JSON，请重新运行",
                 },
             }
         )

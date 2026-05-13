@@ -1,0 +1,5 @@
+# finance-draft-manager 依赖
+# 只读 SQLite，无网络请求依赖
+# 运行时需与 finance-source-ingest 共享同一 Python 环境或能 import storage.py
+
+# 无额外第三方依赖（只用标准库）

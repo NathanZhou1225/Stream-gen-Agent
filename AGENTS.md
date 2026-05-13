@@ -60,7 +60,14 @@
 
 ## 行情 / 热点「只看数」（飞书常见问法）
 
-用户只要**拉行情、拉热点、信源快照、今日全量**等（**单说其中一词也算**）且**不开稿**时：见 **`skills/streamy-content-gen/prompts/fragments/intent-core.md` §4.4**（经 `natural-language-intent.md` 索引）— 必须 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`**，并把 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户；禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后结束，禁止拆成只跑 `fetch_market.py`、禁止按用户措辞只拉 `market` 或 `news`、禁止拆成两条消息各贴一半。
+用户只要**拉行情、拉热点、信源快照、今日全量、今日讯息**等（**单说其中一词也算**）且**不开稿**时：
+
+- **默认（无需联网，直接读 DB）**：`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --summary-only`  
+  从本地数据库读取最近 24h 数据，**不发起任何网络请求**；把 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户。  
+- **若 DB 为空 / 数据不新鲜**：`markdown_summary` 中会包含提示，**不要自动触发实时抓取**，告知用户"请等待定时采集（09:00/12:00/17:00）或手动更新"。
+- **用户明确说"刷新/更新/重新拉取"时**：`python3 skills/streamy-content-gen/scripts/query_market_facts.py --live-fetch --sources market,news,social --summary-only`（实时联网，约 60–120s）。
+
+禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后结束，禁止拆成只跑 `fetch_market.py`、禁止按用户措辞只拉 `market` 或 `news`、禁止拆成两条消息各贴一半。
 
 ## 开稿阶段回复边界（新增）
 
@@ -72,7 +79,7 @@
 
 ### 纯拉数（ingest 与包装脚本）
 
-`finance-source-ingest` 只产出可迁移的 API 快照；用户侧纯拉数推荐 `python3 skills/streamy-content-gen/scripts/query_market_facts.py ...`，其 **stdout JSON 与直接运行 `ingest.py` 等价**（便于从 workspace `.env` 注入 `TUSHARE_TOKEN`、`FINANCE_RSSHUB_BASE_URL` 等），**不再**自动拼接 Tavily 或任何「联网补充」附录。若业务仍需要人工联网核对北向/社媒等，由 Agent 在对话中自行检索，且不得覆盖 JSON 里 API 给出的数值。
+v0.2.2 起，**飞书端日常拉数走 DB 路径**（`query_market_facts.py` 默认不联网），数据由定时 cron 入库（09:00/12:00/17:00）。`finance-source-ingest` 负责采集入库；`finance-draft-manager/scripts/db_snapshot.py` 负责从 DB 构建快照；`query_market_facts.py` 是对外统一入口。**不再**自动拼接 Tavily 或任何「联网补充」附录。若业务仍需要人工联网核对北向/社媒等，由 Agent 在对话中自行检索，且不得覆盖 DB 里的数值。
 
 ---
 
