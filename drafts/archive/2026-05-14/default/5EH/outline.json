@@ -1,0 +1,136 @@
+{
+  "draft_id": "5EH",
+  "structure_template": "standard",
+  "total_duration_sec": 65,
+  "user_style_context": "老丁财经风格：语气直接、判断清晰、偏实战，表达强调「信号」「验证」「顶底节奏」，三段式结构（方法论+信号拆解+盘面提醒），不走空泛宏观，给明确结论。",
+  "points": [
+    {
+      "role": "hook",
+      "title": "开篇锁客｜2小时会谈定调中美新关系",
+      "duration_sec": 10,
+      "evidence": [
+        {
+          "point": "中美元首会谈在北京举行，用时超2小时，已结束",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        }
+      ],
+      "production_hint": "蓝白财经风，数字「2小时」高亮，字幕「中美新定位」",
+      "compliance_check": {
+        "no_stock_recommendation": true,
+        "data_with_source": true,
+        "action_method_only": true
+      }
+    },
+    {
+      "role": "argument_1",
+      "title": "导流｜信号解读：中美建设性战略稳定关系",
+      "duration_sec": 18,
+      "evidence": [
+        {
+          "point": "习近平同特朗普会谈，同意构建'中美建设性战略稳定关系'作为新定位",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        },
+        {
+          "point": "强调经贸互利共赢，共同为中美关系领航",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        },
+        {
+          "point": "中美应当做伙伴而不是对手，让2026年成为中美关系继往开来的历史性年份",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        }
+      ],
+      "production_hint": "信号词「建设性」「伙伴」高亮，配中美关系走势图字幕",
+      "claim_kind": "fact",
+      "compliance_check": {
+        "no_stock_recommendation": true,
+        "data_with_source": true,
+        "action_method_only": true
+      }
+    },
+    {
+      "role": "argument_2",
+      "title": "亮剑｜一句话结论：经贸破冰信号已确认",
+      "duration_sec": 10,
+      "evidence": [
+        {
+          "point": "特朗普访华随行马斯克、库克、黄仁勋等16位商界领袖",
+          "source_ref": "deep_news 科技板块",
+          "confidence": "high"
+        }
+      ],
+      "production_hint": "结论字幕「经贸破冰已确认」，信号词高亮",
+      "claim_kind": "opinion",
+      "compliance_check": {
+        "no_stock_recommendation": true,
+        "data_with_source": true,
+        "action_method_only": true
+      }
+    },
+    {
+      "role": "argument_3",
+      "title": "论证｜科技巨头随行释放三大投资信号",
+      "duration_sec": 20,
+      "evidence": [
+        {
+          "point": "马斯克（特斯拉）、库克（苹果）、黄仁勋（英伟达）随行访华",
+          "source_ref": "deep_news 科技板块",
+          "confidence": "high"
+        },
+        {
+          "point": "涵盖科技、金融、航空和农业等领域",
+          "source_ref": "deep_news 科技板块",
+          "confidence": "high"
+        },
+        {
+          "point": "英伟达市值突破5.5万亿美元，美银富国上调目标价",
+          "source_ref": "rsshub 科技 00:27",
+          "confidence": "high"
+        }
+      ],
+      "production_hint": "三大信号分屏展示：1)科技合作 2)产业链机会 3)资金流向",
+      "claim_kind": "fact",
+      "compliance_check": {
+        "no_stock_recommendation": true,
+        "data_with_source": true,
+        "action_method_only": true
+      }
+    },
+    {
+      "role": "turn",
+      "title": "总结｜2026中美关系继往开来的关键节点",
+      "duration_sec": 10,
+      "evidence": [
+        {
+          "point": "中美应当做伙伴而不是对手，让2026年成为中美关系继往开来的历史性年份",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        }
+      ],
+      "production_hint": "金句字幕「伙伴而非对手」，年份「2026」高亮",
+      "compliance_check": {
+        "no_stock_recommendation": true,
+        "data_with_source": true,
+        "action_method_only": true
+      }
+    },
+    {
+      "role": "cta",
+      "title": "行动｜关注老丁，第一时间解读市场信号",
+      "duration_sec": 7,
+      "cta": {
+        "type": "add_wechat",
+        "text": "点击评论区蓝链，添加小助理，进圈子实时获取顶底信号提醒"
+      },
+      "production_hint": "评论区蓝链引导，配「小助理」头像",
+      "compliance_check": {
+        "no_stock_recommendation": true,
+        "data_with_source": true,
+        "action_method_only": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "candidate_id": "C2",
+  "candidate_index": 2,
+  "candidate_title": "中美建设性战略稳定关系：新定位与经贸共赢",
+  "candidate_thesis": "习近平同特朗普会谈，同意构建'中美建设性战略稳定关系'作为新定位，强调经贸互利共赢，为中美关系领航定调",
+  "direction": "中美元首会谈结束",
+  "core_facts": [
+    {
+      "point": "习近平同特朗普会谈，同意将构建'中美建设性战略稳定关系'作为新定位",
+      "source_type": "news_flash",
+      "source_ref": "rsshub 大事件",
+      "confidence": "high"
+    },
+    {
+      "point": "强调经贸互利共赢，共同为中美关系领航",
+      "source_type": "news_flash",
+      "source_ref": "rsshub 大事件",
+      "confidence": "high"
+    },
+    {
+      "point": "中美应当做伙伴而不是对手，让2026年成为中美关系继往开来的历史性年份",
+      "source_type": "news_flash",
+      "source_ref": "rsshub 大事件",
+      "confidence": "high"
+    }
+  ],
+  "detailed_sources": [
+    {
+      "detail_id": "D4",
+      "title": "英伟达市值突破5.5万亿美元",
+      "summary": "英伟达股价连续第六日上涨，市值首次突破5.5万亿美元，美银和富国银行上调目标价。",
+      "source_type": "科技",
+      "source_ref": "rsshub 2026-05-14 00:27:22",
+      "sector": "科技"
+    },
+    {
+      "detail_id": "D5",
+      "title": "特朗普启程访华，随行包括马斯克、库克、黄仁勋等16位商界领袖",
+      "summary": "特朗普于5月12日启程访华，随行16位美国商界领袖，涵盖科技、金融、航空和农业等领域，包括马斯克、库克、黄仁勋等。",
+      "source_type": "科技",
+      "source_ref": "deep_news 2026-05-13 06:24:24",
+      "sector": "科技"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "特朗普启程访华，随行包括马斯克、库克、黄仁勋等16位商界领袖",
+      "source_type": "科技",
+      "source_ref": "deep_news 2026-05-13 06:24:24",
+      "confidence": "low"
+    }
+  ],
+  "source_gaps": []
+}

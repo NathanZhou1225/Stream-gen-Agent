@@ -1,0 +1,97 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "中美元首会谈结束",
+  "generated_at": "2026-05-14T16:00:28+08:00",
+  "source_context": [
+    "【用户方向】中美元首会谈结束",
+    "【快照来源】cache/snapshot/snapshot.json（数据截止 2026-05-14 14:00）",
+    "【事实短摘】中美元首会谈在北京举行，用时超2小时，已结束；特斯拉、英伟达、苹果CEO称会谈顺利；特朗普随后参观天坛；习近平同特朗普会谈，同意构建'中美建设性战略稳定关系'，强调经贸互利共赢；特朗普启程访华，随行16位美国商界领袖（马斯克、库克、黄仁勋等）"
+  ],
+  "candidates": [
+    {
+      "title": "中美元首会谈结束：超2小时会谈顺利收官",
+      "angle": "偏事实钩子：用会谈时长+顺利收官开场，再扣回市场影响",
+      "thesis": "中美元首会谈超2小时顺利结束，释放中美关系稳定信号，市场关注后续经贸合作与科技巨头随行的投资机会",
+      "evidence": [
+        {
+          "point": "中美元首会谈在北京举行，用时超2小时，已结束",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        },
+        {
+          "point": "特斯拉、英伟达、苹果CEO称会谈顺利",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        },
+        {
+          "point": "特朗普随后参观天坛",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        }
+      ],
+      "evidence_anchor": "中美元首会谈在北京举行，用时超2小时，已结束。特斯拉、英伟达、苹果CEO称会谈顺利，特朗普随后参观天坛。"
+    },
+    {
+      "title": "中美建设性战略稳定关系：新定位与经贸共赢",
+      "angle": "偏政策解读：用新定位开场，再讲经贸互利共赢的落地机会",
+      "thesis": "习近平同特朗普会谈，同意构建'中美建设性战略稳定关系'作为新定位，强调经贸互利共赢，为中美关系领航定调",
+      "evidence": [
+        {
+          "point": "习近平同特朗普会谈，同意将构建'中美建设性战略稳定关系'作为新定位",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        },
+        {
+          "point": "强调经贸互利共赢，共同为中美关系领航",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        },
+        {
+          "point": "中美应当做伙伴而不是对手，让2026年成为中美关系继往开来的历史性年份",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        }
+      ],
+      "evidence_anchor": "习近平同特朗普会谈，同意将构建'中美建设性战略稳定关系'作为新定位，强调经贸互利共赢，共同为中美关系领航。"
+    },
+    {
+      "title": "中美经贸破冰·科技合作信号：马斯克库克黄仁勋随行",
+      "angle": "偏产业机会：用科技巨头随行开场，再讲中美科技合作的投资逻辑",
+      "thesis": "特朗普访华随行16位美国商界领袖（马斯克、库克、黄仁勋等），释放中美经贸合作与科技领域破冰信号，关注特斯拉、苹果、英伟达产业链机会",
+      "evidence": [
+        {
+          "point": "特朗普启程访华，随行包括马斯克、库克、黄仁勋等16位商界领袖",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 深度资讯",
+          "confidence": "high"
+        },
+        {
+          "point": "涵盖科技、金融、航空和农业等领域",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 深度资讯",
+          "confidence": "high"
+        },
+        {
+          "point": "十余名美商界代表进入中美元首会谈现场（特斯拉、苹果、英伟达、波音等）",
+          "source_type": "news_flash",
+          "source_ref": "rsshub 大事件",
+          "confidence": "high"
+        }
+      ],
+      "evidence_anchor": "特朗普启程访华，随行包括马斯克、库克、黄仁勋等16位商界领袖，涵盖科技、金融、航空和农业等领域。"
+    }
+  ],
+  "preflight_meta": {
+    "direction": "中美元首会谈结束",
+    "snapshot_path": "/root/.openclaw/workspace-stream-gen/cache/snapshot/snapshot.json",
+    "snapshot_cached": true,
+    "snapshot_fetched_at": "2026-05-14T06:00:20+00:00"
+  },
+  "chosen": 2
+}
