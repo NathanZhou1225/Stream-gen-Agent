@@ -28,8 +28,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SKILL_ROOT.parent.parent  # workspace-stream-gen/
 # 与 finance-source-ingest 为同 skills/ 下兄弟目录（可迁移：仅依赖此相对布局）
 DEFAULT_FINANCE_SIBLING = SKILL_ROOT.parent / "finance-source-ingest"
-# 默认写入 workspace 内，避免沙箱/权限导致的 /tmp 写入失败
-DEFAULT_OUT_DIR = SKILL_ROOT.parent.parent / "tmp" / "finance_data"
+# 默认写入缓存路径，与定时 cron 生成的快照对齐，避免重复生成
+DEFAULT_OUT_DIR = WORKSPACE_ROOT / "cache" / "snapshot"
 PROVENANCE = "finance-source-ingest|preflight_topic.py"
 # markdown 用于候选抽取的软上限（降上下文体积，减少 topic 阶段耗时）
 MAX_MD_CHARS = 1600
