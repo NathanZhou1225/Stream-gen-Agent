@@ -6,7 +6,7 @@
     list       列出当前 user 的所有 active Draft
     show       展示指定 Draft 的最新状态（meta + 当前阶段产物）
     switch     切换焦点 Draft
-    update     更新 Draft 某阶段产物（topic/outline/script）+ append history
+    update     更新 Draft 某阶段产物（topic/outline/script）+ append history；原子 patch：set-chosen / set-style-id / set-evidence-pack-file / set-content-type+ip
     finalize   定稿归档（active → archive）
     drop       放弃归档（active → archive，标记 dropped）
 
@@ -50,6 +50,40 @@ from _common import (
     write_text_atomic,
 )
 from script_renderer import RENDERER_VERSION, ScriptRenderError, render_script_md
+
+CONTENT_SKILL_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _content_template_path(content_type: str) -> Path:
+    return CONTENT_SKILL_ROOT / 'configs' / 'content_templates' / f'{content_type.strip()}.json'
+
+
+def _ip_profile_path(ip_id: str) -> Path:
+    return CONTENT_SKILL_ROOT / 'configs' / 'ip_profiles' / f'{ip_id.strip()}.json'
+
+
+def _assert_known_content_type(content_type: str) -> None:
+    p = _content_template_path(content_type)
+    if not p.is_file():
+        emit_error(
+            'usage',
+            'CONTENT_TYPE_UNKNOWN',
+            f'未知稿件类型：{content_type!r}（未找到模板文件）。',
+            path=str(p),
+            hint='可选：market_view / investor_edu / persona_intro；模板须位于 configs/content_templates/<type>.json',
+        )
+
+
+def _assert_known_ip_profile(ip_id: str) -> None:
+    p = _ip_profile_path(ip_id)
+    if not p.is_file():
+        emit_error(
+            'usage',
+            'IP_PROFILE_UNKNOWN',
+            f'未知 ip_id：{ip_id!r}（未找到 IP 配置文件）。',
+            path=str(p),
+            hint='文件须位于 configs/ip_profiles/<ip_id>.json',
+        )
 
 STAGE_ARTIFACTS = {
     STAGE_SCRIPT: {
@@ -546,6 +580,8 @@ def _summarize_draft(user_id: str, draft_id: str) -> dict[str, Any]:
         'stage': meta.get('stage'),
         'topic': meta.get('topic'),
         'style_id': meta.get('style_id'),
+        'content_type': meta.get('content_type'),
+        'ip_id': meta.get('ip_id'),
         'created_at': meta.get('created_at'),
         'last_updated': meta.get('last_updated') }
 
@@ -602,12 +638,22 @@ def cmd_create(args: argparse.Namespace) -> None:
     draft_dir = get_active_draft_dir(user_id, draft_id)
     draft_dir.mkdir(parents = True, exist_ok = True)
     topic = args.topic
+    ct_raw = getattr(args, 'content_type', None)
+    ip_raw = getattr(args, 'ip_id', None)
+    content_type = str(ct_raw).strip() if ct_raw else None
+    ip_id = str(ip_raw).strip() if ip_raw else None
+    if content_type:
+        _assert_known_content_type(content_type)
+    if ip_id:
+        _assert_known_ip_profile(ip_id)
     meta = {
         'draft_id': draft_id,
         'user_id': user_id,
         'stage': STAGE_TOPIC,
         'topic': topic,
         'style_id': getattr(args, 'style_id', None) or None,
+        'content_type': content_type,
+        'ip_id': ip_id,
         'created_at': ts,
         'last_updated': ts,
         'finalized_at': None,
@@ -631,6 +677,8 @@ def cmd_create(args: argparse.Namespace) -> None:
         'stage': STAGE_TOPIC,
         'topic': args.topic,
         'style_id': meta.get('style_id'),
+        'content_type': meta.get('content_type'),
+        'ip_id': meta.get('ip_id'),
         'path': str(draft_dir) }, summary = f'''已创建 Draft #{draft_id}（stage=topic_picking，已设为 focus）''')
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -797,6 +845,18 @@ def _draft_doctor_report(meta: dict[str, Any], draft_dir: Path) -> dict[str, Any
                         f'production_appendix.{section} 必须是 {SCRIPT_APPENDIX_MIN_ITEMS}-{SCRIPT_APPENDIX_MAX_ITEMS} 条。',
                     )
 
+    profile_notes: list[str] = []
+    ct = meta.get('content_type')
+    ip = meta.get('ip_id')
+    if str(ct or '').strip() == 'persona_intro' and not str(ip or '').strip():
+        profile_notes.append(
+            'content_type=persona_intro 时建议绑定 meta.ip_id（对应 configs/ip_profiles/<ip_id>.json），否则 content_template_tool prompt-bundle 会因缺 {{ 占位符 }} 变量而失败。'
+        )
+    if not str(ct or '').strip() and stage in (STAGE_OUTLINE, STAGE_SCRIPT):
+        profile_notes.append(
+            '未设置 meta.content_type；若业务需要按「大盘观点/投教/人设」模板约束逐字稿模块键，可在 evidence 落盘后、绑 style 前执行 update --set-content-type。'
+        )
+
     return {
         'healthy': len(issues) == 0,
         'stage': stage,
@@ -806,6 +866,8 @@ def _draft_doctor_report(meta: dict[str, Any], draft_dir: Path) -> dict[str, Any
             STAGE_SCRIPT: has_script_update,
         },
         'issues': issues,
+        'content_profile': {'content_type': ct, 'ip_id': ip},
+        'profile_notes': profile_notes,
     }
 
 def _assert_upstream_integrity_for_update(stage: str, meta: dict[str, Any], draft_dir: Path, draft_id: str) -> None:
@@ -1010,6 +1072,72 @@ def _cmd_update_set_style(args: argparse.Namespace) -> None:
         'stage': meta.get('stage'),
         'style_id': meta.get('style_id') }, summary = f'''已更新 Draft #{draft_id} 的 style_id={meta.get('style_id')!r}。''')
 
+def _cmd_update_set_content_profile(args: argparse.Namespace) -> None:
+    '''v0.2.3：原子 patch meta.content_type / meta.ip_id（与整阶段更新互斥）。'''
+    user_id = get_user_id()
+    draft_id = args.draft
+    (meta_path, meta) = _load_meta_or_fail(user_id, draft_id)
+    if meta.get('stage') in (STAGE_FINALIZED, STAGE_DROPPED, 'finalized', 'dropped'):
+        emit_error('draft', 'ALREADY_CLOSED', f'''Draft #{draft_id} 已结束，不能改稿件类型配置。''', draft_id=draft_id)
+    clear_all = bool(getattr(args, 'clear_content_profile', False))
+    s_ct = getattr(args, 'set_content_type', None)
+    s_ip = getattr(args, 'set_ip_id', None)
+    if clear_all and (s_ct is not None or s_ip is not None):
+        emit_error(
+            'usage',
+            'CONTENT_PROFILE_CONFLICT',
+            '--clear-content-profile 与 --set-content-type/--set-ip-id 互斥。',
+        )
+    if clear_all:
+        meta['content_type'] = None
+        meta['ip_id'] = None
+    else:
+        if s_ct is not None:
+            ct = str(s_ct).strip()
+            if not ct:
+                emit_error('usage', 'SET_CONTENT_TYPE_EMPTY', '--set-content-type 不能为空。')
+            _assert_known_content_type(ct)
+            meta['content_type'] = ct
+        if s_ip is not None:
+            ip = str(s_ip).strip()
+            if not ip:
+                emit_error('usage', 'SET_IP_ID_EMPTY', '--set-ip-id 不能为空。')
+            _assert_known_ip_profile(ip)
+            meta['ip_id'] = ip
+    ts = now_iso()
+    meta['last_updated'] = ts
+    write_json_atomic(meta_path, meta)
+    history_path = meta_path.parent / 'history.json'
+    history = read_json(history_path, default=[])
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        'ts': ts,
+        'action': 'set_content_profile',
+        'content_type': meta.get('content_type'),
+        'ip_id': meta.get('ip_id'),
+        'cleared': clear_all,
+        'note': getattr(args, 'edit_note', '') or '',
+    })
+    write_json_atomic(history_path, history)
+    index = read_index()
+    user_entry = ensure_user_entry(index, user_id)
+    if draft_id in user_entry.get('active_drafts', []):
+        user_entry['focus'] = draft_id
+        user_entry['last_activity'] = ts
+        write_index(index)
+    emit_ok(
+        'update',
+        result={
+            'draft_id': draft_id,
+            'user_id': user_id,
+            'stage': meta.get('stage'),
+            'content_type': meta.get('content_type'),
+            'ip_id': meta.get('ip_id'),
+        },
+        summary=f'''已更新 Draft #{draft_id} 的稿件类型画像：content_type={meta.get('content_type')!r}, ip_id={meta.get('ip_id')!r}。''',
+    )
+
 def _cmd_update_set_evidence_pack(args: argparse.Namespace) -> None:
     '''v0.2.1：原子写入所选候选方向的 evidence_pack。'''
     user_id = get_user_id()
@@ -1118,23 +1246,39 @@ def cmd_update(args: argparse.Namespace) -> None:
         or getattr(args, 'clear_style', False)
     )
     want_evidence_pack = bool(getattr(args, 'set_evidence_pack_file', None))
+    want_content = bool(
+        getattr(args, 'clear_content_profile', False)
+        or getattr(args, 'set_content_type', None) is not None
+        or getattr(args, 'set_ip_id', None) is not None
+    )
+    if int(want_style) + int(want_evidence_pack) + int(want_content) > 1:
+        emit_error(
+            'usage',
+            'UPDATE_PATCH_EXCLUSIVITY',
+            '原子 patch（--set-style-id/--clear-style、--set-evidence-pack-file、稿件类型/--set-content-type/--set-ip-id/--clear-content-profile）每次只能选一种，请分次调用。',
+        )
     if args.set_chosen is not None:
-        if args.stage is not None or args.payload_file is not None or want_style or want_evidence_pack or getattr(args, 'validate_only', False):
-            emit_error('usage', 'SET_CHOSEN_CONFLICTS', '--set-chosen 与 --stage/--payload-file/--set-style-id/--clear-style/--set-evidence-pack-file/--validate-only 互斥，请分次调用。')
+        if args.stage is not None or args.payload_file is not None or want_style or want_evidence_pack or getattr(args, 'validate_only', False) or want_content:
+            emit_error('usage', 'SET_CHOSEN_CONFLICTS', '--set-chosen 与 --stage/--payload-file/--set-style-id/--clear-style/--set-evidence-pack-file/--validate-only/--set-content-type/--set-ip-id/--clear-content-profile 互斥，请分次调用。')
         _cmd_update_set_chosen(args)
         return
     if want_style:
-        if args.stage is not None or args.payload_file is not None or args.set_chosen is not None or want_evidence_pack or getattr(args, 'validate_only', False):
-            emit_error('usage', 'SET_STYLE_CONFLICTS', '--set-style-id/--clear-style 与 --stage/--payload-file/--set-chosen/--set-evidence-pack-file/--validate-only 互斥。')
+        if args.stage is not None or args.payload_file is not None or args.set_chosen is not None or want_evidence_pack or getattr(args, 'validate_only', False) or want_content:
+            emit_error('usage', 'SET_STYLE_CONFLICTS', '--set-style-id/--clear-style 与 --stage/--payload-file/--set-chosen/--set-evidence-pack-file/--validate-only/--set-content-type/--set-ip-id/--clear-content-profile 互斥。')
         _cmd_update_set_style(args)
         return
     if want_evidence_pack:
-        if args.stage is not None or args.payload_file is not None or args.set_chosen is not None or getattr(args, 'validate_only', False):
-            emit_error('usage', 'SET_EVIDENCE_PACK_CONFLICTS', '--set-evidence-pack-file 与 --stage/--payload-file/--set-chosen/--set-style-id/--clear-style/--validate-only 互斥。')
+        if args.stage is not None or args.payload_file is not None or args.set_chosen is not None or getattr(args, 'validate_only', False) or want_content:
+            emit_error('usage', 'SET_EVIDENCE_PACK_CONFLICTS', '--set-evidence-pack-file 与 --stage/--payload-file/--set-chosen/--set-style-id/--clear-style/--validate-only/--set-content-type/--set-ip-id/--clear-content-profile 互斥。')
         _cmd_update_set_evidence_pack(args)
         return
+    if want_content:
+        if args.stage is not None or args.payload_file is not None or args.set_chosen is not None or want_style or want_evidence_pack or getattr(args, 'validate_only', False):
+            emit_error('usage', 'SET_CONTENT_PROFILE_CONFLICTS', '--set-content-type/--set-ip-id/--clear-content-profile 与 --stage/--payload-file/--set-chosen/--set-style-id/--clear-style/--set-evidence-pack-file/--validate-only 互斥。')
+        _cmd_update_set_content_profile(args)
+        return
     if args.stage is None or args.payload_file is None:
-        emit_error('usage', 'UPDATE_ARGS_MISSING', 'update 须：① --stage+--payload-file ② 或 --set-chosen ③ 或 --set-style-id ④ 或 --clear-style ⑤ 或 --set-evidence-pack-file')
+        emit_error('usage', 'UPDATE_ARGS_MISSING', 'update 须：① --stage+--payload-file ② 或 --set-chosen ③ 或 --set-style-id ④ 或 --clear-style ⑤ 或 --set-evidence-pack-file ⑥ 或 --set-content-type / --set-ip-id / --clear-content-profile')
     user_id = get_user_id()
     draft_id = args.draft
     stage = args.stage
@@ -1541,6 +1685,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_create = sub.add_parser('create', help = '创建新 Draft', parents = [ common ])
     p_create.add_argument('--topic', default = None, help = '初始主题（可选）')
     p_create.add_argument('--style-id', default = None, dest = 'style_id', help = '绑定的 user-style-manager style_id（UUID，可选）')
+    p_create.add_argument('--content-type', default=None, dest='content_type', help='稿件类型：market_view / investor_edu / persona_intro（须存在 configs/content_templates/<type>.json，可选）')
+    p_create.add_argument('--ip-id', default=None, dest='ip_id', help='IP 画像 stem，对应 configs/ip_profiles/<stem>.json（可选）')
     p_create.set_defaults(func = cmd_create)
     p_list = sub.add_parser('list', help = '列出当前 user 的 active Draft', parents = [ common ])
     p_list.add_argument('--include-archive', action = 'store_true', help = '同时列出归档的 Draft（finalized / dropped）')
@@ -1568,6 +1714,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument('--set-evidence-pack-file', default = None, dest = 'set_evidence_pack_file', help = '原子 patch：写入所选候选方向的 candidate_evidence_pack.json（需先 --set-chosen N）')
     p_update.add_argument('--set-style-id', default = None, dest = 'set_style_id', help = '原子 patch：设 meta.style_id（UUID，与整阶段更新 / set-chosen 互斥）')
     p_update.add_argument('--clear-style', action = 'store_true', help = '清空 meta.style_id')
+    p_update.add_argument('--set-content-type', default=None, dest='set_content_type', help='原子 patch：设 meta.content_type（与 --set-style-id 等互斥；须存在 configs/content_templates/<type>.json）')
+    p_update.add_argument('--set-ip-id', default=None, dest='set_ip_id', help='原子 patch：设 meta.ip_id（须存在 configs/ip_profiles/<stem>.json）')
+    p_update.add_argument('--clear-content-profile', action='store_true', help='清空 meta.content_type 与 meta.ip_id（与 --set-content-type/--set-ip-id 互斥）')
     p_update.add_argument('--edit-note', default = '', help = '人改描述，写入 history.json')
     p_update.add_argument('--validate-only', action = 'store_true', help = '只执行门禁与 payload/schema/渲染校验，不写入 draft 文件')
     p_update.set_defaults(func = cmd_update)

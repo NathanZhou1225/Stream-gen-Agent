@@ -1,0 +1,119 @@
+{
+  "direction": "全球金融风暴：G7长期国债收益率创20年新高",
+  "snapshot_path": "/tmp/finance_data/snapshot.json",
+  "source_context": [
+    {
+      "source": "rsshub",
+      "summary": "G7国家长期国债收益率飙升至4.6%以上，创2004年以来新高，彭博G7长期国债指数较历史峰值腰斩近50%"
+    },
+    {
+      "source": "rsshub",
+      "summary": "美国30年期国债标售得标收益率5.046%，票息5%，为2007年以来首次，反映市场需求疲软"
+    },
+    {
+      "source": "rsshub",
+      "summary": "美国4月PPI同比6%远超预期4.8%，能源成本单月暴涨7.8%，10年期美债收益率升至4.49%"
+    },
+    {
+      "source": "rsshub",
+      "summary": "美国4月CPI同比上涨3.8%超预期，核心CPI同比2.8%，降息预期基本消除"
+    },
+    {
+      "source": "rsshub",
+      "summary": "美参议院批准凯文·沃什出任美联储主席，接替鲍威尔"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "C1",
+      "title": "全球债市风暴：G7国债收益率创20年新高，债市腰斩近50%",
+      "thesis": "G7国家长期国债收益率飙升至4.6%以上，创2004年以来新高，彭博G7长期国债指数较历史峰值腰斩近50%，这标志着全球债市正遭遇20年来最惨烈风暴，背后是通胀顽固、美联储降息预期消退与新任主席沃什的政策困境。",
+      "evidence": [
+        {
+          "point": "G7国家长期国债收益率飙升至4.6%以上，创2004年以来新高，彭博G7长期国债指数较历史峰值腰斩近50%",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        },
+        {
+          "point": "美国30年期国债标售得标收益率5.046%，票息5%，为2007年金融危机前夕以来首次",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        },
+        {
+          "point": "美国4月PPI同比6%远超预期，能源成本暴涨7.8%，10年期美债收益率升至4.49%",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        }
+      ],
+      "evidence_anchor": "D1",
+      "evidence_pack_instruction": "聚焦G7债市数据、各国国债收益率曲线、彭博G7国债指数走势；补充IMF/世界银行对全球债市风险评估"
+    },
+    {
+      "id": "C2",
+      "title": "30年期美债票息升至5%：2007年金融危机信号重现",
+      "thesis": "美国30年期国债票面利率时隔17年再次升至5%，得标收益率5.046%，投标倍数创去年11月以来最低，这一信号曾在2007年金融危机前夕出现，预示市场对美债需求疲软、避险属性弱化。",
+      "evidence": [
+        {
+          "point": "美国30年期国债标售得标收益率5.046%，票面利率5%，为2007年以来首次",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        },
+        {
+          "point": "投标倍数2.30为去年11月以来最低，反映市场需求疲软",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        },
+        {
+          "point": "上一次票息达5%是2007年金融危机前夕，历史信号重现",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        }
+      ],
+      "evidence_anchor": "D2",
+      "evidence_pack_instruction": "聚焦30年期美债标售数据、历史对比2007年情况、市场反应与机构解读"
+    },
+    {
+      "id": "C3",
+      "title": "G7债市崩盘与美联储困境：通胀顽固+新主席沃什的双重压力",
+      "thesis": "G7债市崩盘背后是美联储政策困境：4月CPI同比3.8%、PPI同比6%均超预期，降息预期消退；新任主席沃什刚获参议院批准就面临通胀顽固与债市风暴的双重挑战，市场押注年内加息概率超三分之一。",
+      "evidence": [
+        {
+          "point": "美国4月CPI同比3.8%、核心CPI同比2.8%均创多年新高，通胀顽固",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        },
+        {
+          "point": "美参议院批准凯文·沃什出任美联储主席，接替5月15日到期的鲍威尔",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        },
+        {
+          "point": "市场定价显示美联储年底前加息概率超三分之一，降息预期基本消除",
+          "source": "rsshub",
+          "source_type": "rss",
+          "source_ref": "rsshub_feed",
+          "confidence": "medium"
+        }
+      ],
+      "evidence_anchor": "D3",
+      "evidence_pack_instruction": "聚焦美联储政策预期、沃什背景与表态、通胀数据与机构预测"
+    }
+  ],
+  "chosen": 3
+}

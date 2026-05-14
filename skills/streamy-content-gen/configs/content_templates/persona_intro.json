@@ -1,0 +1,37 @@
+{
+  "type": "persona_intro",
+  "description": "人设类视频结构：钩子+价值 → 数据快闪 → 人设介绍 → 板块成绩 → 社群权益 → 行动号召",
+  "draft_segment_roles": ["hook", "argument_1", "scene", "argument_2", "action", "cta"],
+  "schema": [
+    {
+      "key": "hook_value_open",
+      "section_zh": "开头钩子+价值展示",
+      "instruction": "用可验证的「战绩/结果」开场（如躲暴跌、抄底次数），强调不靠玄学、靠方法；语气铿锵，可提示镜头/手指屏幕等画面感。"
+    },
+    {
+      "key": "value_flash",
+      "section_zh": "价值展示（快闪数据）",
+      "instruction": "承接上段：板块投资游刃有余，靠敏锐洞察；可点名黄金、纳指、机器人、半导体、银行等板块表现（仅使用信源材料中已有数据，无则改为定性表述）。"
+    },
+    {
+      "key": "persona_intro",
+      "section_zh": "人设介绍",
+      "instruction": "标准自我介绍：大家好，我是深耕证券行业{{ years_of_experience }}年，专攻{{ expertise }}的资深投顾，{{ ip_name }}。独创{{ signature_course }}，简单高效提升逃顶抄底准确率。可带一句江湖昵称「{{ nickname }}」若适用。"
+    },
+    {
+      "key": "value_sectors",
+      "section_zh": "价值展示（主线参与）",
+      "instruction": "除逃顶外强调板块博弈能力；列举近期成功参与的强势方向（须与材料一致）；承诺帮用户提前发现主线、不玩杂毛。"
+    },
+    {
+      "key": "community_benefits",
+      "section_zh": "社群权益",
+      "instruction": "引导加圈子：强调{{ lead_magnet }}。分条列出权益（机构消息、顶底提醒、板块信号、在{{ brokerage_name }}开户入金赠课等）；可提大资金一对一与话聊服务，避免违规承诺收益。"
+    },
+    {
+      "key": "action_cta",
+      "section_zh": "行动号召",
+      "instruction": "强指令收尾：点击左下角立即咨询/来直播间（可二选一或并列），语气紧迫感适中。"
+    }
+  ]
+}

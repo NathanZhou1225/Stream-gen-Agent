@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "mode": "candidate_evidence_pack",
+  "evidence_pack": {
+    "candidate_id": "C3",
+    "candidate_index": 3,
+    "candidate_title": "**个股情绪极值**：华为(🟢 0.85)、阿里巴巴(🟢 0.61)、腾讯(🔴 -0.53)",
+    "candidate_thesis": "习近平同特朗普会谈，中美建设性战略稳定关系相关讨论与盘面事实正在共振，优先围绕「**个股情绪极值**：华为(🟢 0.85)、阿里」展开。",
+    "direction": "习近平同特朗普会谈，中美建设性战略稳定关系",
+    "core_facts": [
+      {
+        "point": "**个股情绪极值**：华为(🟢 0.85)、阿里巴巴(🟢 0.61)、腾讯(🔴 -0.53) | provenance: finance-source-inge",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "*润色洞察*：量子计算突破与阿里AI高投入双重利好科技板块，但阿里利润下滑构成短期压力。",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "🟢【利好】**我国成功研制量子计算原型机“九章四号”** 影响：量子计算算力全球领先，量子科技首次写入“十五五”规划，推动量子计算产业化进程。 角度：技术突破叠",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ],
+    "detailed_sources": [
+      {
+        "detail_id": "D3",
+        "title": "阿里电话会：AI ARR年底超300亿元，资本支出将超3800亿元",
+        "summary": "阿里巴巴AI业务ARR年底预计突破300亿元，资本支出将超过3800亿元，AI相关产品收入占比突破30%，自研GPU芯片已规模化量产。",
+        "source_type": "科技",
+        "source_ref": "deep_news 2026-05-13 13:20:27",
+        "source_path": "llm_router.科技",
+        "sector": "科技"
+      },
+      {
+        "detail_id": "D5",
+        "title": "特朗普启程访华，随行包括马斯克、库克、黄仁勋等16位商界领袖",
+        "summary": "特朗普于5月12日启程访华，随行16位美国商界领袖，涵盖科技、金融、航空和农业等领域，包括马斯克、库克、黄仁勋等。",
+        "source_type": "科技",
+        "source_ref": "deep_news 2026-05-13 06:24:24",
+        "source_path": "llm_router.科技",
+        "sector": "科技"
+      },
+      {
+        "detail_id": "D1",
+        "title": "我国成功研制量子计算原型机“九章四号”",
+        "summary": "中国科大潘建伟团队研制出量子计算原型机“九章四号”，算力超目前全球最快超算，成果发表于《自然》；量子科技首次写入“十五五”。",
+        "source_type": "科技",
+        "source_ref": "deep_news 2026-05-14 00:10:50",
+        "source_path": "llm_router.科技",
+        "sector": "科技"
+      },
+      {
+        "detail_id": "D2",
+        "title": "阿里利润下滑但力保AI和即时零售",
+        "summary": "阿里2026财年Q4收入同比增3%，但经营亏损8.48亿元，去年同期盈利284.65亿元。阿里表示用利润换未来，重点投入AI和即时零售。",
+        "source_type": "科技",
+        "source_ref": "rsshub 2026-05-14 05:46:40",
+        "source_path": "llm_router.科技",
+        "sector": "科技"
+      },
+      {
+        "detail_id": "D6",
+        "title": "前Meta AI科学家田渊栋宣布创业，成立Recursive Superintelligence",
+        "summary": "田渊栋创立Recursive Superintelligence，获得6.5亿美元融资，估值46.5亿美元，GV、Greycroft领投，AMD Ventures和英伟达跟投。",
+        "source_type": "科技",
+        "source_ref": "rsshub 2026-05-14 01:54:16",
+        "source_path": "llm_router.科技",
+        "sector": "科技"
+      }
+    ],
+    "argument_boosters": [
+      {
+        "point": "阿里电话会：AI ARR年底超300亿元，资本支出将超3800亿元",
+        "source_type": "科技",
+        "source_ref": "deep_news 2026-05-13 13:20:27",
+        "confidence": "low"
+      },
+      {
+        "point": "特朗普启程访华，随行包括马斯克、库克、黄仁勋等16位商界领袖",
+        "source_type": "科技",
+        "source_ref": "deep_news 2026-05-13 06:24:24",
+        "confidence": "low"
+      },
+      {
+        "point": "我国成功研制量子计算原型机“九章四号”",
+        "source_type": "科技",
+        "source_ref": "deep_news 2026-05-14 00:10:50",
+        "confidence": "low"
+      }
+    ],
+    "source_gaps": [],
+    "targeted_fetch": {
+      "attempted": false,
+      "ok": false
+    },
+    "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+  },
+  "snapshot_path": "/root/.openclaw/workspace-stream-gen/cache/snapshot/snapshot.json",
+  "topic_payload_file": "/root/.openclaw/workspace-stream-gen/cache/RAQ_topic_payload_extracted.json",
+  "hint_ok": "先展示 evidence_pack；用户确认后再进入 user-style 选择/绑定，不得同轮越级输出大纲/逐字稿。"
+}

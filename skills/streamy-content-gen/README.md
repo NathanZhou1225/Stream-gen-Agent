@@ -10,6 +10,7 @@
 | 带方向开稿前编排 | `scripts/preflight_topic.py`（stdout 单 JSON，subprocess 调 `finance-source-ingest`） |
 | Draft 生命周期 | `scripts/draft_manager.py`（若缺少 `_common.py` / `script_renderer.py` 等，见下「源文件与 .pyc」） |
 | 提示词 | `prompts/`，`references/`，`templates/` |
+| 稿件类型模板（模块键 / IP 占位符） | `configs/content_templates/`，`configs/ip_profiles/`；CLI：`scripts/content_template_tool.py` |
 | 阶段状态与路线图 | 见 workspace [`docs/PRODUCT-STATUS-*.md`](../../docs/) |
 
 ## 依赖
@@ -34,4 +35,5 @@
 
 ## Changelog（摘录）
 
+- **0.2.3**：稿件类型路由与结构约束（`market_view` / `investor_edu` / `persona_intro`）：JSON 模板 + `{{var}}` 渲染（无 PyYAML/Jinja/Pydantic 强依赖）、`prompt-bundle` / `assemble` / `segments` / `schema` 子命令；与总账「主链脚本不调 LLM」一致。
 - **0.1.7.3**：`draft_manager` 支持 `meta.style_id`（`create --style-id`，`update --set-style-id` / `--clear-style`）；与 `user-style-manager` 的 `user_style_context` 约定见 [`SKILL.md`](./SKILL.md)。

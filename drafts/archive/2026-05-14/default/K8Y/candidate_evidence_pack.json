@@ -1,0 +1,126 @@
+{
+  "candidate_id": "C3",
+  "candidate_index": 3,
+  "candidate_title": "G7债市崩盘与美联储困境：通胀顽固+新主席沃什的双重压力",
+  "candidate_thesis": "G7债市崩盘背后是美联储政策困境：4月CPI同比3.8%、PPI同比6%均超预期，降息预期消退；新任主席沃什刚获参议院批准就面临通胀顽固与债市风暴的双重挑战，市场押注年内加息概率超三分之一。",
+  "direction": "全球金融风暴：G7长期国债收益率创20年新高",
+  "core_facts": [
+    {
+      "point": "美国4月CPI同比3.8%、核心CPI同比2.8%均创多年新高，通胀顽固",
+      "source": "rsshub",
+      "source_type": "rss",
+      "source_ref": "rsshub_feed",
+      "confidence": "high"
+    },
+    {
+      "point": "美参议院批准凯文·沃什出任美联储主席，接替5月15日到期的鲍威尔",
+      "source": "rsshub",
+      "source_type": "rss",
+      "source_ref": "rsshub_feed",
+      "confidence": "high"
+    },
+    {
+      "point": "市场定价显示美联储年底前加息概率超三分之一，降息预期基本消除",
+      "source": "rsshub",
+      "source_type": "rss",
+      "source_ref": "rsshub_feed",
+      "confidence": "high"
+    },
+    {
+      "point": "G7国家长期国债收益率飙升至4.6%以上，创2004年以来新高",
+      "source": "rsshub",
+      "source_type": "rss",
+      "source_ref": "rsshub_feed",
+      "confidence": "high"
+    },
+    {
+      "point": "彭博G7长期国债指数较历史峰值腰斩近50%",
+      "source": "rsshub",
+      "source_type": "rss",
+      "source_ref": "rsshub_feed",
+      "confidence": "high"
+    },
+    {
+      "point": "美国30年期国债票面利率5%，为2007年以来首次",
+      "source": "rsshub",
+      "source_type": "rss",
+      "source_ref": "rsshub_feed",
+      "confidence": "high"
+    },
+    {
+      "point": "美国4月PPI同比6%远超预期，能源成本暴涨7.8%",
+      "source": "rsshub",
+      "source_type": "rss",
+      "source_ref": "rsshub_feed",
+      "confidence": "high"
+    }
+  ],
+  "detailed_sources": [
+    {
+      "detail_id": "D1",
+      "title": "全球金融风暴：G7长期国债收益率创20年新高",
+      "summary": "G7国家长期国债收益率飙升至4.6%以上，创2004年以来新高，彭博G7长期国债指数较历史峰值腰斩近50%。",
+      "source_type": "宏观",
+      "source_ref": "rsshub 大事件 2026-05-14",
+      "sector": "宏观"
+    },
+    {
+      "detail_id": "D2",
+      "title": "30年期美债票息升至5%，创2007年以来新高",
+      "summary": "美国30年期国债标售得标收益率5.046%，票息5%，投标倍数2.30为去年11月以来最低。上一次票息达5%是2007年金融危机前夕。",
+      "source_type": "宏观",
+      "source_ref": "rsshub 今日热点 2026-05-14",
+      "sector": "宏观"
+    },
+    {
+      "detail_id": "D3",
+      "title": "美国4月PPI同比飙升至6%",
+      "summary": "美国4月PPI同比6%远超预期4.8%，能源成本单月暴涨7.8%，10年期美债收益率升至4.49%。",
+      "source_type": "宏观",
+      "source_ref": "rsshub 大事件 2026-05-14",
+      "sector": "宏观"
+    },
+    {
+      "detail_id": "D4",
+      "title": "美参议院批准凯文·沃什出任美联储主席",
+      "summary": "美国参议院以54票赞成、45票反对批准凯文·沃什出任美联储主席，接替5月15日到期的鲍威尔，鲍威尔留任理事。",
+      "source_type": "宏观",
+      "source_ref": "rsshub 大事件 2026-05-14",
+      "sector": "宏观"
+    },
+    {
+      "detail_id": "D5",
+      "title": "美国通胀超预期，大摩称5-6月见顶",
+      "summary": "美国4月通胀超预期，摩根士丹利认为通胀将在5月或6月见顶，并预计美联储今年不会降息。",
+      "source_type": "宏观",
+      "source_ref": "rsshub 大事件 2026-05-14",
+      "sector": "宏观"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "美联储鸽派官员：通胀走向错误，压力不止来自关税和石油",
+      "source_type": "rss",
+      "source_ref": "rsshub 今日热点 2026-05-14",
+      "confidence": "medium"
+    },
+    {
+      "point": "沃什被确认为美联储下一任主席，面临五大挑战",
+      "source_type": "rss",
+      "source_ref": "rsshub 今日热点 2026-05-14",
+      "confidence": "medium"
+    },
+    {
+      "point": "美国能源信息署上调中东供应中断预估",
+      "source_type": "rss",
+      "source_ref": "rsshub 今日热点 2026-05-14",
+      "confidence": "low"
+    }
+  ],
+  "source_gaps": [
+    "各国央行对债市风暴的表态",
+    "IMF/世界银行评估报告",
+    "沃什过往政策立场详细梳理"
+  ],
+  "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+}

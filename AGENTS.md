@@ -64,7 +64,7 @@
 
 - **默认（无需联网，直接读 DB）**：`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --summary-only`  
   从本地数据库读取最近 24h 数据，**不发起任何网络请求**；把 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户。  
-- **若 DB 为空 / 数据不新鲜**：`markdown_summary` 中会包含提示，**不要自动触发实时抓取**，告知用户"请等待定时采集（09:00/12:00/17:00）或手动更新"。
+- **若 DB 为空 / 数据不新鲜**：`markdown_summary` 中会包含提示，**不要自动触发实时抓取**，告知用户"请等待定时采集（北京时间 09:00/14:00/20:00，cron 内 `TZ=Asia/Shanghai`）或手动更新"。
 - **用户明确说"刷新/更新/重新拉取"时**：`python3 skills/streamy-content-gen/scripts/query_market_facts.py --live-fetch --sources market,news,social --summary-only`（实时联网，约 60–120s）。
 
 禁止直接调用 `finance-source-ingest/scripts/ingest.py` 后结束，禁止拆成只跑 `fetch_market.py`、禁止按用户措辞只拉 `market` 或 `news`、禁止拆成两条消息各贴一半。
@@ -79,7 +79,17 @@
 
 ### 纯拉数（ingest 与包装脚本）
 
-v0.2.2 起，**飞书端日常拉数走 DB 路径**（`query_market_facts.py` 默认不联网），数据由定时 cron 入库（09:00/12:00/17:00）。`finance-source-ingest` 负责采集入库；`finance-draft-manager/scripts/db_snapshot.py` 负责从 DB 构建快照；`query_market_facts.py` 是对外统一入口。**不再**自动拼接 Tavily 或任何「联网补充」附录。若业务仍需要人工联网核对北向/社媒等，由 Agent 在对话中自行检索，且不得覆盖 DB 里的数值。
+v0.2.2 起，**飞书端日常拉数走 DB 路径**（`query_market_facts.py` 默认不联网），数据由定时 cron 入库（北京时间 09:00/14:00/20:00，`setup_cron.sh` 写入 `TZ=Asia/Shanghai`）。`finance-source-ingest` 负责采集入库；`finance-draft-manager/scripts/db_snapshot.py` 负责从 DB 构建快照；`query_market_facts.py` 是对外统一入口。**不再**自动拼接 Tavily 或任何「联网补充」附录。若业务仍需要人工联网核对北向/社媒等，由 Agent 在对话中自行检索，且不得覆盖 DB 里的数值。
+
+---
+
+## Workspace 安装 / 跨机部署（执行方必读）
+
+当用户要求「按仓库部署 / clone 本 workspace / 跑 download_and_install」时：
+
+1. 在 **stream-gen 仓库根**（本目录，含 `download_and_install.sh`）运行 `./download_and_install.sh`（必要时先 `chmod +x`）。若输出含 **`[AGENT_INSTRUCTION_REQUIRED]`**，必须阅读本目录 **`.env.example`**，向用户**一次性**索要缺失项，再写入本目录 **`.env`**；若上级目录存在 **`openclaw.json`**，可与上级 **`.env`** 并存（合并规则见 `scripts/verify_env.py`）；**禁止**编造密钥；最终回复中**不要**复述用户提供的完整密钥。  
+2. 若任意命令输出含 **`OPENCLAW_DIAG`**：按 JSON 内 `user_action`、`env`、`doc_anchor` 解释原因并指向本目录 **`DEPLOY.md`**；连通性自检：在本目录执行 `python3 scripts/openclaw_doctor.py --repo-root "$(pwd)"`。  
+3. **问财 zip 安装**与 Stream-gen 无关：若整仓存在 `scripts/iwencai_skillhub_download_and_install.sh` 可用之；勿与 **`download_and_install.sh`**（Stream-gen bootstrap）混淆。
 
 ---
 

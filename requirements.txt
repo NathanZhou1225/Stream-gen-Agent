@@ -1,0 +1,6 @@
+# workspace-stream-gen 聚合依赖（bootstrap / ingest / 行情）
+# 与 skills/*/requirements.txt 对齐
+
+akshare>=1.14.0
+feedparser>=6.0.0
+tushare>=1.2.89

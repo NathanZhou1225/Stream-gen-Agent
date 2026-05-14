@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ _SAFETY_BOUNDARY = (
     "sentiment 取值仅限：利好、利空、中性；必须与 title、impact、angle 对读者传达的**结论方向一致**"
     "（若宏观数据偏空但本条写的是该板块/标的受益逻辑，须标「利好」而非「利空」，禁止前缀与正文自相矛盾）。\n"
     "insight 须为完整中文句（不少于 12 字），禁止使用「…」「...」占位或空话。\n"
+    "禁止在 JSON 前输出任何字符（含「我们」「需要」「首先」）；全文第一个字符必须是 ASCII 的「{」。\n"
     "示例形状：{\"insight\":\"……\",\"items\":[{\"title\":\"……\",\"impact\":\"……\",\"angle\":\"……\",\"sentiment\":\"利好\"}]}"
 )
 
@@ -40,36 +42,88 @@ def _use_json_object_env(name: str, *, default_on: bool) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
-def _parse_llm_json_object(content: str) -> dict[str, Any]:
-    """解析模型输出：整段 JSON、raw_decode 第一段 JSON、或从文本中提取第一处 `{...}`。"""
-    content = (content or "").strip()
-    dec = json.JSONDecoder()
-    for blob in (content,):
-        if not blob:
+def _strip_code_fences(text: str) -> str:
+    t = (text or "").strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.split("\n")
+    if lines and lines[0].lstrip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _first_balanced_json_object_slice(s: str) -> str | None:
+    """自首个 ASCII `{` 起括号深度配对，得到最外层 JSON 对象（字符串内括号不计）。"""
+    start = s.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
             continue
+        if c == '"':
+            in_str = True
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
+    return None
+
+
+def _parse_llm_json_object(content: str) -> dict[str, Any]:
+    """解析模型输出：去围栏、整段 JSON、括号切片（吸收前文推理）、贪婪 regex 兜底。"""
+    content = _strip_code_fences((content or "").strip())
+    dec = json.JSONDecoder()
+    if content:
         try:
-            return json.loads(blob)
+            return json.loads(content)
         except json.JSONDecodeError:
             pass
         try:
-            obj, _end = dec.raw_decode(blob)
+            obj, _end = dec.raw_decode(content)
             if isinstance(obj, dict):
                 return obj
         except json.JSONDecodeError:
             pass
-    import re
+    balanced = _first_balanced_json_object_slice(content)
+    if balanced:
+        try:
+            return json.loads(balanced)
+        except json.JSONDecodeError:
+            pass
+        try:
+            obj, _ = dec.raw_decode(balanced)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
     m = re.search(r"\{[\s\S]*\}", content)
     if m:
         frag = m.group(0)
         try:
             return json.loads(frag)
         except json.JSONDecodeError:
-            try:
-                obj, _ = dec.raw_decode(frag)
-                if isinstance(obj, dict):
-                    return obj
-            except json.JSONDecodeError:
-                pass
+            pass
+        try:
+            obj, _ = dec.raw_decode(frag)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
     raise RuntimeError(f"rewriter 输出无法解析: {content[:220]}")
 
 
@@ -103,9 +157,9 @@ def _is_enabled() -> bool:
 
 def _timeout() -> int:
     try:
-        return max(5, int(os.environ.get("FINANCE_SECTOR_LLM_REWRITE_TIMEOUT_SEC", "8")))
+        return max(5, int(os.environ.get("FINANCE_SECTOR_LLM_REWRITE_TIMEOUT_SEC", "25")))
     except ValueError:
-        return 8
+        return 25
 
 
 def _load_config() -> tuple[str, str, str]:
@@ -211,12 +265,16 @@ def _normalize_item_sentiment(raw: Any, fallback_hint: str) -> str:
 
 
 def _build_sector_prompt(sector: str, items: list[dict[str, Any]]) -> str:
-    lines = [f"板块：{sector}", "已选事实："]
-    for it in items[:5]:
+    lines = [f"板块：{sector}", "已选事实（与 items 顺序一致，至多 3 条）："]
+    for it in items[:3]:
         title = str(it.get("clean_title") or it.get("raw_title") or "")
         summary = str(it.get("clean_summary") or "")[:120]
         lines.append(f"- {title}：{summary}" if summary else f"- {title}")
-    return "\n".join(lines)
+    return (
+        "\n".join(lines)
+        + "\n\n【格式】立即输出且仅输出一个 JSON 对象：全文第一个字符必须是 ASCII 的 { ，"
+        "禁止先写分析过程；items 长度与上列表格条数一致、不超过 3。"
+    )
 
 
 def _rewrite_sector(
@@ -247,9 +305,9 @@ def _rewrite_sector(
             prompt = _build_sector_prompt(sector, items)
             if attempt > 0:
                 prompt += (
-                    "\n\n【重试】上次未得到纯 JSON。请只输出一个 JSON 对象："
-                    "{\"insight\":\"……\",\"items\":[{\"title\":\"……\",\"impact\":\"……\",\"angle\":\"……\",\"sentiment\":\"利好\"}]}，"
-                    "不要中文说明、不要 Markdown。"
+                    "\n\n【重试】上次输出不合格。请只输出一个 JSON 对象，全文第一个字符必须是 { ，"
+                    "禁止任何前缀说明；形状："
+                    "{\"insight\":\"……\",\"items\":[{\"title\":\"\",\"impact\":\"\",\"angle\":\"\",\"sentiment\":\"利好\"}]}。"
                 )
             raw = _call_llm(prompt, base=base, key=key, model=model, timeout=timeout)
             res.insight = str(raw.get("insight") or "")

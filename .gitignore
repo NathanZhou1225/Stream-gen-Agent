@@ -1,4 +1,8 @@
-# # 1. 忽略 Agent 运行产生的动态对话历史和状态文件
+# ---- Secrets ----
+.env
+.env.local
+
+# ---- Agent / runtime 产物（避免 history、临时 JSON、tmp 进仓）----
 *history.json
 workspace-state.json
 temp_*
@@ -6,19 +10,24 @@ temp_*
 tmp/
 *.tmp
 
-# 2. 忽略数据库、日志和备份文件
+# ---- DB / 日志 / 备份（体积大、机绑数据，勿提交）----
 *.db
 *.sqlite
+*.sqlite3
 *.log
+*.bak
 *.bak*
-__pycache__/
 
-# 3. 忽略环境变量等敏感信息
-.env
-.env.local
-._*
-
-# 4. 排除 IDE 和编辑器生成的专属缓存与配置文件
+# ---- IDE / 本地记忆（可选；子仓若需共享 .vscode 可删对应行）----
 .cursor_memory/
 .cursor/
 .vscode/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+#doc文件夹
+/docs

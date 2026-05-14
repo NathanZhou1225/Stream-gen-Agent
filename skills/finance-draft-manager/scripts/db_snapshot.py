@@ -352,7 +352,7 @@ def _apply_router_rewrite_news(
                     "clean_summary": str(x.get("clean_text") or x.get("summary") or "")[:400],
                     "sentiment_hint": str(x.get("sentiment_hint") or "中性"),
                 }
-                for x in (fin.get(sec) or [])
+                for x in (fin.get(sec) or [])[:3]
             ]
             for sec in _SECTOR_ORDER
             if fin.get(sec)
@@ -1166,7 +1166,7 @@ def build_db_snapshot(
             },
             "sections": {},
             "errors": [{"code": "DB_NOT_FOUND", "message": f"数据库文件不存在：{db_path}，请先运行 ingest.py run 入库。"}],
-            "markdown_summary": f"> ⚠️ 数据库不存在（{db_path}）。请先运行 `finance-source-ingest/scripts/ingest.py run` 完成首次入库，或等待定时任务（09:00/12:00/17:00）。",
+            "markdown_summary": f"> ⚠️ 数据库不存在（{db_path}）。请先运行 `finance-source-ingest/scripts/ingest.py run` 完成首次入库，或等待定时任务（北京时间 09:00/14:00/20:00）。",
             "invariants": {},
         }
 

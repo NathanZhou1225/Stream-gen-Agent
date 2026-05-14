@@ -1,0 +1,56 @@
+{
+  "title": "G7债市崩盘与美联储困境：通胀顽固+新主席沃什的双重压力",
+  "structure_template": "standard",
+  "hook": {
+    "text": "G7国债腰斩近50%，30年期美债票息17年后重回5%——2007年的信号又出现了",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "【方法论】G7债市风暴的三大信号已到位",
+      "evidence": "G7国债收益率4.6%创20年新高；彭博G7国债指数较峰值跌近50%；30年期美债票息5%为2007年以来首次",
+      "production_hint": "中景口播+屏幕左侧贴G7国债指数腰斩图",
+      "duration_sec": 15
+    },
+    {
+      "order": 2,
+      "role": "argument",
+      "headline": "【信号拆解】通胀顽固+沃什上任的双重压力",
+      "evidence": "美国4月CPI同比3.8%、核心CPI同比2.8%均创多年新高；PPI同比6%远超预期；市场押注年内加息概率超三分之一",
+      "production_hint": "切近景+下方字幕滚动CPI/PPI数据",
+      "duration_sec": 15
+    },
+    {
+      "order": 3,
+      "role": "turn",
+      "headline": "但这次有个关键不同：沃什接盘而非鲍威尔续任",
+      "evidence": "美参议院54:45批准沃什出任美联储主席，接替5月15日到期的鲍威尔；沃什面临五大挑战",
+      "production_hint": "黄底字幕「沃什接盘」+人物头像贴图",
+      "duration_sec": 10
+    },
+    {
+      "order": 4,
+      "role": "action",
+      "headline": "【盘面提醒】接下来盯三个节奏信号",
+      "evidence": "观察美债10年期收益率是否站稳4.5%；关注沃什首周表态；盯G7各国央行对债市风暴的应对",
+      "production_hint": "三分屏列三个指标+停留3秒",
+      "duration_sec": 15
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "评论区告诉我：你觉得沃什能撑住吗？"
+  },
+  "total_duration_sec": 65,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  },
+  "user_style_context": "## User style (RAG block)\n- **style_id**: `cf999341-781e-497d-8c14-12148240f51e`\n- **style_name**: 老丁\n- **tags**: 老丁, 贡献, 口播\n\n### Archive style fields (T5)\n{\n  \"bio\": \"老丁财经，2025年度·最佳拐点捕手丁利，全网粉丝34.8万（抖音、B站、小红书、头条），专注逃顶抄底的实战派财经博主。\",\n  \"ip_positioning\": \"聚焦逃顶抄底，通过「缠论 + 布林通道」结合，强调「顶部预警 + 底部确认」的双重验证；独创《八度空间交易法》，教你「逃顶真本事」，掌握主力出货信号。\",\n  \"audience\": \"关注逃顶抄底、希望提升盘感与节奏判断的投资者，涵盖A股、港股市场的散户交易者。\",\n  \"tone\": \"直接、判断清晰、偏实战，表达强调「信号」「验证」「顶底节奏」，不拖泥带水，给明确结论。\",\n  \"taboo\": \"空泛宏观分析，无明确信号的预判，模糊化表达，模棱两可的观点，纯理论无实战指导的内容。\",\n  \"structure_pref\": \"方法论+信号拆解+盘面提醒的三段式结构，先给明确结论，再讲信号验证逻辑，最后给操作节奏建议。\",\n  \"visual_pref\": \"蓝白财经风、关键数字高亮（如粉丝数/涨跌幅/信号词），顶底信号用特殊标识突出。\",\n  \"evidence_pref\": \"缠论结构信号、布林通道位置、主力资金数据、历史顶底验证案例、板块资金流向数据。\"\n}"
+}

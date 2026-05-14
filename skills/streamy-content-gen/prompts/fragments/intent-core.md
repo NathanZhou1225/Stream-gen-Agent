@@ -14,6 +14,7 @@
 - **`chosen` 唯一入口**：`update --set-chosen N`；**禁止** `edit` 改 `topic_candidates.json`。
 - **列归档唯一入口**：`archive-list --json`；**禁止** `ls`/`find`/`list --include-archive` 脑补归档。
 - **每次工具返回含 `result.invariants[]` 必读**。
+- **飞书对用户输出去工程化**：禁止刷屏式汇报「读取规则 / 获取 schema / validate-only / 先校验 payload」等；禁止把英文 CLI 试错句或 stderr 原样贴给用户；里程碑尽量 **单条消息**（证据包 / 大纲 / 逐字稿）。稿件类型对用户用中文选项（大盘观点 / 投教 / 人设介绍），`market_view` 等 slug 仅用于工具调用。
 
 ---
 
@@ -41,7 +42,7 @@
 
 | 意图 | 典型口语 | 命令 / 动作 |
 |---|---|---|
-| `create_draft` | 开稿 / 出一条 / 想个内容 | `draft_manager.py create [--topic "..."]` |
+| `create_draft` | 开稿 / 出一条 / 想个内容 | `draft_manager.py create [--topic "..."] [--content-type market_view 等] [--ip-id <stem>]` |
 | `list_drafts` | list / 几条在跑 | `list --json`；若问**历史/归档** → **`archive-list --since-days N --json`** |
 | `switch_draft` | 切到 #B7K | `switch --draft <DID>` |
 | `show_draft` | A3F 到哪了 | `show --draft <DID>` |
@@ -75,7 +76,7 @@ python3 skills/streamy-content-gen/scripts/fetch_market.py --json
 
 **先读 `meta.stage`。** 顺序记忆：
 
-`preflight（方向）` → `topic_picking`（三候选）→ **用户选候选** → **方向证据包** → **user-style** → `outline_refining` → `script_refining` → `finalize`
+`preflight（方向）` → `topic_picking`（三候选）→ **用户选候选** → **方向证据包** → **稿件类型 + IP（meta 落盘）** → **user-style** → `outline_refining` → `script_refining` → `finalize`
 
 ### 2.0A 方向证据包（`candidate_evidence_pack_gate`）
 
@@ -88,11 +89,17 @@ python3 skills/streamy-content-gen/scripts/fetch_market.py --json
 
 可选：`scripts/stream_gen_workflow_helper.py apply-choice ...` 打包 1–2；**仍须**展示证据包并走 style 门禁。
 
+### 2.0B 稿件类型与 IP 画像（v0.2.3 · 人工）
+
+- **时机**：**证据包已落盘**、用户确认继续后，**在绑 `style_id` 之前**，询问用户本稿类型并写入 `meta`：  
+  `draft_manager.py update --draft <DID> --set-content-type market_view|investor_edu|persona_intro [--set-ip-id <stem>]`；清除：`--clear-content-profile`。`persona_intro` 或与模板中 `{{ var }}` 同时出现时**应**带 `--set-ip-id`（对应 `configs/ip_profiles/<stem>.json`）。
+- **分模块口播（可选链路）**：`python3 skills/streamy-content-gen/scripts/content_template_tool.py prompt-bundle --content-type ... [--ip-id ...]` 得到 `system` / `user` / `json_schema`；**由 OpenClaw 会话内模型**按 schema 产出模块 JSON；`assemble` / `segments` 仅做机械拼装，**不在 skill 脚本内直连 LLM**。
+
 ### 2.1 `confirm_topic`（`stage=topic_picking`）
 
 - 展示候选须含 **title + thesis + 三条 evidence**（禁只贴标题）。
 - 默认回复**不**拼大盘/快讯块（除非用户要看数据来源）。
-- **默认路径**：`set-chosen` → §2.0A 证据包 → `style_cli list` → 用户选 → `update --set-style-id` → 读 `outline-generation.md` 索引 → 生成大纲 → `update --stage outline_refining ...`
+- **默认路径**：`set-chosen` → §2.0A 证据包 → **§2.0B 稿件类型 + IP（`update --set-content-type`）** → `style_cli list` → 用户选 → `update --set-style-id` → 读 `outline-generation.md` 索引 → 生成大纲 → `update --stage outline_refining ...`
 - **禁**：未展示证据包或未绑 `style_id` 就写大纲；禁手写 `outline.md` / 跳 `draft_manager`。
 
 ### 2.2 `regenerate_topics`

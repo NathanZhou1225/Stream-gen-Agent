@@ -1,0 +1,159 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "习近平同特朗普会谈，中美建设性战略稳定关系",
+  "generated_at": "2026-05-14T14:54:57+08:00",
+  "hotlist_meta": {
+    "primary_source": "tophub.today",
+    "secondary_source": "social_api(vvhan->akshare)",
+    "fallback_used": true,
+    "fallback_reason": "primary_source_unavailable"
+  },
+  "source_context": [
+    "【用户方向】习近平同特朗普会谈，中美建设性战略稳定关系",
+    "【ingest 关键词】[]",
+    "【领域标签】teacher_focus",
+    "【事实短摘】\n- **三大指数**：**创业板指** 3989.5 (-1.21%) / **深证成指** 15898.58 (-1.19%) / **上证指数…\n- （若仅有指数点位：北向/涨跌停等见定时采集扩展字段或 legacy 全量。）\n- **整体情绪分**：0.00 (🟡 中性)\n- **恐惧贪婪指数**：28.0 (🟦 恐惧)\n- **个股情绪极值**：华为(🟢 0.85)、阿里巴巴(🟢 0.61)、腾讯(🔴 -0.53)\n- *板块洞察*：量子计算突破，阿里加码AI投入\n- *润色洞察*：量子计算突破与阿里AI高投入双重利好科技板块，但阿里利润下滑构成短期压力。\n- 🟢【利好】**我国成功研制量子计算原型机“九章四号”** 影响：量子计算算力全球领先，量子科技首次写入“十五五”规划，推动量子计算产业化进程。…",
+    "provenance: finance-source-ingest|preflight_topic.py",
+    "【信源状态】🔎 信源状态：可用[market、news、social]；降级[无]；不可用[tophub(TIMEOUT)]。",
+    "【领域证据】*润色洞察*：量子计算突破与阿里AI高投入双重利好科技板块，但阿里利润下滑构成短期压力。",
+    "【领域增强来源】共抽取 17 条同域细节（行业/资金风向/快讯要点）"
+  ],
+  "candidates": [
+    {
+      "title": "习近平同特朗普会谈，中美建设性战略稳定关系｜盘面热点：**整体情绪分**：0.00 (🟡 中性)",
+      "angle": "偏事实钩子：用本条快讯或数据开场，再扣回用户方向",
+      "thesis": "习近平同特朗普会谈，中美建设性战略稳定关系相关讨论与盘面事实正在共振，优先围绕「习近平同特朗普会谈，中美建设性战略稳定关系｜盘面」展开。",
+      "evidence": [
+        {
+          "point": "**整体情绪分**：0.00 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "*润色洞察*：量子计算突破与阿里AI高投入双重利好科技板块，但阿里利润下滑构成短期压力。",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "🟢【利好】**我国成功研制量子计算原型机“九章四号”** 影响：量子计算算力全球领先，量子科技首次写入“十五五”规划，推动量子计算产业化进程。 角度：技术突破叠",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": {
+        "source": "social:social_hot",
+        "signal": "staying_hot",
+        "rank_or_heat": null,
+        "ts": "2026-05-14T14:54:57+08:00",
+        "note": "social_hot相关热度信号：【东财人气榜】大唐发电（SH601991）"
+      },
+      "evidence_anchor": "- **整体情绪分**：0.00 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "**恐惧贪婪指数**：28.0 (🟦 恐惧)",
+      "angle": "偏结构对照：与上条不同维度（板块/资金/节奏），避免重复口径",
+      "thesis": "习近平同特朗普会谈，中美建设性战略稳定关系相关讨论与盘面事实正在共振，优先围绕「**恐惧贪婪指数**：28.0 (🟦 恐惧)」展开。",
+      "evidence": [
+        {
+          "point": "**恐惧贪婪指数**：28.0 (🟦 恐惧) | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "*润色洞察*：量子计算突破与阿里AI高投入双重利好科技板块，但阿里利润下滑构成短期压力。",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "🟢【利好】**我国成功研制量子计算原型机“九章四号”** 影响：量子计算算力全球领先，量子科技首次写入“十五五”规划，推动量子计算产业化进程。 角度：技术突破叠",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": {
+        "source": "social:social_hot",
+        "signal": "staying_hot",
+        "rank_or_heat": null,
+        "ts": "2026-05-14T14:54:57+08:00",
+        "note": "social_hot相关热度信号：【东财人气榜】大唐发电（SH601991）"
+      },
+      "evidence_anchor": "- **恐惧贪婪指数**：28.0 (🟦 恐惧) | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "**个股情绪极值**：华为(🟢 0.85)、阿里巴巴(🟢 0.61)、腾讯(🔴 -0.53)",
+      "angle": "偏讲述策略：把用户方向落成「观众能跟上的三段节奏」",
+      "thesis": "习近平同特朗普会谈，中美建设性战略稳定关系相关讨论与盘面事实正在共振，优先围绕「**个股情绪极值**：华为(🟢 0.85)、阿里」展开。",
+      "evidence": [
+        {
+          "point": "**个股情绪极值**：华为(🟢 0.85)、阿里巴巴(🟢 0.61)、腾讯(🔴 -0.53) | provenance: finance-source-inge",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "*润色洞察*：量子计算突破与阿里AI高投入双重利好科技板块，但阿里利润下滑构成短期压力。",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "🟢【利好】**我国成功研制量子计算原型机“九章四号”** 影响：量子计算算力全球领先，量子科技首次写入“十五五”规划，推动量子计算产业化进程。 角度：技术突破叠",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": {
+        "source": "social:social_hot",
+        "signal": "staying_hot",
+        "rank_or_heat": null,
+        "ts": "2026-05-14T14:54:57+08:00",
+        "note": "social_hot相关热度信号：【东财人气榜】大唐发电（SH601991）"
+      },
+      "evidence_anchor": "- **个股情绪极值**：华为(🟢 0.85)、阿里巴巴(🟢 0.61)、腾讯(🔴 -0.53) | provenance: finance-source-ingest|preflight_topic.py"
+    }
+  ],
+  "preflight_meta": {
+    "direction": "习近平同特朗普会谈，中美建设性战略稳定关系",
+    "ingest_schema_version": "0.2.2-db",
+    "ingest_fetched_at": "2026-05-14T06:00:20+00:00",
+    "markdown_truncated": true,
+    "feishu_notice": null,
+    "feishu_source_notice": "🔎 信源状态：可用[market、news、social]；降级[无]；不可用[tophub(TIMEOUT)]。",
+    "source_availability": {
+      "available": [
+        "market",
+        "news",
+        "social"
+      ],
+      "degraded": [],
+      "unavailable": [
+        {
+          "source": "tophub",
+          "failure_type": "TIMEOUT",
+          "detail": "hot_rank_script"
+        }
+      ]
+    },
+    "relevance_scores": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "relevance_avg": 1.0,
+    "domain_tags": [
+      "teacher_focus"
+    ],
+    "source_context_compact": true,
+    "source_context_bullet_count": 8,
+    "candidate_evidence_pack_required": true,
+    "evidence_pack_instruction": "用户选定候选 1/2/3 后，先用 preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot.json> 生成该方向 evidence_pack；展示证据包后再进入 user-style 与大纲。"
+  },
+  "chosen": 3
+}

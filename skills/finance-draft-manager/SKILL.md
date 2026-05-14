@@ -24,6 +24,10 @@ python scripts/draft_retriever.py build-context \
   --direction "AI算力板块行情分析" \
   --since-hours 24 \
   [--db /path/to/finance_sources.db]
+# 等价别名（Sprint B5 固定文件名，便于检索与编排）：
+python scripts/build_context.py \
+  --direction "AI算力板块行情分析" \
+  --since-hours 24
 ```
 
 **stdout**：
@@ -116,6 +120,7 @@ FINANCE_SECTOR_LLM_REWRITE_ENABLED=1
 | `FINANCE_SECTOR_LLM_REWRITE_MAX_WORKERS` | 并发润色线程数（默认 **`2`**，减轻网关 burst） |
 | `FINANCE_SECTOR_LLM_REWRITE_RETRY_EXTRA` | 失败后额外重试次数（默认 **`1`**，即最多 2 次请求；上限 2） |
 | `FINANCE_SECTOR_LLM_REWRITE_RETRY_SLEEP_SEC` | 重试前间隔秒数（默认 **`0.4`**，设为 `0` 可关） |
+| `FINANCE_SECTOR_LLM_REWRITE_TIMEOUT_SEC` | 单次 HTTP 超时秒数（默认 **`25`**，rewrite 输出 JSON 偏长时可再拉大） |
 | `FINANCE_SECTOR_LLM_BASE_URL` / `_API_KEY` / `_MODEL` | 可选；未设时回退 `FINANCE_LLM_ROUTER_*` → `FINANCE_INGEST_LLM_CLEAN_*` → Ark（见 `rewriter._load_config`） |
 
 **说明**：`scripts/db_snapshot.py` 加载 `.env` 时，`workspace-stream-gen/.env` 中的键会**覆盖**已在 Shell/根环境中设置的同名变量，避免本地调试被旧值卡住。
@@ -127,9 +132,11 @@ FINANCE_SECTOR_LLM_REWRITE_ENABLED=1
 ```
 finance-draft-manager/
 ├── scripts/
+│   ├── build_context.py     # Sprint B5：薄入口 → draft_retriever build-context
 │   ├── draft_retriever.py   # 主入口（retrieve / build-context / status）
-│   ├── router.py            # LLM Router（从 pipeline.py 迁移）
-│   └── rewriter.py          # 板块小 LLM 润色（从 pipeline.py 迁移）
+│   ├── db_snapshot.py       # DB → 飞书 markdown_summary / sections
+│   ├── router.py            # LLM Router（主链；legacy 内副本见 ingest pipeline）
+│   └── rewriter.py          # 板块小 LLM 润色
 └── SKILL.md
 ```
 

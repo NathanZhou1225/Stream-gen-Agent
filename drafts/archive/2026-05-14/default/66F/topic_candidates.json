@@ -1,0 +1,103 @@
+{
+  "candidates": [
+    {
+      "id": 1,
+      "type": "数据派",
+      "title": "量子计算突破：九章四号横空出世，算力霸权格局重塑",
+      "angle_summary": "用技术里程碑数据证明中国在量子计算领域的突破性进展，结合政策写入\"十五五\"的信号，说明产业化窗口已提前开启",
+      "thesis": "中国量子计算实现里程碑式突破，九章四号算力超越全球最快超算，量子科技首次写入\"十五五\"，产业化进程加速，全球算力竞争进入新阶段。",
+      "evidence_anchor": "九章四号技术参数 + \"十五五\"政策文件 + 英伟达市值对比",
+      "evidence": [
+        {
+          "point": "中国科大潘建伟团队研制出量子计算原型机\"九章四号\"，算力超目前全球最快超算，成果发表于《自然》",
+          "source_type": "deep_news",
+          "source_ref": "D1",
+          "confidence": "high"
+        },
+        {
+          "point": "量子科技首次写入\"十五五\"规划，政策支持力度空前，产业化窗口提前开启",
+          "source_type": "deep_news",
+          "source_ref": "D1",
+          "confidence": "high"
+        },
+        {
+          "point": "全球AI算力竞赛升级，英伟达市值突破5.5万亿美元，量子计算或成为打破算力垄断的关键变量",
+          "source_type": "deep_news",
+          "source_ref": "D4",
+          "confidence": "high"
+        }
+      ],
+      "risk_flag": null,
+      "sector": "科技",
+      "sentiment": "利好"
+    },
+    {
+      "id": 2,
+      "type": "反直觉钩子",
+      "title": "AI算力军备竞赛：巨头疯狂砸钱，但真正的赢家可能是电力公司",
+      "angle_summary": "打破\"AI产业链赢家只有芯片厂\"的直觉，揭示算力激增引发的电力缺口危机，新能源与储能板块迎来历史性机遇",
+      "thesis": "阿里、英伟达等AI巨头资本开支持续加码，算力需求激增引发电力缺口危机，数据中心电力缺口达55GW，新能源与储能板块才是这一波算力军备竞赛的隐形赢家。",
+      "evidence_anchor": "阿里资本开支 + 摩根士丹利电力缺口预警 + 福特储能布局",
+      "evidence": [
+        {
+          "point": "阿里AI业务ARR年底超300亿元，资本支出将超3800亿元，自研GPU芯片已规模化量产",
+          "source_type": "deep_news",
+          "source_ref": "D2",
+          "confidence": "high"
+        },
+        {
+          "point": "摩根士丹利预警数据中心电力缺口55GW，港A电力股集体大涨，大唐发电6连板",
+          "source_type": "news",
+          "source_ref": "N7",
+          "confidence": "high"
+        },
+        {
+          "point": "福特成立福特能源子公司专注电池储能系统，计划年部署20吉瓦时，新能源储能需求爆发",
+          "source_type": "news",
+          "source_ref": "N5",
+          "confidence": "high"
+        }
+      ],
+      "risk_flag": null,
+      "sector": "新能源+科技",
+      "sentiment": "利好"
+    },
+    {
+      "id": 3,
+      "type": "对标派",
+      "title": "AI创业热潮涌动：田渊栋46.5亿美元估值创业，国产芯片迭代提速",
+      "angle_summary": "对比海外顶尖AI科学家回国创业与国产芯片迭代节奏，揭示AI产业链多点开花格局，硬件与应用层同步加速",
+      "thesis": "前Meta AI科学家田渊栋创立Recursive Superintelligence获6.5亿美元融资，昆仑芯完成文心5.1训练，中芯国际收购整合产能，国产AI产业链多点开花。",
+      "evidence_anchor": "田渊栋融资 + 昆仑芯训练效率 + 中芯国际产能整合",
+      "evidence": [
+        {
+          "point": "田渊栋创立Recursive Superintelligence，获6.5亿美元融资，估值46.5亿美元，GV、Greycroft领投，AMD和英伟达跟投",
+          "source_type": "deep_news",
+          "source_ref": "D7",
+          "confidence": "high"
+        },
+        {
+          "point": "昆仑芯完成文心5.1重要版本训练，有效训练率97%，天池256卡超节点6月上市，吞吐性能提升25%",
+          "source_type": "deep_news",
+          "source_ref": "D8",
+          "confidence": "high"
+        },
+        {
+          "point": "中芯国际406亿元收购中芯北方49%股权获过会，实现全资控股，整合成熟制程产能",
+          "source_type": "deep_news",
+          "source_ref": "D5",
+          "confidence": "high"
+        }
+      ],
+      "risk_flag": null,
+      "sector": "科技",
+      "sentiment": "利好"
+    }
+  ],
+  "chosen": 2,
+  "topic": "AI相关的内容",
+  "source_context": [
+    "query_market_facts:db_snapshot"
+  ],
+  "notes_for_next_stage": "三条候选均需配数据可视化：①九章四号vs超算对比图；②电力缺口与储能需求曲线；③田渊栋融资与国产芯片迭代时间轴"
+}

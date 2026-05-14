@@ -1,0 +1,14 @@
+{
+  "draft_id": "7UT",
+  "user_id": "default",
+  "stage": "dropped",
+  "topic": "sprint-smoke",
+  "style_id": null,
+  "content_type": null,
+  "ip_id": null,
+  "created_at": "2026-05-14T13:39:15+08:00",
+  "last_updated": "2026-05-14T13:39:16+08:00",
+  "finalized_at": null,
+  "dropped_at": "2026-05-14T13:39:16+08:00",
+  "drop_reason": "sprint-smoke-content-profile"
+}

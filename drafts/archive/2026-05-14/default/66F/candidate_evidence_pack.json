@@ -1,0 +1,58 @@
+{
+  "candidate_id": 2,
+  "candidate_title": "AI算力军备竞赛：巨头疯狂砸钱，但真正的赢家可能是电力公司",
+  "thesis": "阿里、英伟达等AI巨头资本开支持续加码，算力需求激增引发电力缺口危机，数据中心电力缺口达55GW，新能源与储能板块才是这一波算力军备竞赛的隐形赢家。",
+  "sector": "新能源+科技",
+  "sentiment": "利好",
+  "core_facts": [
+    {
+      "id": "F1",
+      "fact": "阿里AI业务ARR年底超300亿元，资本支出将超3800亿元，自研GPU芯片已规模化量产",
+      "source": "deep_news D2",
+      "confidence": "high"
+    },
+    {
+      "id": "F2",
+      "fact": "摩根士丹利预警数据中心电力缺口55GW，AI算力需求激增，港A电力股集体大涨，大唐发电6连板",
+      "source": "news N7",
+      "confidence": "high"
+    },
+    {
+      "id": "F3",
+      "fact": "福特成立福特能源子公司专注电池储能系统，计划年部署20吉瓦时，摩根士丹利看好其盈利能力",
+      "source": "news N5",
+      "confidence": "high"
+    },
+    {
+      "id": "F4",
+      "fact": "英伟达市值突破5.5万亿美元，股价连续第六日上涨，美银和富国银行上调目标价",
+      "source": "deep_news D4",
+      "confidence": "high"
+    },
+    {
+      "id": "F5",
+      "fact": "AI算力激增引爆电力需求，东方电气涨近6%，国家电网十五五投资4万亿元",
+      "source": "news N9",
+      "confidence": "high"
+    },
+    {
+      "id": "F6",
+      "fact": "思科财报超预期，AI订单大增，股价飙涨21%，Q3营收158亿美元同比增12%",
+      "source": "deep_news D10",
+      "confidence": "high"
+    }
+  ],
+  "supporting_evidence": [
+    "电力缺口扩大直接推升新能源发电需求",
+    "数据中心储能成为新增长点，福特布局彰显行业前景",
+    "算力需求带动电力设备及新能源建设"
+  ],
+  "source_gaps": [],
+  "visual_assets_needed": [
+    "电力缺口与AI算力需求增长曲线对比图",
+    "阿里/英伟达资本开支与储能市场规模对比",
+    "数据中心电力需求分布（新能源占比）"
+  ],
+  "generated_at": "2026-05-14T13:23:00+08:00",
+  "source_context": "query_market_facts.py DB离线快照 2026-05-14T04:00:11+00:00"
+}

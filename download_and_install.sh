@@ -1,124 +1,55 @@
 #!/usr/bin/env bash
+# Stream-gen 工作区 bootstrap：可单独作为 Git 仓库根；也可嵌在 OpenClaw 整仓的 workspace-stream-gen/ 下。
+# 问财 zip：仅在完整 OpenClaw 仓时见 ../../scripts/iwencai_skillhub_download_and_install.sh（本仓若不含可忽略）。
 set -euo pipefail
 
-# 脚本功能：下载远端的 zip 文件，解压后执行 aime-install.sh 命令
+WS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$WS_ROOT"
 
-# 默认配置
-DEFAULT_ZIP_URL="https://www.iwencai.com/skillhub/static/0.0.4/iwencai-skillhub-cli.zip"
-DEFAULT_TEMP_DIR="./temp_download"
+PARENT="$(cd "$WS_ROOT/.." && pwd)"
+echo "[bootstrap] workspace_root=$WS_ROOT"
 
-# 显示帮助信息
-show_help() {
-    echo "Usage: $0 [OPTIONS]"
-    echo ""
-    echo "Options:"
-    echo "  -u, --url URL        远端 zip 文件的 URL (默认: $DEFAULT_ZIP_URL)"
-    echo "  -t, --temp-dir DIR    临时下载和解压目录 (默认: $DEFAULT_TEMP_DIR)"
-    echo "  -h, --help           显示帮助信息"
-    echo ""
-    echo "示例:"
-    echo "  $0 --url https://example.com/aime-skillhub-cli.zip"
-}
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Error: python3 is required." >&2
+  exit 1
+fi
 
-# 解析命令行参数
-URL="$DEFAULT_ZIP_URL"
-TEMP_DIR="$DEFAULT_TEMP_DIR"
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -u|--url)
-            URL="$2"
-            shift 2
-            ;;
-        -t|--temp-dir)
-            TEMP_DIR="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        *)
-            echo "Error: unknown argument: $1" >&2
-            show_help
-            exit 1
-            ;;
-    esac
-done
-
-# 检查必要的命令
-check_command() {
-    if ! command -v "$1" >/dev/null 2>&1; then
-        echo "Error: $1 is required but not installed." >&2
-        exit 1
+REQ="$WS_ROOT/requirements.txt"
+if [[ -f "$REQ" ]]; then
+  echo "[bootstrap] pip install -r requirements.txt"
+  if ! python3 -m pip install -r "$REQ"; then
+    echo "[bootstrap] pip failed (e.g. PEP 668); retry with --break-system-packages (override: set STREAM_GEN_PIP_NO_BREAK=1 and use a venv)." >&2
+    if [[ "${STREAM_GEN_PIP_NO_BREAK:-}" == "1" ]]; then
+      echo "[bootstrap] STREAM_GEN_PIP_NO_BREAK=1 set, aborting pip." >&2
+      exit 1
     fi
-}
-
-check_command curl
-check_command unzip
-
-# 创建临时目录
-mkdir -p "$TEMP_DIR"
-
-echo "Downloading zip file from: $URL"
-echo "Saving to: $TEMP_DIR/aime-skillhub-cli.zip"
-
-# 下载 zip 文件
-if [[ "$URL" == file://* ]]; then
-    # 处理本地文件
-    local_file="${URL#file://}"
-    echo "Copying local file: $local_file"
-    cp "$local_file" "$TEMP_DIR/aime-skillhub-cli.zip"
+    python3 -m pip install --break-system-packages -r "$REQ"
+  fi
 else
-    # 处理远程 URL
-    echo "Downloading from remote URL: $URL"
-    curl -L -o "$TEMP_DIR/aime-skillhub-cli.zip" "$URL"
+  echo "Warning: requirements.txt missing, skip pip install." >&2
 fi
 
-# 检查下载是否成功
-if [[ ! -f "$TEMP_DIR/aime-skillhub-cli.zip" ]]; then
-    echo "Error: Failed to download zip file." >&2
-    exit 1
+has_env=0
+[[ -f "$WS_ROOT/.env" ]] && has_env=1
+if [[ -f "$PARENT/openclaw.json" ]] && [[ -f "$PARENT/.env" ]]; then
+  has_env=1
 fi
 
-echo "Download completed successfully."
-
-# 解压 zip 文件
-echo "Extracting zip file..."
-unzip -q -o "$TEMP_DIR/aime-skillhub-cli.zip" -d "$TEMP_DIR"
-
-# 查找 aime-install.sh 文件
-INSTALL_SCRIPT=""
-
-# 先检查临时目录根目录
-if [[ -f "$TEMP_DIR/aime-install.sh" ]]; then
-    INSTALL_SCRIPT="$TEMP_DIR/aime-install.sh"
-else
-    # 再检查子目录
-    for dir in "$TEMP_DIR"/*/; do
-        if [[ -f "$dir/aime-install.sh" ]]; then
-            INSTALL_SCRIPT="$dir/aime-install.sh"
-            break
-        fi
-    done
+if [[ "$has_env" -eq 0 ]]; then
+  echo "======================================================"
+  echo "[AGENT_INSTRUCTION_REQUIRED]"
+  echo "phase=missing_dotenv"
+  echo "next_steps=read_dotenv_example_and_ask_user"
+  echo "workspace_root=$WS_ROOT"
+  echo "hint=Read .env.example in this directory. If this folder lives under an OpenClaw monorepo (parent has openclaw.json), you may use parent .env OR this directory .env; merge rules are in scripts/verify_env.py. Ask the user for secrets, then write .env. Do not echo secrets in the summary."
+  echo "======================================================"
+  exit 10
 fi
 
-if [[ -z "$INSTALL_SCRIPT" ]]; then
-    echo "Error: aime-install.sh not found in extracted directory." >&2
-    exit 1
+echo "[bootstrap] running scripts/verify_env.py"
+if ! python3 "$WS_ROOT/scripts/verify_env.py" --repo-root "$WS_ROOT"; then
+  echo "[bootstrap] verify_env failed (exit 1)." >&2
+  exit 1
 fi
 
-echo "Found aime-install.sh at: $INSTALL_SCRIPT"
-
-# 执行安装脚本
-echo "Executing aime-install.sh..."
-chmod +x "$INSTALL_SCRIPT"
-"$INSTALL_SCRIPT"
-
-echo "Installation completed successfully."
-
-# 清理临时目录
-echo "Cleaning up temporary directory..."
-rm -rf "$TEMP_DIR"
-
-echo "Script completed."
+echo "[bootstrap] done. Optional: python3 scripts/openclaw_doctor.py --repo-root \"$WS_ROOT\""

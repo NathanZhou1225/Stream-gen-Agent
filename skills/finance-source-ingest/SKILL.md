@@ -7,6 +7,14 @@
 - **只做**：抓取 → 标准化 → raw 入库 → LLM 清洗 → prune → stdout 极简 JSON
 - **不做**：选题、观点生成、Router、markdown_summary（已迁移到 `finance-draft-manager`）
 
+### 主路径 vs Legacy（防混读）
+
+| 入口 | 是否含 ingest 内 Router / 全量 `markdown_summary` | 说明 |
+|------|------------------------------------------------------|------|
+| `ingest.py run` | **否**（stdout 仅为统计 JSON；**不**产出六板块摘要） | Newsbox 默认；入库 + 清洗 + prune |
+| `query_market_facts.py`（默认） | **否**（读 DB → 调 `finance-draft-manager` 的 `db_snapshot.py`） | 飞书「拉讯息」主链 |
+| `ingest.py legacy` | **是**（`scripts/pipeline.py` → `build_snapshot`，含 `_router_*` 等） | 实时全量快照兼容；Router **仅 legacy**，新能力勿再向 `pipeline` 扩展 |
+
 ---
 
 ## 调用约定
@@ -130,17 +138,20 @@ finance-source-ingest/
 ├── cleaner.py            # LLM 清洗层（默认开启，失败不阻断）
 ├── setup_cron.sh         # 安装/移除 cron 定时任务
 └── scripts/
-    └── ingest.py         # 统一入口（run / clean / legacy / init-db / prune / repair-rsshub）
+    ├── ingest.py         # 统一入口（run / clean / legacy / init-db / prune / repair-rsshub）
+    └── pipeline.py       # **legacy** 编排（`build_snapshot`；内含 `_router_*`，勿作新 Router 扩展）
 ```
 
 ---
 
 ## 定时采集（cron）
 
+写入 **用户 crontab**，时间表按 **`TZ=Asia/Shanghai`（北京时间）** 解释（避免主机系统时区为 **UTC** 时，把 9/14/20 误当成 UTC 而错位 8 小时）。可通过环境变量 **`FINANCE_CRON_TZ`** 覆盖默认时区（例如测试机）。
+
 ```bash
-./setup_cron.sh --dry-run    # 预览三条 cron 条目
-./setup_cron.sh --install    # 写入 crontab（周一~五 09:00/12:00/17:00）
-./setup_cron.sh --remove     # 移除
+./setup_cron.sh --dry-run    # 预览 crontab 块（含 TZ）
+./setup_cron.sh --install    # 写入 crontab（周一~五 北京时间 09:00/14:00/20:00）
+./setup_cron.sh --remove     # 移除本脚本写入的整块
 ```
 
 ---

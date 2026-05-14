@@ -402,6 +402,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_list = sub.add_parser("list", help="列出某用户的风格")
     p_list.add_argument("--user-id", default=None, help="覆盖 OPENCLAW_USER_ID，默认 default")
+    p_list.add_argument(
+        "--json",
+        action="store_true",
+        help="与 stream-gen / draft_manager 调用习惯对齐；list 的 stdout 始终为一行 JSON，本 flag 不改变输出，仅避免 argparse 报未知参数。",
+    )
     p_list.set_defaults(func=cmd_list)
 
     p_imp = sub.add_parser("import", help="从 JSON 文件导入一条（手修后入库）")

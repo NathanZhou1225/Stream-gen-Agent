@@ -1,4 +1,13 @@
-"""编排各 fetcher，生成统一 JSON + markdown_summary。"""
+"""编排各 fetcher，生成统一 JSON + markdown_summary。
+
+本模块为 **legacy 全量快照**（`ingest.py legacy` → `build_snapshot`）服务。
+
+**LLM Router / 板块润色 / DB 飞书 `markdown_summary`（v0.2.2+）**：
+已迁至 `workspace-stream-gen/skills/finance-draft-manager/`（`router.py` /
+`rewriter.py` / `db_snapshot.py`）。飞书默认拉数路径为 `query_market_facts.py`
+读库 + `db_snapshot`，**不要**在本文件继续扩展 Router 能力；以下 `_router_*`
+仅保留给 legacy 输出兼容与历史 cron 仍调 legacy 的场景。
+"""
 
 from __future__ import annotations
 
@@ -999,6 +1008,8 @@ def _title_dedup_key(s: str) -> str:
     return re.sub(r"\s+", "", cleaned)[:30]
 
 
+# ── LEGACY LLM Router（仅 `build_snapshot` / `ingest.py legacy`）──────────────
+# 新默认链路的点菜与润色见 finance-draft-manager；此处代码勿作新功能扩展面。
 def _router_event_dedup_key(it: dict[str, Any]) -> str:
     """路由结果跨板块去重：弱化「财联社5月7日电」等与正文前缀差异，对齐同一快讯多源抄送。"""
     title = _clean_display_text(str(it.get("title") or ""))

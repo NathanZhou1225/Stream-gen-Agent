@@ -1,0 +1,32 @@
+{
+  "type": "investor_edu",
+  "description": "投教知识类导流视频：痛点唤醒 → 引导关注 → 干货方案 → 深化痛点 → 强力钩子加微",
+  "draft_segment_roles": ["hook", "action", "argument_1", "turn", "cta"],
+  "schema": [
+    {
+      "key": "pain_hook",
+      "section_zh": "痛点刺激/焦虑唤醒",
+      "instruction": "用强反问+否定旧认知唤醒焦虑（如死扛、凭感觉抄底），指出根因是缺乏买卖节奏与规则。"
+    },
+    {
+      "key": "follow_cta",
+      "section_zh": "引导关注",
+      "instruction": "承诺本期干货价值（如某指标/战法口诀），用一句话建立获得感；引导点左下角关注/持续更新。"
+    },
+    {
+      "key": "solution_body",
+      "section_zh": "给出方案和干货内容",
+      "instruction": "先抛「散户亏钱原因」共识，再展开可复用系统/口诀（可分条讲解，如第一第二…）；内容须自洽、可理解，避免与合规冲突的具体荐股与收益承诺。"
+    },
+    {
+      "key": "pain_deepen",
+      "section_zh": "深化痛点",
+      "instruction": "用「一买就跌一卖就涨」等现象强化：资金节奏在指标/轨道里已有线索；用比喻强化武器感。"
+    },
+    {
+      "key": "hook_cta_lead",
+      "section_zh": "强力钩子+引导加微/咨询",
+      "instruction": "指出光听不够，需要落到「买点/卖点」场景；抛出资料包/文档领取；明确行动：点咨询、回复关键词等。避免违规收益承诺与个股暗示。"
+    }
+  ]
+}

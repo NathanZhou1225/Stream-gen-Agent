@@ -1,0 +1,55 @@
+{
+  "title": "中美经贸破冰 · 科技合作信号拆解",
+  "structure_template": "standard",
+  "hook": {
+    "text": "马斯克、黄仁勋、库克集体随特朗普访华，这不是外交秀，是产业链重构的信号。",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "【方法论】商界领袖随行 = 产业链合作升级信号",
+      "evidence": "中美元首会谈确立「建设性战略稳定关系」，16位科技/金融/航空领域领袖随行（马斯克、库克、黄仁勋），2026-05-14 人民大会堂会谈超2小时",
+      "production_hint": "中景口播+三分屏列领袖名单，高亮「黄仁勋」「马斯克」",
+      "duration_sec": 20
+    },
+    {
+      "order": 2,
+      "role": "argument",
+      "headline": "【信号拆解】华为/阿里情绪正向，AI资本支出创纪录",
+      "evidence": "华为情绪0.85、阿里0.61正向（腾讯-0.53偏弱）；阿里AI ARR年底超300亿，资本支出3800亿；九章四号量子计算算力超全球最快超算",
+      "production_hint": "切近景，情绪值数字黄底高亮，资本支出「3800亿」红字突出",
+      "duration_sec": 22
+    },
+    {
+      "order": 3,
+      "role": "turn",
+      "headline": "【转折】阿里利润下滑，但「换未来」信号更关键",
+      "evidence": "阿里Q4经营亏损8.48亿（去年同期盈利284.65亿），明确「用利润换未来」战略；自研GPU芯片已规模化量产",
+      "production_hint": "蓝白财经风，亏损数字对比高亮，「换未来」用加粗字幕",
+      "duration_sec": 12
+    },
+    {
+      "order": 4,
+      "role": "action",
+      "headline": "【盘面提醒】观察三大验证点",
+      "evidence": "验证点①：会谈后中美联合声明是否有AI/半导体合作条款；验证点②：华为/阿里情绪能否突破前高；验证点③：北向资金对科技板块流入节奏",
+      "production_hint": "三分屏列三条验证点，每条停留2秒，背景渐变蓝色",
+      "duration_sec": 15
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "评论区回复「信号」，领取中美科技合作观察清单"
+  },
+  "total_duration_sec": 74,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  }
+}

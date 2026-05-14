@@ -1,0 +1,56 @@
+{
+  "title": "AI算力军备竞赛：巨头疯狂砸钱，但真正的赢家可能是电力公司",
+  "structure_template": "reversal",
+  "hook": {
+    "text": "都在盯着英伟达，但这波AI军备竞赛真正的赢家，可能藏在电力缺口里。",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "大家以为的：AI产业链赢家只有芯片厂",
+      "evidence": "阿里AI业务资本支出超3800亿元（2026年底），英伟达市值突破5.5万亿美元（连续6日上涨）",
+      "production_hint": "中景口播，高亮3800亿/5.5万亿数字",
+      "duration_sec": 12
+    },
+    {
+      "order": 2,
+      "role": "turn",
+      "headline": "真相：电力缺口才是隐形瓶颈",
+      "evidence": "摩根士丹利预警数据中心电力缺口55GW，大唐发电6连板，福特能源成立储能子公司（年部署20吉瓦时）",
+      "production_hint": "切近景，黄底字幕\"55GW缺口\"，3秒停留",
+      "duration_sec": 15
+    },
+    {
+      "order": 3,
+      "role": "argument",
+      "headline": "为什么：算力需求=电力需求同步放大",
+      "evidence": "AI算力激增引爆电力需求，东方电气涨近6%，国家电网十五五投资4万亿元",
+      "production_hint": "三分屏列指标：算力/电力/投资额",
+      "duration_sec": 15
+    },
+    {
+      "order": 4,
+      "role": "action",
+      "headline": "信号验证：看主力资金流向电力与储能板块",
+      "evidence": "电力股持续爆发，储能订单放量，关注板块资金净流入与缺口数据更新",
+      "production_hint": "滚动字幕列观察清单，停留2秒",
+      "duration_sec": 10
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "评论区回复\"电力\"领取本周电力缺口追踪表"
+  },
+  "total_duration_sec": 62,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  },
+  "user_style_context": "老丁风格：方法论+信号拆解+盘面提醒三段式，先给明确结论；语气直接、判断清晰、偏实战，强调\"信号\"\"验证\"\"顶底节奏\"；禁忌空泛宏观分析，无明确信号的预判；证据偏好缠论结构信号、布林通道位置、主力资金数据、板块资金流向数据。"
+}

@@ -1437,6 +1437,41 @@ def _build_topic_payload(
     }
 
 
+def _is_snapshot_stale(fetched_at: str, max_age_hours: int) -> bool:
+    """检查快照是否过期"""
+    if not fetched_at:
+        return True
+    try:
+        # 解析 ISO 8601 时间格式
+        ts_str = fetched_at.replace("Z", "+00:00")
+        if "+" not in ts_str and "-" not in ts_str[-6:]:
+            ts_str = ts_str + "+00:00"
+        ts = datetime.fromisoformat(ts_str)
+        # 转换为 UTC 比较
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_hours = (datetime.now(timezone.utc) - ts.astimezone(timezone.utc)).total_seconds() / 3600
+        return age_hours > max_age_hours
+    except Exception:
+        return True
+
+
+def _try_read_cached_snapshot(cache_path: Path, max_age_hours: int) -> tuple[dict[str, Any] | None, str | None]:
+    """尝试读取缓存的快照，返回 (snapshot, fetched_at) 或 (None, None)"""
+    if not cache_path.is_file():
+        return None, None
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        if not cached.get("ok"):
+            return None, None
+        fetched_at = (cached.get("meta") or {}).get("fetched_at")
+        if _is_snapshot_stale(fetched_at, max_age_hours):
+            return None, fetched_at  # 过期，返回 None 但告知时间
+        return cached, fetched_at
+    except Exception:
+        return None, None
+
+
 def main() -> None:
     t0_all = time.perf_counter()
     timing: dict[str, float] = {}
@@ -1461,6 +1496,17 @@ def main() -> None:
         choices=["db", "legacy"],
         default="db",
         help="数据源模式：db（默认，从本地数据库读取，不联网）/ legacy（实时抓取，需要网络）",
+    )
+    p.add_argument(
+        "--snapshot-max-age-hours",
+        type=int,
+        default=6,
+        help="快照缓存最大过期时间（小时），默认6小时",
+    )
+    p.add_argument(
+        "--cache-snapshot-path",
+        type=Path,
+        help="快照缓存路径（优先读取，过期则重新生成）",
     )
     args = p.parse_args()
 
@@ -1584,70 +1630,91 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     source_mode = getattr(args, "source_mode", "db")
-
+    snapshot_max_age = getattr(args, "snapshot_max_age_hours", 6)
+    cache_snapshot_path = getattr(args, "cache_snapshot_path", None)
+    
+    # ── 快照缓存路径优先级 ──────────────────────────────────────────────
+    # 1. --cache-snapshot-path 显式指定
+    # 2. workspace 标准缓存路径 cache/snapshot/snapshot.json
+    if cache_snapshot_path is None:
+        cache_snapshot_path = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
+    
     # ── 数据源分叉：默认 DB，--source-mode legacy 才实时抓 ────────────────────
     t_ingest_start = time.perf_counter()
+    cached_snapshot_used = False
+    cached_snapshot_fetched_at = None
 
     if source_mode == "db":
-        # DB 路径：调用 db_snapshot.py，写 snapshot.json 到 out_dir
-        _db_script = (
-            SKILL_ROOT.parent
-            / "finance-draft-manager"
-            / "scripts"
-            / "db_snapshot.py"
-        )
-        _py_exe = _resolve_finance_venv_python(finance_root)
-        _cmd = [
-            _py_exe,
-            str(_db_script),
-            "--since-hours", "24",
-            "--sources", "market,news,social",
-            "--keywords", kw,
-            "--out-dir", str(out_dir),
-        ]
-        try:
-            _proc = subprocess.run(
-                _cmd,
-                cwd=str(WORKSPACE_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
+        # 先尝试读取缓存的快照
+        cached_snapshot, cached_fetched_at = _try_read_cached_snapshot(cache_snapshot_path, snapshot_max_age)
+        if cached_snapshot is not None:
+            # 快照未过期，直接复用
+            snapshot = cached_snapshot
+            cached_snapshot_used = True
+            cached_snapshot_fetched_at = cached_fetched_at
+            snap_path = cache_snapshot_path
+            timing["cached_snapshot_sec"] = round(time.perf_counter() - t_ingest_start, 3)
+        else:
+            # 快照不存在或已过期，调用 db_snapshot.py 生成新快照
+            # DB 路径：调用 db_snapshot.py，写 snapshot.json 到 out_dir
+            _db_script = (
+                SKILL_ROOT.parent
+                / "finance-draft-manager"
+                / "scripts"
+                / "db_snapshot.py"
             )
-        except subprocess.TimeoutExpired:
-            _exit_ok(
-                {
-                    "ok": False,
-                    "error": {
-                        "code": "PREFLIGHT_DB_SNAPSHOT_TIMEOUT",
-                        "message": "db_snapshot.py 执行超时（20s）",
-                        "hint": "数据库可能损坏，请检查 user_data/finance_sources.db",
-                    },
-                }
-            )
-        except OSError as e:
-            _exit_ok(
-                {
-                    "ok": False,
-                    "error": {
-                        "code": "PREFLIGHT_DB_SNAPSHOT_OS_ERROR",
-                        "message": str(e),
-                        "hint": f"db_snapshot.py 启动失败，脚本路径: {_db_script}",
-                    },
-                }
-            )
+            _py_exe = _resolve_finance_venv_python(finance_root)
+            _cmd = [
+                _py_exe,
+                str(_db_script),
+                "--since-hours", "24",
+                "--sources", "market,news,social",
+                "--keywords", kw,
+                "--out-dir", str(out_dir),
+            ]
+            try:
+                _proc = subprocess.run(
+                    _cmd,
+                    cwd=str(WORKSPACE_ROOT),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,  # 超时放宽到 30s
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                _exit_ok(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "PREFLIGHT_DB_SNAPSHOT_TIMEOUT",
+                            "message": "db_snapshot.py 执行超时（30s）",
+                            "hint": "数据库可能损坏，请检查 user_data/finance_sources.db；或使用 --cache-snapshot-path 指定已有快照",
+                        },
+                    }
+                )
+            except OSError as e:
+                _exit_ok(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "PREFLIGHT_DB_SNAPSHOT_OS_ERROR",
+                            "message": str(e),
+                            "hint": f"db_snapshot.py 启动失败，脚本路径: {_db_script}",
+                        },
+                    }
+                )
 
-        if _proc.returncode not in (0, 2):
-            _exit_ok(
-                {
-                    "ok": False,
-                    "error": {
-                        "code": "PREFLIGHT_DB_SNAPSHOT_FAILED",
-                        "message": "db_snapshot.py 非正常退出",
-                        "hint": (_proc.stderr or _proc.stdout or "")[:600],
-                    },
-                }
-            )
+            if _proc.returncode not in (0, 2):
+                _exit_ok(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "PREFLIGHT_DB_SNAPSHOT_FAILED",
+                            "message": "db_snapshot.py 非正常退出",
+                            "hint": (_proc.stderr or _proc.stdout or "")[:600],
+                        },
+                    }
+                )
 
     else:
         # legacy 路径：实时抓取（--source-mode legacy 显式触发）
@@ -1724,35 +1791,41 @@ def main() -> None:
 
     timing["ingest_sec"] = round(time.perf_counter() - t_ingest_start, 3)
 
-    snap_path = out_dir / "snapshot.json"
-    if not snap_path.is_file():
-        _exit_ok(
-            {
-                "ok": False,
-                "error": {
-                    "code": "PREFLIGHT_SNAPSHOT_MISSING",
-                    "message": "未找到 snapshot.json",
-                    "hint": f"检查 --out-dir 与写盘权限: {snap_path}",
-                },
-            }
-        )
+    # 快照路径优先级：
+    # 1. 已复用缓存快照（cached_snapshot_used）
+    # 2. 新生成的快照（out_dir/snapshot.json）
+    if cached_snapshot_used:
+        snap_path = cache_snapshot_path
+        # snapshot 已在前面读取
+    else:
+        snap_path = out_dir / "snapshot.json"
+        if not snap_path.is_file():
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_SNAPSHOT_MISSING",
+                        "message": "未找到 snapshot.json",
+                        "hint": f"检查 --out-dir 与写盘权限: {snap_path}",
+                    },
+                }
+            )
 
-    t_snapshot_parse_start = time.perf_counter()
-    try:
-        snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        _exit_ok(
-            {
-                "ok": False,
-                "error": {
-                    "code": "PREFLIGHT_SNAPSHOT_PARSE",
-                    "message": str(e),
-                    "hint": "snapshot.json 损坏或非 JSON，请重新运行",
-                },
-            }
-        )
-
-    timing["snapshot_parse_sec"] = round(time.perf_counter() - t_snapshot_parse_start, 3)
+        t_snapshot_parse_start = time.perf_counter()
+        try:
+            snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            _exit_ok(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PREFLIGHT_SNAPSHOT_PARSE",
+                        "message": str(e),
+                        "hint": "snapshot.json 损坏或非 JSON，请重新运行",
+                    },
+                }
+            )
+        timing["snapshot_parse_sec"] = round(time.perf_counter() - t_snapshot_parse_start, 3)
 
     hot_rank_py = _resolve_hot_rank_fetcher()
     hot_rank: dict[str, Any] = {"ok": False, "lists": [], "errors": [{"item": "hot_rank_script", "reason": "missing"}]}
@@ -1805,6 +1878,15 @@ def main() -> None:
     timing["total_sec"] = round(time.perf_counter() - t0_all, 3)
 
     digest = _feishu_digest_bullets(md_summary)
+    
+    # 构建快照来源提示
+    snapshot_source_hint = ""
+    if cached_snapshot_used:
+        snapshot_source_hint = f"📊 快照来源：缓存复用（数据截止时间：{cached_snapshot_fetched_at or '未知'}，节省约 {timing.get('cached_snapshot_sec', 0)}s）"
+    else:
+        snapshot_fetched_at = (snapshot.get("meta") or {}).get("fetched_at")
+        snapshot_source_hint = f"📊 快照来源：新生成（数据截止时间：{snapshot_fetched_at or '未知'}，耗时 {timing.get('ingest_sec', 0)}s）"
+    
     _exit_ok(
         {
             "ok": True,
@@ -1814,6 +1896,9 @@ def main() -> None:
             "feishu_notice": payload.get("preflight_meta", {}).get("feishu_notice"),
             "feishu_source_notice": payload.get("preflight_meta", {}).get("feishu_source_notice"),
             "snapshot_path": str(snap_path),
+            "snapshot_cached": cached_snapshot_used,
+            "snapshot_fetched_at": cached_snapshot_fetched_at if cached_snapshot_used else (snapshot.get("meta") or {}).get("fetched_at"),
+            "snapshot_source_hint": snapshot_source_hint,
             "ingest_keywords_used": kw,
             "ingest_keywords_expanded": kw_list,
             "domain_tags": domain_tags,

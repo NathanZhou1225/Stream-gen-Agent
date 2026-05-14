@@ -61,9 +61,37 @@ python3 scripts/preflight_topic.py \
 
   该命令优先从同一份 `snapshot.json` 匹配候选方向相关来源；若强匹配不足且带 `--allow-targeted-fetch`，允许做一次定向补充拉取。展示 `evidence_pack` 后再询问/执行 user-style 选择与绑定。
 - **证据包落盘**：展示前/后必须执行 `draft_manager update --draft <DID> --set-evidence-pack-file <evidence_pack.json>`；工具会在 `outline_refining` 前检查 `candidate_evidence_pack.json`，缺失则返回 `EVIDENCE_PACK_REQUIRED_BEFORE_OUTLINE`。
-- **后续步骤（禁止同轮续写大纲）**：证据包展示完成且用户确认继续后，先完成 user-style 门禁，再推进 `outline_refining`。对用户侧 topic 回复仅给 **draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**；证据包回复仅给该方向证据包，不得混入其它候选或随机信源详情。
+- **后续步骤（禁止同轮续写大纲）**：证据包落盘、**稿件类型画像（见 `MEMORY_workflow` 步骤3A）**完成且用户确认继续后，先完成 user-style 门禁，再推进 `outline_refining`。对用户侧 topic 回复仅给 **draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**；证据包回复仅给该方向证据包，不得混入其它候选或随机信源详情。
 - **安全批量 helper（可选）**：为减少工具来回，可用 `scripts/stream_gen_workflow_helper.py start-topic --direction '<方向>'` 打包创建 Draft、preflight 与 topic 落盘；用户选候选后可用 `scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N> --topic-payload-file <file> --snapshot-path <snapshot>` 打包 set-chosen 与 evidence_pack 落盘。helper 只覆盖非决策段；候选选择、证据包确认、user-style 选择仍必须停下来等用户。
 - **弱耦合**：脚本通过 **subprocess** 调用相邻技能 `finance-source-ingest/scripts/ingest.py`（默认同级目录 `../finance-source-ingest`）；若部署布局不同，使用 `--finance-root` 指向该技能根目录。
+
+## 飞书侧「去工程化」输出（P0 · 体验）
+
+飞书里用户要的是**稿与决策点**，不是 Agent 的执行日志。
+
+- **禁止**在飞书连续多条消息展开：读哪个 prompt 文件、`schema`/`validate-only` 的中间状态、「先校验 / 再次校验」、`draft_manager.py` 路径复述、英文试错句（如未知 CLI flag）。
+- **允许**的可见粒度：每个业务里程碑 **尽量单条消息**（例如「方向证据包」整块、「大纲已落盘」整块、「逐字稿已落盘」整块）；若必须分两包，第二包只补「合规结果 + 下一步按钮式一句」。
+- **稿件类型确认**：对用户展示 **中文选项**（大盘观点 / 投教 / 人设介绍）；用户选定后再在工具里用 `market_view` 等 slug 调用 `draft_manager update --set-content-type`。
+- **工具报错**：用 **一句中文** 概括 `error_code` + 建议动作；不要把整段 stderr 或多次重试过程贴进飞书。
+- **与 `script-feishu-display` 的关系**：逐字稿展示仍遵守该碎片（不用三反引号包全文等）；若用户**明确**只要口播、不要镜头行/附录，再按该碎片「按需」收敛展示（默认仍可按产品保留附录）。
+
+## 稿件类型与结构模板（v0.2.3 · 可选）
+
+选题与风格由用户/流程人工确认后，可按 **稿件类型** 使用「模块键 → 口播段」约束，降低逐字稿结构漂移。工具**不调用 LLM**，只生成 **JSON Schema + system/user 拼装 + 纯文本 Assembler + `segments[]` 草案**；模型在 Agent/网关侧按 `json_schema` 产出 JSON 后，再 stdin 交给 Assembler 或 `segments` 子命令。
+
+```bash
+# 在 workspace-stream-gen 根下（路径按部署调整）
+python3 skills/streamy-content-gen/scripts/content_template_tool.py schema --content-type market_view
+python3 skills/streamy-content-gen/scripts/content_template_tool.py prompt-bundle --content-type persona_intro --ip-id laoding
+# 将 LLM 返回的模块 JSON 拼成口播或生成 segments 草案（duration 可按稿长调整）
+echo '<modules_json>' | python3 skills/streamy-content-gen/scripts/content_template_tool.py assemble --content-type market_view
+echo '<modules_json>' | python3 skills/streamy-content-gen/scripts/content_template_tool.py segments --content-type investor_edu --duration-sec 60
+```
+
+- **类型名**：`market_view` | `investor_edu` | `persona_intro`（配置见 `configs/content_templates/*.json`；新增类型=新增同 stem 的 JSON）。
+- **IP**：`configs/ip_profiles/<ip_id>.json`；模板 `instruction` 中的 `{{ var }}` 须能在该 JSON 找到对应键，否则工具**报错退出**（不静默替换）。
+- **与 `draft_manager` 衔接**：`segments` 输出仅为 `segments` + 元信息，写入 `script_refining` 前仍须补齐 `draft_manager schema --stage script_refining` 要求的顶层字段（`production_appendix` 等）并走 `--validate-only`。
+- **meta 落盘（v0.2.3）**：`draft_manager.py create [--content-type market_view|investor_edu|persona_intro] [--ip-id <stem>]`；或 `update --draft <DID> --set-content-type <type> [--set-ip-id <stem>]`；清除 `--clear-content-profile`。与 `--set-style-id` / `--set-evidence-pack-file` 等原子 patch **每次只选一种**。`doctor --draft <DID>` 返回体含 `content_profile` 与 `profile_notes`（非阻断提示）。
 
 ## Draft ID 与目录契约（P0）
 
