@@ -11,9 +11,9 @@ tmp/
 *.tmp
 
 # ---- DB / 日志 / 备份（体积大、机绑数据，勿提交）----
-*.db
-*.sqlite
-*.sqlite3
+# *.db
+# *.sqlite
+# *.sqlite3
 *.log
 *.bak
 *.bak*
