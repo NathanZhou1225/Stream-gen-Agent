@@ -28,7 +28,7 @@ if _spec is None or _spec.loader is None:
     raise RuntimeError("verify_env not loadable")
 _verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_verify)
-merge_env = _verify.merge_env
+merged_with_runtime = _verify.merged_with_runtime
 run_checks = _verify.run_checks
 is_set = _verify.is_set
 
@@ -141,7 +141,7 @@ def main() -> int:
     ap.add_argument("--skip-probes", action="store_true", help="Only run verify_env checks.")
     args = ap.parse_args()
     repo_root: Path = args.repo_root.resolve()
-    env = merge_env(repo_root)
+    env = merged_with_runtime(repo_root)
 
     ok, errs = run_checks(env)
     if not ok:

@@ -151,8 +151,8 @@ def _chat_completions_url(base: str) -> str:
 
 
 def _is_enabled() -> bool:
-    raw = os.environ.get("FINANCE_SECTOR_LLM_REWRITE_ENABLED", "0").strip()
-    return raw in ("1", "true", "TRUE", "yes", "YES")
+    raw = os.environ.get("FINANCE_SECTOR_LLM_REWRITE_ENABLED", "1").strip()
+    return raw.lower() not in ("0", "false", "no", "off")
 
 
 def _timeout() -> int:
@@ -190,6 +190,7 @@ def _load_config() -> tuple[str, str, str]:
         "FINANCE_LLM_ROUTER_MODEL",
         "FINANCE_INGEST_LLM_CLEAN_MODEL",
         "OPENCLAW_ARK_MODEL",
+        "ARK_MODEL_ID",
     )
     if base and not base.startswith("http"):
         base = f"https://{base}"

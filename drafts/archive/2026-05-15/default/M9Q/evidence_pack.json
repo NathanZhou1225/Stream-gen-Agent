@@ -1,0 +1,100 @@
+{
+  "candidate_id": "C3",
+  "candidate_index": 3,
+  "candidate_title": "从Cerebras到英伟达：AI芯片IPO潮背后的算力焦虑与投资机会",
+  "candidate_thesis": "AI芯片IPO热潮折射出全球算力供需缺口，投资者需识别真正的技术壁垒与估值逻辑",
+  "direction": "Cerebras完成55.5亿美元IPO（科技）",
+  "core_facts": [
+    {
+      "point": "Cerebras首日涨68%显示市场对AI芯片标的稀缺性的追捧 | provenance: finance-source-ingest|preflight_topic.py",
+      "source_type": "market",
+      "source_ref": "market_snapshot",
+      "confidence": "high"
+    },
+    {
+      "point": "英伟达市值5.5万亿美元成为全球市值最高公司之一，算力龙头估值溢价显著",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "台积电业绩创新高验证AI芯片制造环节同样受益，产业链机会值得关注",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "detailed_sources": [
+    {
+      "detail_id": "D1",
+      "title": "Cerebras完成55.5亿美元IPO",
+      "summary": "AI芯片公司Cerebras在纳斯达克上市，募资55.5亿美元，首日股价涨超68%，成为半导体公司最大IPO。",
+      "source_type": "科技",
+      "source_ref": "deep_news 2026-05-15 00:35:22",
+      "source_path": "llm_router.科技",
+      "sector": "科技"
+    },
+    {
+      "detail_id": "D6",
+      "title": "Cerebras Systems纳斯达克上市，股价飙升109%，市值超4500亿元",
+      "summary": "美国AI芯片企业Cerebras Systems在纳斯达克上市，发行价185美元，盘中涨109%，市值超4500亿元，为今年最大AI芯片IPO。",
+      "source_type": "科技",
+      "source_ref": "rsshub 2026-05-15 00:03:40",
+      "source_path": "llm_router.科技",
+      "sector": "科技"
+    },
+    {
+      "detail_id": "D4",
+      "title": "美股收盘：纳指、标普500指数再创新高 英伟达市值逼近6万亿美元",
+      "summary": "美股三大指数集体收涨，纳指、标普500创新高，英伟达市值逼近6万亿美元，投资者关注中美会谈及中东局势，通胀数据削弱降息预期。",
+      "source_type": "科技",
+      "source_ref": "rsshub 2026-05-14 21:03:04",
+      "source_path": "llm_router.科技",
+      "sector": "科技"
+    },
+    {
+      "detail_id": "D2",
+      "title": "台积电2025年营收净利创新高",
+      "summary": "台积电2025年营收1224.2亿美元，净利润552.1亿美元，同比增长35.9%和51.2%，AI需求驱动增长。",
+      "source_type": "科技",
+      "source_ref": "rsshub 2026-05-14 11:19:56",
+      "source_path": "llm_router.科技",
+      "sector": "科技"
+    },
+    {
+      "detail_id": "D3",
+      "title": "阿里利润下滑但力保AI和即时零售",
+      "summary": "阿里2026财年Q4收入同比增3%，但经营亏损8.48亿元，去年同期盈利284.65亿元。阿里表示用利润换未来，重点投入AI和即时零售。",
+      "source_type": "科技",
+      "source_ref": "rsshub 2026-05-14 05:46:40",
+      "source_path": "llm_router.科技",
+      "sector": "科技"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "Cerebras完成55.5亿美元IPO",
+      "source_type": "科技",
+      "source_ref": "deep_news 2026-05-15 00:35:22",
+      "confidence": "low"
+    },
+    {
+      "point": "Cerebras Systems纳斯达克上市，股价飙升109%，市值超4500亿元",
+      "source_type": "科技",
+      "source_ref": "rsshub 2026-05-15 00:03:40",
+      "confidence": "low"
+    },
+    {
+      "point": "美股收盘：纳指、标普500指数再创新高 英伟达市值逼近6万亿美元",
+      "source_type": "科技",
+      "source_ref": "rsshub 2026-05-14 21:03:04",
+      "confidence": "low"
+    }
+  ],
+  "source_gaps": [],
+  "targeted_fetch": {
+    "attempted": false,
+    "ok": false
+  },
+  "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+}

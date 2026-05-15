@@ -41,7 +41,7 @@ if [[ "$has_env" -eq 0 ]]; then
   echo "phase=missing_dotenv"
   echo "next_steps=read_dotenv_example_and_ask_user"
   echo "workspace_root=$WS_ROOT"
-  echo "hint=Read .env.example in this directory. If this folder lives under an OpenClaw monorepo (parent has openclaw.json), you may use parent .env OR this directory .env; merge rules are in scripts/verify_env.py. Ask the user for secrets, then write .env. Do not echo secrets in the summary."
+  echo "hint=Read .env.example. Router + Rewriter default ON. P1 default CLOUD: FINANCE_CLOUD_API_BASE_URL + FINANCE_CLOUD_API_KEY (or STREAM_GEN_SKIP_P1_READINESS=1). Advanced local: FINANCE_CLOUD_MODE=0 + TUSHARE + RSSHub. Feishu optional. Do not echo secrets."
   echo "======================================================"
   exit 10
 fi
@@ -49,6 +49,12 @@ fi
 echo "[bootstrap] running scripts/verify_env.py"
 if ! python3 "$WS_ROOT/scripts/verify_env.py" --repo-root "$WS_ROOT"; then
   echo "[bootstrap] verify_env failed (exit 1)." >&2
+  exit 1
+fi
+
+echo "[bootstrap] running scripts/deploy_readiness.py (P1 信源增强项)"
+if ! python3 "$WS_ROOT/scripts/deploy_readiness.py" --repo-root "$WS_ROOT"; then
+  echo "[bootstrap] deploy_readiness failed (P1 缺口未补或需 STREAM_GEN_SKIP_P1_READINESS=1)。" >&2
   exit 1
 fi
 

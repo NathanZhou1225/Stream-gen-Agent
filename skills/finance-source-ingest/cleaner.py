@@ -60,7 +60,7 @@ def _load_llm_config() -> tuple[str, str, str]:
 
     base = _env("FINANCE_INGEST_LLM_CLEAN_BASE_URL", "OPENCLAW_ARK_BASE_URL", "OPENCLAW_ARK_ENDPOINT")
     key = _env("FINANCE_INGEST_LLM_CLEAN_API_KEY", "OPENCLAW_ARK_API_KEY", "ARK_API_KEY")
-    model = _env("FINANCE_INGEST_LLM_CLEAN_MODEL", "OPENCLAW_ARK_MODEL")
+    model = _env("FINANCE_INGEST_LLM_CLEAN_MODEL", "OPENCLAW_ARK_MODEL", "ARK_MODEL_ID")
 
     # 规范化 base_url（OpenAI 兼容：`.../v1/chat/completions`）
     if base and not base.startswith("http"):

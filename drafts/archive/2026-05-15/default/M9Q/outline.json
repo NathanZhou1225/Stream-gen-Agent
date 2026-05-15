@@ -1,0 +1,56 @@
+{
+  "title": "AI芯片估值逻辑拆解：从Cerebras IPO看算力赛道的\"真泡沫\"与\"真机会\"",
+  "structure_template": "investor_edu",
+  "hook": {
+    "text": "Cerebras首日涨68%、英伟达5.5万亿市值，AI芯片行情火爆但90%散户看不懂估值逻辑",
+    "duration_sec": 8
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "第一层：产业卡位信号",
+      "evidence": "Cerebras晶圆级架构 vs 英伟达CUDA生态；台积电3nm护城河（营收+35.9%，净利+51.2%）",
+      "production_hint": "中景口播+高亮关键数字",
+      "duration_sec": 15
+    },
+    {
+      "order": 2,
+      "role": "argument",
+      "headline": "第二层：资本验证信号",
+      "evidence": "Cerebras 55.5亿IPO=半导体史上最大；英伟达市值逼近6万亿=全球资本共识",
+      "production_hint": "切近景，对比图表展示",
+      "duration_sec": 15
+    },
+    {
+      "order": 3,
+      "role": "argument",
+      "headline": "第三层：业绩兑现信号",
+      "evidence": "阿里AI业务ARR年底超300亿，资本支出3800亿=国产AI投入加码",
+      "production_hint": "三分屏列指标，停留2秒",
+      "duration_sec": 15
+    },
+    {
+      "order": 4,
+      "role": "turn",
+      "headline": "风险提醒：再好的赛道也要择时",
+      "evidence": "历史科技泡沫复盘：2000年互联网、2015年互联网+；当前风险：估值透支、业绩不及预期",
+      "production_hint": "切近景，黄底字幕提示风险",
+      "duration_sec": 12
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "想要《AI芯片估值检查表》的朋友，评论区打\"估值\"，老丁直接发你",
+    "keyword": "估值"
+  },
+  "total_duration_sec": 65,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  }
+}

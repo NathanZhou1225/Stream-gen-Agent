@@ -66,7 +66,7 @@ def _load_router_config() -> tuple[str, str, str]:
 
     base = _env("FINANCE_LLM_ROUTER_BASE_URL", "OPENCLAW_ARK_BASE_URL", "OPENCLAW_ARK_ENDPOINT")
     key = _env("FINANCE_LLM_ROUTER_API_KEY", "OPENCLAW_ARK_API_KEY", "ARK_API_KEY")
-    model = _env("FINANCE_LLM_ROUTER_MODEL", "OPENCLAW_ARK_MODEL")
+    model = _env("FINANCE_LLM_ROUTER_MODEL", "OPENCLAW_ARK_MODEL", "ARK_MODEL_ID")
     if base and not base.startswith("http"):
         base = f"https://{base}"
     return base.rstrip("/"), key, model

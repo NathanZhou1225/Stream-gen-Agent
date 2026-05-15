@@ -20,6 +20,8 @@
 粘贴所有含以下前缀的行：  
 - `OPENCLAW_DIAG`  
 - `[AGENT_INSTRUCTION_REQUIRED]`  
+- `[P1_GAP]`  
+- `[DEPLOY_READINESS]`  
 - `verify_env:`  
 
 【请勿粘贴】  

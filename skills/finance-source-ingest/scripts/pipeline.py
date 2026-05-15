@@ -1335,11 +1335,8 @@ _ROUTER_SYSTEM_PROMPT = (
 
 
 def _router_enabled() -> bool:
-    raw = os.environ.get("FINANCE_LLM_ROUTER_ENABLED", "").strip()
-    if not raw:
-        # 默认关闭，避免纯信源拉取被 LLM router 阻塞 20-30s。
-        return False
-    return raw in ("1", "true", "TRUE", "yes", "YES")
+    raw = os.environ.get("FINANCE_LLM_ROUTER_ENABLED", "1").strip()
+    return raw.lower() not in ("0", "false", "no", "off")
 
 
 def _router_menu_max_items() -> int:
@@ -1362,10 +1359,8 @@ def _router_timeout_sec() -> int:
 
 
 def _sector_rewrite_enabled() -> bool:
-    raw = os.environ.get("FINANCE_SECTOR_LLM_REWRITE_ENABLED", "").strip()
-    if not raw:
-        return False
-    return raw in ("1", "true", "TRUE", "yes", "YES")
+    raw = os.environ.get("FINANCE_SECTOR_LLM_REWRITE_ENABLED", "1").strip()
+    return raw.lower() not in ("0", "false", "no", "off")
 
 
 def _sector_rewrite_timeout_sec() -> int:

@@ -1129,6 +1129,125 @@ def _build_markdown(
 
 # ── 快照构建主函数 ────────────────────────────────────────────────────────────
 
+def build_snapshot_from_pre_router(
+    envelope: dict[str, Any],
+    *,
+    since_hours: int | None = None,
+    major_since_hours: int | None = None,
+    use_router: bool | None = None,
+    use_rewrite: bool | None = None,
+) -> dict[str, Any]:
+    """
+  将云端 pre-Router JSON（``0.3.0-cloud``）在本地套用 Router/Rewriter 并生成 Markdown。
+  ``envelope`` 须含 ``sections`` / ``meta`` / ``errors``（与 FastAPI 响应一致）。
+    """
+    cloud_meta = dict(envelope.get("meta") or {})
+    sections: dict[str, Any] = dict(envelope.get("sections") or {})
+    errors: list[dict[str, Any]] = list(envelope.get("errors") or [])
+
+    since_hours = int(since_hours if since_hours is not None else cloud_meta.get("since_hours") or 24)
+    major_since_hours = (
+        major_since_hours
+        if major_since_hours is not None
+        else int(cloud_meta.get("major_since_hours") or _default_major_hours())
+    )
+    use_r = _db_use_router_flag(use_router)
+    use_w = _db_use_rewrite_flag(use_rewrite)
+
+    pool_news = sections.get("news") or {}
+    deep_sec = sections.get("deep_news") or {}
+    sources_ok = list(cloud_meta.get("sources_ok") or [])
+
+    if pool_news:
+        news_sec, llm_router_payload, rw_res, _router_res = _apply_router_rewrite_news(
+            pool_news,
+            deep_items=deep_sec.get("items") or [],
+            use_router=use_r,
+            use_rewrite=use_w,
+            errors=errors,
+        )
+        sections["news"] = news_sec
+        sections["llm_router"] = llm_router_payload
+        if rw_res is not None:
+            sections["sector_llm_rewrite"] = _rewrite_meta_from_result(rw_res)
+            sections["sector_llm_rewrite"]["display"] = {
+                sec: {"insight": sr.insight, "items": sr.items, "status": sr.status}
+                for sec, sr in rw_res.by_sector.items()
+            }
+        else:
+            sections["sector_llm_rewrite"] = {
+                "status": "skipped",
+                "display": {},
+                "status_by_sector": {},
+                "timing_by_sector": {},
+                "total_timing_sec": 0.0,
+                "timeout_sec": None,
+            }
+        if news_sec.get("items") and "news" not in sources_ok:
+            sources_ok.append("news")
+
+    db_last_at = str(cloud_meta.get("db_last_ingested_at") or cloud_meta.get("fetched_at") or _now_iso())
+    tenant = str(cloud_meta.get("tenant_id") or "cloud").strip() or "cloud"
+    data_label = f"finance-ingest-cloud (tenant={tenant})"
+
+    md = _build_markdown(
+        sections,
+        data_label,
+        db_last_at,
+        since_hours,
+        major_since_hours,
+    )
+
+    meta_si = dict(cloud_meta.get("social_intelligence") or {})
+    if not meta_si and sections.get("social_intelligence"):
+        agg = (sections["social_intelligence"].get("aggregate_metrics") or {})
+        meta_si = {
+            "avg_sentiment": agg.get("avg_sentiment"),
+            "headline_sentiment": agg.get("headline_sentiment"),
+            "platform_weighted_sentiment": agg.get("platform_weighted_sentiment"),
+            "sentiment_label": agg.get("sentiment_label"),
+            "fear_greed_index": agg.get("fear_greed_index"),
+            "fear_greed_label": agg.get("fear_greed_label"),
+            "fear_greed_scope": agg.get("fear_greed_scope"),
+            "total_items": agg.get("total_items"),
+        }
+
+    meta_base: dict[str, Any] = {
+        **cloud_meta,
+        "fetched_at": db_last_at,
+        "timezone": cloud_meta.get("timezone") or "Asia/Shanghai",
+        "sources_ok": sources_ok,
+        "data_source": "cloud-mysql+local-router",
+        "since_hours": since_hours,
+        "major_since_hours": major_since_hours,
+        "news_items_count": cloud_meta.get("news_items_count"),
+        "db_last_ingested_at": db_last_at,
+        "db_use_router": use_r,
+        "db_use_rewrite": use_w,
+        "cloud_schema_version": envelope.get("schema_version"),
+        "llm_router_status": (sections.get("llm_router") or {}).get("status"),
+        "llm_router_timing": (sections.get("llm_router") or {}).get("router_timing"),
+        "sector_llm_rewrite_status": (sections.get("sector_llm_rewrite") or {}).get("status"),
+        "pre_router": False,
+    }
+    if meta_si:
+        meta_base["social_intelligence"] = meta_si
+
+    ok = bool(envelope.get("ok", True))
+    if errors and not sections.get("news", {}).get("items"):
+        ok = bool(envelope.get("ok", False))
+
+    return {
+        "schema_version": "0.3.0-cloud-client",
+        "ok": ok,
+        "meta": meta_base,
+        "sections": sections,
+        "errors": errors,
+        "markdown_summary": md,
+        "invariants": dict(envelope.get("invariants") or {}),
+    }
+
+
 def build_db_snapshot(
     db_path: Path,
     since_hours: int = 24,
@@ -1318,21 +1437,50 @@ def main() -> None:
     parser.add_argument("--sources", default="market,news,social")
     parser.add_argument("--out-dir", default="", help="写 snapshot.json 到该目录（供 preflight 使用）")
     parser.add_argument("--summary-only", action="store_true", help="只输出 meta+markdown_summary+errors")
+    parser.add_argument(
+        "--pre-router-stdin",
+        action="store_true",
+        help="从 stdin 读取云端 pre-Router JSON（0.3.0-cloud），本地套用 Router/Rewriter",
+    )
     args = parser.parse_args()
 
-    db_path = _resolve_db(args.db)
     keywords = [k for k in (args.keywords or "").split() if k.strip()]
     sources = [s.strip() for s in args.sources.split(",") if s.strip()]
 
-    snap = build_db_snapshot(
-        db_path,
-        since_hours=args.since_hours,
-        major_since_hours=args.major_since_hours,
-        keywords=keywords,
-        sources=sources,
-        use_router=False if args.no_router else None,
-        use_rewrite=False if args.no_rewrite else None,
-    )
+    if args.pre_router_stdin:
+        raw = sys.stdin.read()
+        if not raw.strip():
+            print(json.dumps({
+                "ok": False,
+                "errors": [{"code": "PRE_ROUTER_STDIN_EMPTY", "message": "stdin 为空"}],
+            }, ensure_ascii=False, indent=2))
+            sys.exit(2)
+        try:
+            envelope = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            print(json.dumps({
+                "ok": False,
+                "errors": [{"code": "PRE_ROUTER_JSON_INVALID", "message": str(exc)[:300]}],
+            }, ensure_ascii=False, indent=2))
+            sys.exit(2)
+        snap = build_snapshot_from_pre_router(
+            envelope,
+            since_hours=args.since_hours,
+            major_since_hours=args.major_since_hours,
+            use_router=False if args.no_router else None,
+            use_rewrite=False if args.no_rewrite else None,
+        )
+    else:
+        db_path = _resolve_db(args.db)
+        snap = build_db_snapshot(
+            db_path,
+            since_hours=args.since_hours,
+            major_since_hours=args.major_since_hours,
+            keywords=keywords,
+            sources=sources,
+            use_router=False if args.no_router else None,
+            use_rewrite=False if args.no_rewrite else None,
+        )
 
     # 写 snapshot.json（供 preflight_topic.py 直接读取，兼容旧消费路径）
     if args.out_dir:

@@ -82,7 +82,7 @@ result = run_router(candidates)
 
 ### 板块小 LLM 润色
 
-`scripts/rewriter.py` — 对 Router 选出的条目重写展示文本（标题 / 影响 / 角度 / **sentiment**），默认关闭。JSON 每条须含 `sentiment`∈{利好,利空,中性}，并与正文结论一致；`db_snapshot` 渲染润色行时优先用该字段，**润色洞察**过短或占位时回退为同板块 Router 洞察。`db_snapshot` 对大事件 → 热点 → 深度资讯做跨节指纹去重，抑制同题反复占版。
+`scripts/rewriter.py` — 对 Router 选出的条目重写展示文本（标题 / 影响 / 角度 / **sentiment**）。**默认开启**（`FINANCE_SECTOR_LLM_REWRITE_ENABLED`，显式 `0`/`false`/`off` 关闭）。JSON 每条须含 `sentiment`∈{利好,利空,中性}，并与正文结论一致；`db_snapshot` 渲染润色行时优先用该字段，**润色洞察**过短或占位时回退为同板块 Router 洞察。`db_snapshot` 对大事件 → 热点 → 深度资讯做跨节指纹去重，抑制同题反复占版。
 
 ```bash
 FINANCE_SECTOR_LLM_REWRITE_ENABLED=1

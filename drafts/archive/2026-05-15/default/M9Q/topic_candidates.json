@@ -1,0 +1,154 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "Cerebras完成55.5亿美元IPO（科技）",
+  "generated_at": "2026-05-15T09:35:27+08:00",
+  "hotlist_meta": {
+    "primary_source": "tophub.today",
+    "secondary_source": "social_api(vvhan->akshare)",
+    "fallback_used": false,
+    "fallback_reason": ""
+  },
+  "source_context": [
+    "【用户方向】Cerebras完成55.5亿美元IPO（科技）",
+    "【ingest 关键词】[]",
+    "【领域标签】teacher_focus",
+    "【事实短摘】\n- 暂无指数快照（`market_snapshots` 在该窗口为空）。\n- **整体情绪分**：-0.01 (🟠 中性)\n- **恐惧贪婪指数**：37.1 (🟦 恐惧)\n- **个股情绪极值**：腾讯(🔴 -0.86)、台积电(🟢 0.85)、百度(🟢 0.85)\n- *板块洞察*：科技板块聚焦AI与芯片，Cerebras IPO、台积电业绩及阿里AI投入体现行业热度。\n- *润色洞察*：科技板块受AI芯片IPO和台积电业绩提振，但阿里业绩承压。\n- 🟢【利好】**Cerebras完成55.5亿美元IPO，首日股价涨超68%** 影响：成为半导体公司最大IPO，提振AI芯片板块情绪。 角度：…\n- 🟢【利好】**台积电2025年营收净利创新高，AI需求驱动增长** 影响：营收1224.2亿美元，净利润552.1亿美元，同比增长35.9%和…",
+    "provenance: finance-source-ingest|preflight_topic.py",
+    "【信源状态】🔎 信源状态：可用[market、news、social、tophub]；降级[无]；不可用[无]。",
+    "【领域证据】*板块洞察*：科技板块聚焦AI与芯片，Cerebras IPO、台积电业绩及阿里AI投入体现行业热度。",
+    "【领域增强来源】共抽取 13 条同域细节（行业/资金风向/快讯要点）"
+  ],
+  "candidates": [
+    {
+      "title": "AI芯片IPO破纪录：Cerebras首日涨68%，半导体资本盛宴开启",
+      "angle": "偏事实钩子：用本条快讯或数据开场，再扣回用户方向",
+      "thesis": "AI芯片赛道获资本热捧，Cerebras 55.5亿美元IPO创半导体公司纪录，首日涨幅验证市场对AI算力需求的强烈预期",
+      "evidence": [
+        {
+          "point": "Cerebras募资55.5亿美元，成为半导体公司史上最大IPO，首日股价涨超68%，市值突破4500亿元 | provenance: finance-source-ingest|preflight",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "台积电2025年营收1224.2亿美元、净利润552.1亿美元，AI需求驱动增长35.9%和51.2%",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "英伟达市值逼近6万亿美元，美股纳指标普创新高，科技龙头领涨带动板块估值提升",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": {
+        "source": "tophub:微博",
+        "signal": "staying_hot",
+        "rank_or_heat": 1,
+        "ts": "2026-05-15T09:35:22+08:00",
+        "note": "微博热榜出现相关讨论：中美领导人致辞"
+      },
+      "evidence_anchor": "- Cerebras募资55.5亿美元，成为半导体公司史上最大IPO，首日股价涨超68%，市值突破4500亿元 | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "Cerebras上市背后的AI芯片军备竞赛：谁在抢占算力高地？",
+      "angle": "偏结构对照：与上条不同维度（板块/资金/节奏），避免重复口径",
+      "thesis": "Cerebras IPO成功标志着AI芯片赛道进入\"军备竞赛\"新阶段，资本与技术的双重加速将重塑半导体格局",
+      "evidence": [
+        {
+          "point": "Cerebras主打超大晶圆级芯片架构，与英伟达、台积电形成差异化竞争路线 | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "全球AI芯片市场预计2027年达1500亿美元，资本加速涌入头部玩家",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "阿里AI业务ARR年底预计超300亿元，资本支出3800亿元，国产AI投入同步加码",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": {
+        "source": "tophub:微博",
+        "signal": "staying_hot",
+        "rank_or_heat": 1,
+        "ts": "2026-05-15T09:35:22+08:00",
+        "note": "微博热榜出现相关讨论：中美领导人致辞"
+      },
+      "evidence_anchor": "- Cerebras主打超大晶圆级芯片架构，与英伟达、台积电形成差异化竞争路线 | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "从Cerebras到英伟达：AI芯片IPO潮背后的算力焦虑与投资机会",
+      "angle": "偏讲述策略：把用户方向落成「观众能跟上的三段节奏」",
+      "thesis": "AI芯片IPO热潮折射出全球算力供需缺口，投资者需识别真正的技术壁垒与估值逻辑",
+      "evidence": [
+        {
+          "point": "Cerebras首日涨68%显示市场对AI芯片标的稀缺性的追捧 | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "英伟达市值5.5万亿美元成为全球市值最高公司之一，算力龙头估值溢价显著",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "台积电业绩创新高验证AI芯片制造环节同样受益，产业链机会值得关注",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": {
+        "source": "tophub:微博",
+        "signal": "staying_hot",
+        "rank_or_heat": 1,
+        "ts": "2026-05-15T09:35:22+08:00",
+        "note": "微博热榜出现相关讨论：中美领导人致辞"
+      },
+      "evidence_anchor": "- Cerebras首日涨68%显示市场对AI芯片标的稀缺性的追捧 | provenance: finance-source-ingest|preflight_topic.py"
+    }
+  ],
+  "preflight_meta": {
+    "direction": "Cerebras完成55.5亿美元IPO（科技）",
+    "ingest_schema_version": "0.2.2-db",
+    "ingest_fetched_at": "2026-05-15T01:00:39+00:00",
+    "markdown_truncated": true,
+    "feishu_notice": null,
+    "feishu_source_notice": "🔎 信源状态：可用[market、news、social、tophub]；降级[无]；不可用[无]。",
+    "source_availability": {
+      "available": [
+        "market",
+        "news",
+        "social",
+        "tophub"
+      ],
+      "degraded": [],
+      "unavailable": []
+    },
+    "relevance_scores": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "relevance_avg": 1.0,
+    "domain_tags": [
+      "teacher_focus"
+    ],
+    "source_context_compact": true,
+    "source_context_bullet_count": 8,
+    "candidate_evidence_pack_required": true,
+    "evidence_pack_instruction": "用户选定候选 1/2/3 后，先用 preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot.json> 生成该方向 evidence_pack；展示证据包后再进入 user-style 与大纲。"
+  },
+  "chosen": 3
+}
