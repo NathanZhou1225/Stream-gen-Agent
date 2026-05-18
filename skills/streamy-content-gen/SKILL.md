@@ -22,12 +22,10 @@ description: |
 
 3. **单次回复边界（带方向开稿路径）**  
    执行完 `preflight_topic.py` 后，允许将返回的 **`topic_payload`** 作为唯一 JSON 体执行 **`draft_manager update --stage topic_picking` 一次**，并展示候选（每条含标题 + 核心论点 + 3 条论据）+ 选号指令；**不得**同轮继续写大纲/逐字稿。  
-  用户选定 1/2/3 后，先执行 **方向证据包闸**：  
-   - 用 `draft_manager update --set-chosen <N>` 记录所选候选；  
-   - 将同轮 `topic_payload` 保存为 JSON，并调用 `preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot_path>` 生成 **该候选方向的 `evidence_pack`**；  
-   - 用 `draft_manager update --set-evidence-pack-file <evidence_pack.json>` 将证据包落入 Draft 审计链；  
-   - 只向用户展示 `evidence_pack`（核心事实、详细来源、论据补强点、缺口）；用户确认后才进入 user-style 选择/绑定。  
-  默认**不展示**信源状态/大盘行情/市场焦点/事实摘要（除非用户显式要求回看数据来源）。  
+   **证据包已合并入 preflight**：`preflight_topic.py --direction` **一次**产出 `candidates[]` 与 **`candidate_evidence_packs`**（键 `"1"`/`"2"`/`"3"`，预计算）。用户选定 1/2/3 后：  
+   - **优先** `draft_manager update --draft <DID> --apply-topic-choice <N>`（一次写入 `chosen` + `candidate_evidence_pack.json`，读内嵌包，**无需**二次 preflight、**无需**手写临时 evidence JSON）；  
+   - 或 `scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N>`（同上；旧稿无内嵌包时 helper 自动 legacy 回退，可用 `--force-preflight`）；  
+   - 只向用户展示该候选的 `evidence_pack`（核心事实、详细来源、论据补强点、缺口）；用户确认后才进入稿件类型与 user-style。  
   **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/fragments/intent-core.md` §4.4**（经 `natural-language-intent.md` 索引引入）：必须执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
    **纯拉数**：**只**用 `query_market_facts.py`（云端 API，约 1～2 分钟）；**禁止** `ingest.py run` / 本地 SQLite。**不**拼接 Tavily。仅用户明确要求实时刷新时用 `--live-fetch`（legacy，更慢）。  
    **禁止**仅用三条候选标题复述用户原话却 **不展示** 任何 ingest 事实锚点（用户会误以为未拉信源）。  
@@ -48,20 +46,23 @@ cd skills/streamy-content-gen
 python3 scripts/preflight_topic.py --direction '用户的自然语言方向'
 ```
 
-- 脚本 **stdout** 为 **单一 JSON**：成功时 `ok: true` 且含 **`topic_payload`**（内含 `source_context[]` 与 `candidates[]`：`evidence_anchor` 绑定 **不同** 列表行，`title` 为 **可区分的规则钩子**（快讯/指数/讲述视角组合，**非**「用户原句 + ·解读/·影响」）、`evidence_pack_instruction` 与 `snapshot_path`；失败时 `ok: false` 且含 **`error`**（`code` / `message` / `hint`），**不会输出整段 Python Traceback**。
-- **方向证据包步骤（新增，位于用户选择候选与 user-style 之间）**：用户选择 1/2/3 后，先基于同轮 snapshot 与所选候选生成该方向证据包。执行：
+- 脚本 **stdout** 为 **单一 JSON**：成功时 `ok: true` 且含 **`topic_payload`**（`source_context[]`、`candidates[]`、**`candidate_evidence_packs`**、`preflight_meta.snapshot_path` 等）与顶层 **`snapshot_path`**；失败时 `ok: false` 且含 **`error`**（`code` / `message` / `hint`），**不会输出整段 Python Traceback**。
+- **快照缓存**：`preflight` 在 **6h 内**优先读 **`cache/snapshot/snapshot.json`**（与 `query_market_facts` 共用）；勿重复拉数。
+- **证据包落盘（W5）**：用户选候选后 **优先** `--apply-topic-choice <N>` 或 helper **`apply-choice`**；落盘产物为 `drafts/.../candidate_evidence_pack.json`。`outline_refining` 前门禁检查该文件，缺失则 `EVIDENCE_PACK_REQUIRED_BEFORE_OUTLINE`。
+- **legacy 回退**：仅当 `topic_candidates` 无 `candidate_evidence_packs` 时，才用 `preflight_topic.py --candidate-id <N> --topic-payload-file ...` + 分步 `set-chosen` / `set-evidence-pack-file`（或 `apply-choice --force-preflight`）。
+- **后续步骤（禁止同轮续写大纲）**：证据包落盘、**稿件类型画像（`MEMORY_workflow` 步骤3A）**、user-style 门禁完成后，再推进 `outline_refining`。topic 回复仅给 **#DID + 三候选（标题/论点/论据）+ 选号**；证据包回复仅给所选方向包，不得混入其它候选或 D1/D2 详情。
+- **安全批量 helper（可选，在 workspace 根）**：
 
 ```bash
-python3 scripts/preflight_topic.py \
-  --candidate-id 2 \
-  --topic-payload-file '<上轮 topic_payload.json>' \
-  --snapshot-path cache/snapshot/snapshot.json
+python3 scripts/stream_gen_workflow_helper.py start-topic --direction '<方向>'
+python3 scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N>
+python3 scripts/stream_gen_workflow_helper.py list-styles
+python3 scripts/stream_gen_workflow_helper.py bind-style --draft <DID> --style-id <UUID>
+python3 scripts/stream_gen_workflow_helper.py prevalidate-script --payload-file <script.json> [--draft <DID>]
+python3 scripts/stream_gen_workflow_helper.py validate-script --draft <DID> --payload-file <script.json>
 ```
 
-  `--snapshot-path` 默认即拉数阶段写入的 **`cache/snapshot/snapshot.json`**（`query_market_facts` 成功时自动落盘，与 preflight 共用）。从该文件匹配候选方向相关来源。**默认不要**加 `--allow-targeted-fetch`（会触发 `ingest.py legacy` 联网，最多约 180s）；仅当证据包 `source_gaps` 提示不足、用户同意补拉时再开。展示 `evidence_pack` 后再询问/执行 user-style 选择与绑定。
-- **证据包落盘**：展示前/后必须执行 `draft_manager update --draft <DID> --set-evidence-pack-file <evidence_pack.json>`；工具会在 `outline_refining` 前检查 `candidate_evidence_pack.json`，缺失则返回 `EVIDENCE_PACK_REQUIRED_BEFORE_OUTLINE`。
-- **后续步骤（禁止同轮续写大纲）**：证据包落盘、**稿件类型画像（见 `MEMORY_workflow` 步骤3A）**完成且用户确认继续后，先完成 user-style 门禁，再推进 `outline_refining`。对用户侧 topic 回复仅给 **draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**；证据包回复仅给该方向证据包，不得混入其它候选或随机信源详情。
-- **安全批量 helper（可选）**：为减少工具来回，可用 `scripts/stream_gen_workflow_helper.py start-topic --direction '<方向>'` 打包创建 Draft、preflight 与 topic 落盘；用户选候选后可用 `scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N> --topic-payload-file <file> --snapshot-path <snapshot>` 打包 set-chosen 与 evidence_pack 落盘。helper 只覆盖非决策段；候选选择、证据包确认、user-style 选择仍必须停下来等用户。
+helper 只覆盖**非用户决策段**；候选选择、证据包确认、风格选择、定稿仍须在飞书停等用户。`start-topic` 默认不写 `/tmp` 长期副本（`--keep-run-artifacts` 可保留调试副本）。
 - **弱耦合**：脚本通过 **subprocess** 调用相邻技能 `finance-source-ingest/scripts/ingest.py`（默认同级目录 `../finance-source-ingest`）；若部署布局不同，使用 `--finance-root` 指向该技能根目录。
 
 ## 飞书侧「去工程化」输出（P0 · 体验）
@@ -124,7 +125,7 @@ python3 skills/streamy-content-gen/scripts/draft_manager.py doctor --draft <DID>
 
 - `doctor` 报 `DIRECT_WRITE_OUTLINE_MD` / `DIRECT_WRITE_SCRIPT_MD` 时，该稿不能视为完成了 v0.1.8 制作指导；需要重新用结构化 payload 落盘，确保大纲 `production_hint` 与逐字稿 `production_appendix` 四块存在。
 - 工具侧已拦截：进入 `script_refining` 前会检查上游大纲是否由 `draft_manager` 写过并包含 `production_hint`；`finalize` 前会检查逐字稿是否由 `draft_manager` 写过并包含 `production_appendix`。
-- **降耗但不降质**：生成大纲/逐字稿 payload 后，正式 `update` 前先执行同 stage 的 `--validate-only --json`；逐字稿默认读 `prompts/fragments/script-core.md` + `prompts/fragments/script-min-schema.md`，不要传 `stage/style_id/compliance/display_markdown` 等多余字段。不得用 `role: "host"` 或跳过 `user_style_context` 来绕过事实证据、风格适配门禁。
+- **降耗但不降质**：逐字稿生成前可先 `draft_manager prevalidate --stage script_refining --payload-file <json> --json`（或 helper `prevalidate-script`），再正式 `update` 前执行 `--validate-only --json`。逐字稿默认读 `prompts/fragments/script-core.md` + `prompts/fragments/script-min-schema.md`；附录每块 3–5 条、`evidence_source_type` 白名单见 `prevalidate` 返回的 `rules`。不得用 `role: "host"` 或跳过 `user_style_context` 绕过门禁。
 - **会话费控（新增）**：定稿时优先使用  
   `python3 skills/streamy-content-gen/scripts/draft_manager.py finalize --draft <DID> --min-context-reset`  
   该开关会在归档后执行最小上下文清理（仅处理 `agents/stream-gen/sessions/*` 历史会话文件与失效会话索引，不触碰 `drafts/`、`memory/`、规则文件）。
@@ -143,20 +144,22 @@ python3 skills/streamy-content-gen/scripts/draft_manager.py doctor --draft <DID>
 - **选风格**：用户**显式**说「用某风格」或从列表点选后，将对应 `style_id` 写入该 Draft 的 `meta`：
   - **建稿时**：`draft_manager create --style-id <UUID>`
   - **已存在 Draft**：`draft_manager update --draft <DID> --set-style-id <UUID>`；清空：同一命令加 `--clear-style`（与整阶段 `--stage` / `--set-chosen` 互斥，**分次**调用）
-- **列可用风格**（在 workspace 根，路径按部署调整）：
+- **列可用风格（飞书选型 · 降耗）**：优先带预览，避免 `list` + `get-context` 两次 exec：
 
 ```bash
-python3 skills/user-style-manager/scripts/style_cli.py list
+python3 skills/user-style-manager/scripts/style_cli.py list --with-context --json
+# 或 helper：python3 scripts/stream_gen_workflow_helper.py list-styles
 ```
 
-- **在进 outline / script 前注入风格**（P0 契约）：当 `meta.style_id` 已设置、且本轮要向 `outline_refining` 或 `script_refining` 提交产物时，**先**取 RAG 文本，再组 payload 顶层字段 **`user_style_context`**（**字符串**，整段可粘贴进系统/用户补块）：
+- **绑定风格 + 取上下文（一步）**：
 
 ```bash
-python3 skills/user-style-manager/scripts/style_cli.py get-context --style-id <UUID>
-# 可选：python3 ... get-context --style-id <UUID> --format json
+python3 scripts/stream_gen_workflow_helper.py bind-style --draft <DID> --style-id <UUID>
 ```
 
-将 **stdout** 的文本块原样或略排版写入当日 `update --payload-file` 的 JSON 的 `user_style_context`。**不得**把敏感信息写入 `meta.json`（`meta` 只保留 `style_id` UUID）。
+返回 `user_style_context`，可注入大纲/逐字稿 prompt。分步等价：`update --set-style-id` 后 `get-context --format json`。
+
+- **在进 outline / script 前注入风格**（P0）：`meta.style_id` 已设且提交 `outline_refining` / `script_refining` 时，payload 须含 **`user_style_context`**。若 payload 未带且已绑 `style_id`，`draft_manager update` 会**自动**调 `get-context` 注入。**不得**把敏感原文写入 `meta.json`（仅保留 `style_id` UUID）。
 
 - **与 topic 阶段**：`topic_picking` **不**强制带 `user_style_context`；风格块主要在 **大纲 / 逐字稿** 阶段约束语气与例句。
 - **工具硬拦**：`draft_manager update --stage outline_refining/script_refining` 在 `meta.style_id` 为空时会返回错误；正确补救是先列出风格并 `--set-style-id`，不要手写 `outline.md`、`script.md` 或直接改 `meta.json` 绕过工具。

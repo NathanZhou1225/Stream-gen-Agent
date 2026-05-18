@@ -147,9 +147,11 @@ finance-draft-manager/
 - **上游**：`finance-source-ingest` 产生的 SQLite DB（不联网，DB 为唯一数据来源）
 - **下游**：`streamy-content-gen` 的 `preflight_topic` → `draft_manager` evidence_pack 门禁
 
-## 与 streamy-content-gen 的集成（P1 目标）
+## 与 streamy-content-gen 的集成
 
-`preflight_topic.py` 增加 `--from-db` 参数后，调用链变为：
-1. `preflight_topic --from-db --direction "..."` → 调 `draft_retriever.py build-context`
-2. 拿到 `evidence_pack` → 进入 `draft_manager` 开稿门禁
-3. 用户确认证据包后 → `user-style` 绑定 → 生成大纲/口播稿
+开稿链（2026-05）：
+1. `preflight_topic.py --direction "..."` → `topic_payload` + **`candidate_evidence_packs`**（预计算）
+2. 用户选候选 → `draft_manager --apply-topic-choice <N>` 落盘证据包
+3. user-style → 大纲/逐字稿（`draft_manager` 门禁）
+
+`draft_retriever.py` 仅作兼容说明；主路径以 `preflight_topic` + 内嵌证据包为准。

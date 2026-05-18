@@ -1418,6 +1418,11 @@ def _build_topic_payload(
     md_summary: str,
     hot_rank: dict[str, Any],
     domain_tags: list[str],
+    finance_root: Path = DEFAULT_FINANCE_SIBLING,
+    out_dir: Path | None = None,
+    allow_targeted_fetch: bool = False,
+    max_items: int = 5,
+    skip_evidence_precompute: bool = False,
 ) -> dict[str, Any]:
     """将 ingest 快照压成 topic_picking 所需最小契约（与 draft_manager P0-B 对齐）。"""
     md_trim = (md_summary or "")[:MAX_MD_CHARS].strip()
@@ -1508,6 +1513,30 @@ def _build_topic_payload(
     if domain_enhanced:
         source_context.append(f"【领域增强来源】共抽取 {len(domain_enhanced)} 条同域细节（行业/资金风向/快讯要点）")
 
+    # ── 证据包预计算（合并 optim：preflight 一次性产出所有候选证据包，无需二次 --candidate-id 调用）──
+    candidate_evidence_packs: dict[str, dict[str, Any]] = {}
+    evidence_pack_precompute_errors: list[dict[str, Any]] = []
+    if not skip_evidence_precompute:
+        topic_payload_for_ep: dict[str, Any] = {
+            "direction": direction.strip(),
+            "candidates": candidates,
+        }
+        _ep_out = out_dir or DEFAULT_OUT_DIR
+        for _i, _cand in enumerate(candidates, start=1):
+            try:
+                ep = _build_candidate_evidence_pack(
+                    topic_payload=topic_payload_for_ep,
+                    snapshot=snapshot,
+                    candidate_id=str(_i),
+                    finance_root=finance_root,
+                    out_dir=_ep_out,
+                    allow_targeted_fetch=allow_targeted_fetch,
+                    max_items=max_items,
+                )
+                candidate_evidence_packs[str(_i)] = ep
+            except Exception as _exc:
+                evidence_pack_precompute_errors.append({"candidate_index": _i, "error": str(_exc)})
+
     return {
         "version": "topic_schema_v1",
         "direction": direction.strip(),
@@ -1529,8 +1558,11 @@ def _build_topic_payload(
             "source_context_compact": True,
             "source_context_bullet_count": len(compact_facts),
             "candidate_evidence_pack_required": True,
-            "evidence_pack_instruction": "用户选定候选 1/2/3 后，先用 preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot.json> 生成该方向 evidence_pack；展示证据包后再进入 user-style 与大纲。",
+            "evidence_pack_instruction": "证据包已与 topic_payload 预计算合并；用户选定候选后直接从 candidate_evidence_packs[索引] 提取展示，无需二次调用 preflight_topic.py --candidate-id。",
+            "evidence_pack_precomputed": not skip_evidence_precompute,
+            "evidence_pack_precompute_errors": evidence_pack_precompute_errors if evidence_pack_precompute_errors else None,
         },
+        "candidate_evidence_packs": candidate_evidence_packs if candidate_evidence_packs else None,
     }
 
 
@@ -1942,7 +1974,17 @@ def main() -> None:
     md_summary = str(snapshot.get("markdown_summary") or "")
     t_payload_start = time.perf_counter()
     try:
-        payload = _build_topic_payload(direction, snapshot, md_summary, hot_rank, domain_tags)
+        payload = _build_topic_payload(
+            direction,
+            snapshot,
+            md_summary,
+            hot_rank,
+            domain_tags,
+            finance_root=finance_root,
+            out_dir=out_dir,
+            allow_targeted_fetch=getattr(args, "allow_targeted_fetch", False),
+            max_items=max(1, int(args.max_items)),
+        )
     except Exception as e:  # noqa: BLE001
         _exit_ok(
             {
@@ -1983,7 +2025,7 @@ def main() -> None:
             "ok": True,
             "topic_payload": payload,
             "feishu_digest_bullets": digest,
-            "evidence_pack_instruction": "先将 topic_payload 落入 topic_picking 并展示三候选；用户选择 1/2/3 后，使用 --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot_path> 生成该候选方向的 evidence_pack，再进入风格选择。",
+            "evidence_pack_instruction": "证据包已预计算并内嵌于 topic_payload.candidate_evidence_packs；用户选定候选后直接从 payload 提取对应证据包展示，无需二次调用 preflight_topic。",
             "feishu_notice": payload.get("preflight_meta", {}).get("feishu_notice"),
             "feishu_source_notice": payload.get("preflight_meta", {}).get("feishu_source_notice"),
             "snapshot_path": str(snap_path),
@@ -1994,7 +2036,7 @@ def main() -> None:
             "ingest_keywords_expanded": kw_list,
             "domain_tags": domain_tags,
             "preflight_timing": timing,
-            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并展示三候选。用户选择候选后，先生成并展示该候选 evidence_pack，再进入 user-style 选择/绑定。禁止同一轮写大纲/逐字稿。",
+            "hint_ok": "将 topic_payload 作为唯一 JSON 体执行 draft_manager update --stage topic_picking 并展示三候选。用户选择候选后，从 candidate_evidence_packs 提取并展示该方向证据包，再进入 user-style 选择/绑定。禁止同一轮写大纲/逐字稿。",
         }
     )
 

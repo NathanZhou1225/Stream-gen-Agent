@@ -40,11 +40,36 @@ def cmd_init(_: argparse.Namespace) -> None:
     )
 
 
+def _context_preview(row: style_store.StyleRow, max_chars: int) -> str:
+    """列表展示用短预览，避免飞书一次塞入完整 RAG 块。"""
+    p = row.style_profile if isinstance(row.style_profile, dict) else {}
+    bits: list[str] = [
+        f"style_name={row.style_name}",
+    ]
+    if row.tags:
+        bits.append(f"tags={','.join(row.tags)}")
+    for key in ("tone", "ip_positioning", "audience", "structure_pref"):
+        val = p.get(key)
+        if isinstance(val, str) and val.strip():
+            bits.append(f"{key}={val.strip()[:80]}")
+    header = " | ".join(bits)
+    block = _build_context_block(row)
+    if len(header) + len(block) + 2 <= max_chars:
+        return f"{header}\n\n{block}"
+    remain = max(120, max_chars - len(header) - 24)
+    trimmed = block[:remain].rstrip()
+    if len(block) > remain:
+        trimmed += "\n…（已截断；完整块请用 get-context --style-id …）"
+    return f"{header}\n\n{trimmed}"
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     uid = args.user_id or get_user_id()
     rows = style_store.list_styles(uid)
-    out = [
-        {
+    max_chars = max(200, int(getattr(args, "max_context_chars", 480) or 480))
+    out = []
+    for r in rows:
+        item: dict[str, Any] = {
             "style_id": r.style_id,
             "style_name": r.style_name,
             "tags": r.tags,
@@ -52,8 +77,9 @@ def cmd_list(args: argparse.Namespace) -> None:
             "refine_count": r.refine_count,
             "updated_at": r.updated_at,
         }
-        for r in rows
-    ]
+        if getattr(args, "with_context", False):
+            item["context_preview"] = _context_preview(r, max_chars)
+        out.append(item)
     _emit({"ok": True, "user_id": uid, "count": len(out), "styles": out})
 
 
@@ -406,6 +432,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="与 stream-gen / draft_manager 调用习惯对齐；list 的 stdout 始终为一行 JSON，本 flag 不改变输出，仅避免 argparse 报未知参数。",
+    )
+    p_list.add_argument(
+        "--with-context",
+        action="store_true",
+        help="每条风格附带 context_preview（截断 RAG 块，供飞书展示与选型）",
+    )
+    p_list.add_argument(
+        "--max-context-chars",
+        type=int,
+        default=480,
+        help="--with-context 时单条预览最大字符数，默认 480",
     )
     p_list.set_defaults(func=cmd_list)
 

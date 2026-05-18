@@ -236,25 +236,16 @@ draft_manager.py drop --draft A3F --reason "<用户说的原因或空>"
 **前置**：已执行 `preflight_topic.py --direction ...`，返回 `ok=true`、`snapshot_path` 与 `topic_payload`；`topic_payload` 已通过 `draft_manager update --stage topic_picking` 落盘并展示三候选。
 
 **Agent 回复边界**：
-- 用户回复 1/2/3 选择候选时，先执行 `draft_manager.py update --draft <DID> --set-chosen <N>`。
-- 随后生成该候选方向的证据包，执行：
-
-```bash
-python3 skills/streamy-content-gen/scripts/preflight_topic.py \
-  --candidate-id <N> \
-  --topic-payload-file '<上轮 topic_payload.json>' \
-  --snapshot-path '<上轮 snapshot_path>' \
-  --allow-targeted-fetch
-```
-
-- 只展示返回的 `evidence_pack`：核心事实、详细来源、论据补强点、缺口提示。然后询问/执行 user-style 选择。
-- 展示前/后必须将证据包写入 Draft 审计链：
+- 用户回复 1/2/3 时，**优先**一次落盘：
 
 ```bash
 python3 skills/streamy-content-gen/scripts/draft_manager.py update \
-  --draft <DID> \
-  --set-evidence-pack-file '<evidence_pack.json>'
+  --draft <DID> --apply-topic-choice <N> --json
 ```
+
+或 `python3 scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N>`
+
+- 只展示该候选的 `evidence_pack`（核心事实、来源、补强点、缺口），然后询问/执行 user-style。**无需**手写 `evidence_pack.json`、**无需**二次 `preflight --candidate-id`（除非旧稿无内嵌包）。
 
 - 若 `evidence_pack.source_gaps[]` 非空，应如实提示该方向详情不足，不得脑补。
 
@@ -287,16 +278,10 @@ python3 skills/streamy-content-gen/scripts/draft_manager.py update \
 **两种子场景**：
 
 **A. 选中候选后先生成方向证据包，再完成 user-style 门禁并推进到大纲**（默认）：
-1. 先用 `draft_manager.py update --draft <DID> --set-chosen <N>` 记录所选候选。
-2. 调用 §2.0A 的 `preflight_topic.py --candidate-id <N> ...` 生成并展示 `evidence_pack`，并用 `draft_manager.py update --set-evidence-pack-file <evidence_pack.json>` 落盘；用户确认继续前，不得进入大纲。
-3. 读取当前 Draft 状态；若 `meta.style_id` 为空，**停止生成大纲**，必须先执行：
-   - `python3 skills/user-style-manager/scripts/style_cli.py list`
-   - 向用户展示所有可用 `style_name/tags`，明确询问使用哪个 user-style；没有用户选择不得继续。
-   - 用户选择风格后，用 `draft_manager.py update --draft <DID> --set-style-id <UUID>` 绑定；若用户拒绝选择 user-style，停止开稿流程并请用户先补齐风格选择。
-4. 已绑定 `style_id` 后，先读取 `style_cli.py get-context --style-id <UUID>`，再跑 `prompts/outline-generation.md`，输入 `{chosen_topic, evidence_pack, user_tweaks, user_style_context, ...}` 生成大纲 JSON。
-5. `draft_manager.py update --draft <DID> --stage outline_refining --payload-file ... --edit-note "选择候选 ②，已展示方向证据包，并按 <style_name> 风格生成大纲"`
-
-可选降耗：步骤 1-2 可用 `python3 scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N> --topic-payload-file <file> --snapshot-path <snapshot> --allow-targeted-fetch` 打包执行；helper 返回后仍必须展示证据包并等待用户确认 user-style。
+1. `draft_manager.py update --draft <DID> --apply-topic-choice <N> --json`（或 helper `apply-choice`）；展示证据包；用户确认继续前不得进入大纲。
+2. 若 `meta.style_id` 为空：**停止生成大纲**，先 `style_cli list --with-context` 或 helper `list-styles`，用户选定后 `bind-style` 或 `--set-style-id`。
+3. 已绑定 `style_id` 后，用返回的 `user_style_context`（或 `get-context`）跑 `outline-generation.md`，生成大纲 JSON。
+4. 正式落盘前 `--validate-only`；再 `update --stage outline_refining --payload-file ...`
 
 **硬禁止**：未展示所选候选的 `evidence_pack`、或 `meta.style_id` 为空时，不得用通用模板直接写大纲；不得把“默认风格”当作绕过 user-style 的理由；不得手写 `outline.md` 或直接改 `meta.stage` 绕过 `draft_manager`。
 

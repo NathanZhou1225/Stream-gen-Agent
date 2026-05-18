@@ -6,7 +6,7 @@
     list       列出当前 user 的所有 active Draft
     show       展示指定 Draft 的最新状态（meta + 当前阶段产物）
     switch     切换焦点 Draft
-    update     更新 Draft 某阶段产物（topic/outline/script）+ append history；原子 patch：set-chosen / set-style-id / set-evidence-pack-file / set-content-type+ip
+    update     更新 Draft 某阶段产物（topic/outline/script）+ append history；原子 patch：apply-topic-choice / set-chosen / set-style-id / set-evidence-pack-file / set-content-type+ip
     finalize   定稿归档（active → archive）
     drop       放弃归档（active → archive，标记 dropped）
 
@@ -791,7 +791,7 @@ def _draft_doctor_report(meta: dict[str, Any], draft_dir: Path) -> dict[str, Any
         issue(
             'EVIDENCE_PACK_MISSING',
             '当前阶段已到大纲或之后，但缺少 candidate_evidence_pack.json。',
-            remediation='先用 preflight_topic.py --candidate-id <N> 生成 evidence_pack，再用 draft_manager update --set-evidence-pack-file 落盘。',
+            remediation='evidence_pack 已与 preflight_topic --direction 合并产出（candidate_evidence_packs）；若缺失请用 preflight_topic.py --candidate-id <N> 单独生成，再用 draft_manager update --set-evidence-pack-file 落盘。',
         )
     if artifacts['outline.md']['exists'] and not artifacts['outline.json']['exists']:
         issue(
@@ -1138,6 +1138,128 @@ def _cmd_update_set_content_profile(args: argparse.Namespace) -> None:
         summary=f'''已更新 Draft #{draft_id} 的稿件类型画像：content_type={meta.get('content_type')!r}, ip_id={meta.get('ip_id')!r}。''',
     )
 
+def _extract_precomputed_evidence_pack(tc: dict[str, Any], chosen: int) -> dict[str, Any]:
+    '''从 topic_candidates 内嵌的 candidate_evidence_packs 取证据包（W5：免二次 preflight / 免临时 JSON）。'''
+    packs = tc.get('candidate_evidence_packs')
+    if not isinstance(packs, dict) or not packs:
+        emit_error(
+            'draft',
+            'EVIDENCE_PACK_NOT_PRECOMPUTED',
+            'topic_candidates.json 缺少 candidate_evidence_packs；请用 preflight_topic.py --direction 重新开稿，或 apply-choice --force-preflight。',
+            chosen=chosen,
+            hint='新链路：preflight --direction 一次产出三候选+预计算证据包；选定后用 draft_manager update --apply-topic-choice N。',
+        )
+    pack = packs.get(str(chosen))
+    if pack is None:
+        pack = packs.get(chosen)  # type: ignore[arg-type]
+    if not isinstance(pack, dict):
+        emit_error(
+            'draft',
+            'EVIDENCE_PACK_NOT_PRECOMPUTED',
+            f'candidate_evidence_packs 中无候选 {chosen} 的预计算证据包。',
+            chosen=chosen,
+            available=sorted(str(k) for k in packs.keys()),
+        )
+    if not pack.get('candidate_title') or not isinstance(pack.get('core_facts'), list):
+        emit_error(
+            'payload',
+            'EVIDENCE_PACK_SCHEMA_INVALID',
+            '预计算 evidence_pack 缺少 candidate_title 或 core_facts[]。',
+            chosen=chosen,
+        )
+    pack_index = pack.get('candidate_index')
+    if pack_index is not None and int(pack_index) != chosen:
+        emit_error(
+            'payload',
+            'EVIDENCE_PACK_CANDIDATE_MISMATCH',
+            f'预计算 evidence_pack.candidate_index={pack_index} 与所选候选 {chosen} 不一致。',
+            chosen=chosen,
+            candidate_index=pack_index,
+        )
+    return pack
+
+
+def _cmd_update_apply_topic_choice(args: argparse.Namespace) -> None:
+    '''W5：原子 set-chosen + 从内嵌 candidate_evidence_packs 落盘 evidence_pack（一次 update，无临时 JSON）。'''
+    user_id = get_user_id()
+    draft_id = args.draft
+    n = int(args.apply_topic_choice)
+    (meta_path, meta) = _load_meta_or_fail(user_id, draft_id)
+    draft_dir = meta_path.parent
+    if meta.get('stage') in (STAGE_FINALIZED, STAGE_DROPPED, 'finalized', 'dropped'):
+        emit_error('draft', 'ALREADY_CLOSED', f'''Draft #{draft_id} 已结束，不能再 update。''', draft_id=draft_id)
+    if meta.get('stage') != STAGE_TOPIC:
+        emit_error(
+            'draft',
+            'APPLY_TOPIC_CHOICE_WRONG_STAGE',
+            f'''--apply-topic-choice 只能在 topic_picking 阶段使用；当前 stage={meta.get('stage')}。''',
+            draft_id=draft_id,
+            current_stage=meta.get('stage'),
+        )
+    topic_json_path = draft_dir / STAGE_ARTIFACTS[STAGE_TOPIC]['json']
+    tc = read_json(topic_json_path, default=None)
+    if not isinstance(tc, dict):
+        emit_error('draft', 'TOPIC_CANDIDATES_MISSING', f'''topic_candidates.json 不存在或不是 JSON object：{topic_json_path}''', draft_id=draft_id, path=str(topic_json_path))
+    candidates = tc.get('candidates')
+    if not (isinstance(candidates, list) and candidates):
+        emit_error('draft', 'TOPIC_CANDIDATES_EMPTY', 'topic_candidates.json.candidates 为空或非数组。', draft_id=draft_id)
+    if n < 1 or n > len(candidates):
+        emit_error('payload', 'SET_CHOSEN_OUT_OF_RANGE', f'''--apply-topic-choice={n} 越界：当前候选共 {len(candidates)} 条。''', draft_id=draft_id, total=len(candidates))
+    pack = _extract_precomputed_evidence_pack(tc, n)
+    ts = now_iso()
+    old_chosen = tc.get('chosen')
+    tc['chosen'] = n
+    write_json_atomic(topic_json_path, tc)
+    ch = candidates[n - 1] if isinstance(candidates[n - 1], dict) else {}
+    chosen_title = ch.get('title') or ch.get('topic') if isinstance(ch, dict) else None
+    if chosen_title:
+        meta['topic'] = chosen_title
+    target = draft_dir / 'candidate_evidence_pack.json'
+    write_json_atomic(target, pack)
+    meta['evidence_pack_candidate'] = n
+    meta['last_updated'] = ts
+    write_json_atomic(meta_path, meta)
+    history_path = draft_dir / 'history.json'
+    history = read_json(history_path, default=[])
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        'ts': ts,
+        'action': 'apply_topic_choice',
+        'stage': STAGE_TOPIC,
+        'chosen': n,
+        'prev_chosen': old_chosen,
+        'chosen_title': chosen_title,
+        'evidence_source': 'candidate_evidence_packs',
+        'note': getattr(args, 'edit_note', '') or '',
+        'written': ['topic_candidates.json', 'candidate_evidence_pack.json'],
+    })
+    write_json_atomic(history_path, history)
+    index = read_index()
+    user_entry = ensure_user_entry(index, user_id)
+    if draft_id in user_entry.get('active_drafts', []):
+        user_entry['focus'] = draft_id
+        user_entry['last_activity'] = ts
+        write_index(index)
+    title_bit = chosen_title or '(无 title)'
+    emit_ok(
+        'update',
+        result={
+            'draft_id': draft_id,
+            'user_id': user_id,
+            'stage': STAGE_TOPIC,
+            'chosen': n,
+            'prev_chosen': old_chosen,
+            'chosen_title': chosen_title,
+            'evidence_pack_candidate': n,
+            'evidence_pack_path': str(target),
+            'evidence_pack_source': 'embedded',
+            'written': ['topic_candidates.json', 'candidate_evidence_pack.json'],
+        },
+        summary=f'''Draft #{draft_id} 已选定候选 {n}（{title_bit}）并落盘方向证据包（内嵌预计算，无二次 preflight）。''',
+    )
+
+
 def _cmd_update_set_evidence_pack(args: argparse.Namespace) -> None:
     '''v0.2.1：原子写入所选候选方向的 evidence_pack。'''
     user_id = get_user_id()
@@ -1224,7 +1346,7 @@ def _assert_evidence_pack_before_outline(stage: str, meta: dict[str, Any], draft
             'EVIDENCE_PACK_REQUIRED_BEFORE_OUTLINE',
             '生成大纲前必须先展示并落盘所选候选方向的 evidence_pack；不得从选题直接跳到风格/大纲。',
             draft_id=draft_id,
-            hint='先执行 preflight_topic.py --candidate-id <N> --topic-payload-file <topic_payload.json> --snapshot-path <snapshot.json>，再用 draft_manager.py update --set-evidence-pack-file <evidence_pack.json> 落盘。',
+            hint='优先 draft_manager.py update --draft <DID> --apply-topic-choice <N>；若 topic_candidates 无 candidate_evidence_packs 则重新 preflight --direction 或 legacy --candidate-id + --set-evidence-pack-file。',
         )
     chosen = meta.get('evidence_pack_candidate')
     if chosen is None:
@@ -1246,17 +1368,23 @@ def cmd_update(args: argparse.Namespace) -> None:
         or getattr(args, 'clear_style', False)
     )
     want_evidence_pack = bool(getattr(args, 'set_evidence_pack_file', None))
+    want_apply_topic_choice = getattr(args, 'apply_topic_choice', None) is not None
     want_content = bool(
         getattr(args, 'clear_content_profile', False)
         or getattr(args, 'set_content_type', None) is not None
         or getattr(args, 'set_ip_id', None) is not None
     )
-    if int(want_style) + int(want_evidence_pack) + int(want_content) > 1:
+    if int(want_style) + int(want_evidence_pack) + int(want_content) + int(want_apply_topic_choice) > 1:
         emit_error(
             'usage',
             'UPDATE_PATCH_EXCLUSIVITY',
-            '原子 patch（--set-style-id/--clear-style、--set-evidence-pack-file、稿件类型/--set-content-type/--set-ip-id/--clear-content-profile）每次只能选一种，请分次调用。',
+            '原子 patch（--apply-topic-choice、--set-style-id/--clear-style、--set-evidence-pack-file、稿件类型/--set-content-type/--set-ip-id/--clear-content-profile）每次只能选一种，请分次调用。',
         )
+    if want_apply_topic_choice:
+        if args.stage is not None or args.payload_file is not None or args.set_chosen is not None or want_style or want_evidence_pack or getattr(args, 'validate_only', False) or want_content:
+            emit_error('usage', 'APPLY_TOPIC_CHOICE_CONFLICTS', '--apply-topic-choice 与 --stage/--payload-file/--set-chosen/--set-evidence-pack-file/--set-style-id 等互斥。')
+        _cmd_update_apply_topic_choice(args)
+        return
     if args.set_chosen is not None:
         if args.stage is not None or args.payload_file is not None or want_style or want_evidence_pack or getattr(args, 'validate_only', False) or want_content:
             emit_error('usage', 'SET_CHOSEN_CONFLICTS', '--set-chosen 与 --stage/--payload-file/--set-style-id/--clear-style/--set-evidence-pack-file/--validate-only/--set-content-type/--set-ip-id/--clear-content-profile 互斥，请分次调用。')
@@ -1278,7 +1406,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         _cmd_update_set_content_profile(args)
         return
     if args.stage is None or args.payload_file is None:
-        emit_error('usage', 'UPDATE_ARGS_MISSING', 'update 须：① --stage+--payload-file ② 或 --set-chosen ③ 或 --set-style-id ④ 或 --clear-style ⑤ 或 --set-evidence-pack-file ⑥ 或 --set-content-type / --set-ip-id / --clear-content-profile')
+        emit_error('usage', 'UPDATE_ARGS_MISSING', 'update 须：① --stage+--payload-file ② 或 --apply-topic-choice N ③ 或 --set-chosen ④ 或 --set-style-id ⑤ 或 --set-evidence-pack-file ⑥ 或 --set-content-type / --set-ip-id / --clear-content-profile')
     user_id = get_user_id()
     draft_id = args.draft
     stage = args.stage
@@ -1677,6 +1805,78 @@ def cmd_schema(args: argparse.Namespace) -> None:
         summary=f'{stage} 最小通过模板已返回；few-shot 不在此模板内。',
     )
 
+
+def _script_prevalidate_rules() -> dict[str, Any]:
+    return {
+        'production_appendix_sections': list(SCRIPT_APPENDIX_SECTIONS),
+        'production_appendix_items_per_section': f'{SCRIPT_APPENDIX_MIN_ITEMS}-{SCRIPT_APPENDIX_MAX_ITEMS}',
+        'evidence_source_types': sorted(SCRIPT_EVIDENCE_SOURCE_TYPES),
+        'claim_kinds': sorted(SCRIPT_CLAIM_KINDS),
+        'fact_roles_requiring_claim_kind': sorted(SCRIPT_FACT_ROLES),
+    }
+
+
+def cmd_prevalidate(args: argparse.Namespace) -> None:
+    '''生成前 schema 预检：仅校验 payload 结构，不跑阶段门禁、不写盘。'''
+    stage = args.stage
+    if stage not in (STAGE_OUTLINE, STAGE_SCRIPT):
+        emit_error('usage', 'PREVALIDATE_STAGE_UNSUPPORTED', f'暂不支持 stage={stage}。', stage=stage)
+        return
+    payload_path = Path(args.payload_file)
+    if not payload_path.is_file():
+        emit_error('io', 'PAYLOAD_NOT_FOUND', f'payload-file 不存在：{payload_path}', path=str(payload_path))
+        return
+    payload = read_json(payload_path, default=None)
+    if not isinstance(payload, dict):
+        emit_error('io', 'PAYLOAD_INVALID', f'payload-file 必须是 JSON object：{payload_path}', path=str(payload_path))
+        return
+    body = {k: v for k, v in payload.items() if k != 'display_markdown'}
+    draft_id = getattr(args, 'draft', None)
+    if draft_id and not str(body.get('draft_id') or '').strip():
+        body['draft_id'] = str(draft_id).strip()
+    errors = _validate_stage_payload_schema(stage, body)
+    rules = _script_prevalidate_rules() if stage == STAGE_SCRIPT else {'stage': stage}
+    if errors:
+        emit_error(
+            'payload',
+            'PREVALIDATE_SCHEMA_INVALID',
+            f'{stage} payload 预检发现 {len(errors)} 个问题；请修完 errors[] 后再生成或落盘。',
+            stage=stage,
+            valid=False,
+            errors=errors,
+            rules=rules,
+            hint='生成前预检：python3 skills/streamy-content-gen/scripts/draft_manager.py prevalidate --stage script_refining --payload-file <draft.json> --json',
+        )
+        return
+    render_note: str | None = None
+    if stage == STAGE_SCRIPT:
+        try:
+            render_script_md(body)
+            render_note = 'segments[] 可渲染为 script.md'
+        except ScriptRenderError as e:
+            emit_error(
+                'payload',
+                e.code,
+                e.message,
+                stage=stage,
+                valid=False,
+                rules=rules,
+                hint=e.hint,
+                renderer_version=RENDERER_VERSION,
+            )
+            return
+    emit_ok(
+        'prevalidate',
+        result={
+            'stage': stage,
+            'valid': True,
+            'rules': rules,
+            'render_note': render_note,
+            'payload_file': str(payload_path),
+        },
+        summary=f'{stage} payload 预检通过（{len(errors)} 个 schema 问题）。',
+    )
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog = 'draft_manager', description = 'streamy-content-gen Draft 生命周期管理')
     common = argparse.ArgumentParser(add_help = False)
@@ -1710,6 +1910,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument('--draft', required = True)
     p_update.add_argument('--stage', choices = [ 'topic_picking', 'outline_refining', 'script_refining' ], help = 'stage + --payload-file 成对使用：整阶段产物更新')
     p_update.add_argument('--payload-file', help = '产物 JSON 文件路径（与 --stage 成对）')
+    p_update.add_argument('--apply-topic-choice', type = int, default = None, metavar = 'N', dest = 'apply_topic_choice', help = 'W5：原子 set-chosen N + 从 topic_candidates.candidate_evidence_packs[N] 落盘 candidate_evidence_pack.json（免二次 preflight/临时 JSON）')
     p_update.add_argument('--set-chosen', type = int, default = None, metavar = 'N', help = '原子 patch：把 topic_candidates.json.chosen 设为 N（1-based，互斥于 --stage/--payload-file，仅允许在 topic_picking 阶段使用）。v0.1.3 起这是唯一合法的 chosen 修改入口。')
     p_update.add_argument('--set-evidence-pack-file', default = None, dest = 'set_evidence_pack_file', help = '原子 patch：写入所选候选方向的 candidate_evidence_pack.json（需先 --set-chosen N）')
     p_update.add_argument('--set-style-id', default = None, dest = 'set_style_id', help = '原子 patch：设 meta.style_id（UUID，与整阶段更新 / set-chosen 互斥）')
@@ -1723,6 +1924,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_schema = sub.add_parser('schema', help = '输出 outline/script 最小通过 payload 模板', parents = [ common ])
     p_schema.add_argument('--stage', required = True, choices = [ 'outline_refining', 'script_refining' ], help = '要查看模板的阶段')
     p_schema.set_defaults(func = cmd_schema)
+    p_pre = sub.add_parser('prevalidate', help = '生成前 payload schema 预检（无阶段门禁、不写盘）', parents = [ common ])
+    p_pre.add_argument('--stage', required = True, choices = [ 'outline_refining', 'script_refining' ])
+    p_pre.add_argument('--payload-file', required = True)
+    p_pre.add_argument('--draft', default = None, help = '可选：payload 缺 draft_id 时填入')
+    p_pre.set_defaults(func = cmd_prevalidate)
     p_finalize = sub.add_parser('finalize', help = '定稿归档', parents = [ common ])
     p_finalize.add_argument('--draft', required = True)
     p_finalize.add_argument('--auto-refine', action = 'store_true', help = '定稿后自动 refine 绑定的 style（如果有 style_id 且 script.md 存在）')

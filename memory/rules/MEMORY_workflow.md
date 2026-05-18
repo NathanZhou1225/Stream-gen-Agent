@@ -19,7 +19,7 @@
 
 ✅ **步骤1**：若用户仅要盘面/信源事实，按 **§4.1**（见 `MEMORY_ingest.md`）跑 **全量 `ingest`** 并原样展示 `markdown_summary`；若用户已进入**开稿**链，则按 `streamy-content-gen` / `preflight` 拉取信息并生成 `topic_payload`，**不要**用旧五段式替代 ingest 输出。
 ✅ **步骤2（选题候选）**：将 `topic_payload` 落入 `draft_manager update --stage topic_picking`，展示三候选；每个候选必须有标题、核心论点、3 条论据。此时只让用户选 1/2/3，不进入风格或大纲。
-✅ **步骤3（方向证据包闸）**：用户选择候选后，先 `draft_manager update --set-chosen <N>`，再用 `preflight_topic.py --candidate-id <N> --topic-payload-file <上轮 topic_payload.json> --snapshot-path cache/snapshot/snapshot.json` 生成该候选方向的 `evidence_pack`（**默认不加** `--allow-targeted-fetch`；仅证据不足时再开），并用 `draft_manager update --set-evidence-pack-file <evidence_pack.json>` 落盘。证据包必须围绕已选方向，例如选「油价冲击验证时刻」就只补该方向的事实、数据、来源和论据补强点，不得展示无关 D1/D2 单条详情。
+✅ **步骤3（方向证据包闸 · 已与 preflight 合并）**：用户选择候选后，**优先** `draft_manager update --draft <DID> --apply-topic-choice <N>`（一次写入 `chosen` + `candidate_evidence_pack.json`，读 `topic_candidates.candidate_evidence_packs[N]`，**无需**二次 preflight、**无需**临时 evidence JSON）。或 `helper apply-choice --draft <DID> --candidate-id <N>`（同上；旧稿无内嵌包时自动 legacy 回退）。证据包必须围绕已选方向，不得展示无关 D1/D2 单条详情。
 ✅ **步骤3A（稿件类型与 IP · v0.2.3）**：证据包落盘且用户确认继续后、进入 user-style **前**，向用户确认本稿类型 **`market_view` / `investor_edu` / `persona_intro`**（人工选择，不自动分类）；需要口播变量时确认 **`ip_id`**（`skills/streamy-content-gen/configs/ip_profiles/<stem>.json`）。执行 `draft_manager.py update --draft <DID> --set-content-type <type> [--set-ip-id <stem>]` 写入 `meta.json`；清除用 `--clear-content-profile`。若走分模块口播链路：用 `scripts/content_template_tool.py prompt-bundle ...` 导出 `json_schema`，由**会话内模型**按 schema 产出模块 JSON，再用 `assemble` / `segments` 拼装（脚本不调 LLM）。
 ✅ **步骤4**：证据包与步骤3A 完成后，**必须执行门禁0拉取风格列表并询问用户选择，禁止直接进入大纲**
 ✅ **步骤5**：确认风格并完成 draft 的 `style_id` 绑定后，再进入正式的「大纲→逐字稿→定稿」流程
@@ -38,8 +38,9 @@
 
 ### 5.0C 安全批量 helper（只覆盖非用户决策段）
 - 可用 `scripts/stream_gen_workflow_helper.py start-topic --direction "<方向>"` 打包执行：创建 Draft → preflight → topic_picking 落盘；返回三候选后必须停下来等用户选 1/2/3。
-- 用户选定后，可用 `scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N> --topic-payload-file <file> --snapshot-path <snapshot>` 打包执行：`set-chosen` → 生成方向证据包 → 落盘证据包；返回后必须展示证据包并等用户确认进入 user-style。
-- 可用 `scripts/stream_gen_workflow_helper.py validate-script --draft <DID> --payload-file <script.json>` 包装逐字稿 `--validate-only`。
+- 用户选定后，可用 `scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N>`（默认 1 次 `--apply-topic-choice`，无 `/tmp` 证据 JSON）；旧稿用 `--force-preflight`。返回后必须展示证据包并等用户确认进入 user-style。
+- 风格：`list-styles`（`style_cli list --with-context`）→ 用户选 → `bind-style --draft <DID> --style-id <UUID>`（或分步 `--set-style-id` + `get-context`）。
+- 逐字稿：生成前 `prevalidate-script --payload-file <json>`；落盘前 `validate-script`（`--validate-only`）。
 - 禁止写一个从创建到定稿全自动跑完的脚本；候选选择、证据包确认、风格选择、定稿/auto-refine 仍是用户决策节点。
 
 ### 5.0B 大纲生成前置校验（生成大纲前必须执行）

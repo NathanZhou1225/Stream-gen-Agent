@@ -16,7 +16,7 @@ description: |
 
 ```bash
 python3 skills/user-style-manager/scripts/style_cli.py init-db
-python3 skills/user-style-manager/scripts/style_cli.py list
+python3 skills/user-style-manager/scripts/style_cli.py list --with-context --json
 python3 skills/user-style-manager/scripts/style_cli.py extract --text-file ./sample.txt --tags "demo,口播"
 python3 skills/user-style-manager/scripts/style_cli.py import --json-file ./handmade.json
 python3 skills/user-style-manager/scripts/style_cli.py get-context --style-id <UUID> --format json
@@ -37,7 +37,8 @@ python3 skills/user-style-manager/scripts/style_cli.py refine --style-id <UUID> 
 ## 与 streamy-content-gen
 
 - 建稿 `draft_manager create --style-id <UUID>` 或 `update --set-style-id` 将风格绑定到当前 Draft
-- 进入 `outline_refining` / `script_refining` 的 payload 可含 **`user_style_context`**：先对绑定（或显式选）的 `style_id` 执行 `get-context --format json`，把返回的 `context_markdown` 整段贴入 payload（见主 skill 说明）
+- **飞书选型**：`list --with-context` 每条含 `context_preview`（截断 RAG 块）；或 helper `list-styles` / `bind-style`（一步绑定并返回 `user_style_context`）
+- 进入 `outline_refining` / `script_refining` 的 payload 可含 **`user_style_context`**；已绑 `style_id` 且 payload 未带时，`draft_manager update` 会自动 `get-context` 注入
 
 ## 安全
 

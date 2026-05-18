@@ -1,0 +1,195 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "新能源",
+  "generated_at": "2026-05-18T17:20:36+08:00",
+  "hotlist_meta": {
+    "primary_source": "tophub.today",
+    "secondary_source": "social_api(vvhan->akshare)",
+    "fallback_used": false,
+    "fallback_reason": ""
+  },
+  "source_context": [
+    "【用户方向】新能源",
+    "【ingest 关键词】['SpaceX','IPO','科技','新能源','港股','黄金','银行','有色']",
+    "【领域标签】energy_new, teacher_focus",
+    "【事实短摘】\n- 三大指数：创业板指 3914.88 (-0.36%)\n- 整体情绪分：0.13 (🟡 中性)\n- 恐惧贪婪指数：60.0 (🟨 贪婪)\n- 个股情绪极值：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)\n- 🟢利好 华润新能源IPO注册生效，拟募资245亿元创深交所纪录（早前已获取）\n- 事件：宁德时代与厦门深化零碳科技城与低空经济合作\n- 🟢利好 碳酸锂涨至20万元/吨，储能项目经济性受关注",
+    "provenance: finance-source-ingest|preflight_topic.py",
+    "【信源状态】🔎 信源状态：可用[tophub]；降级[无]；不可用[market(UNKNOWN)、news(UNKNOWN)、social(UNKNOWN)]。"
+  ],
+  "candidates": [
+    {
+      "title": "华润新能源IPO注册生效，245亿创深市纪录——新能源资本化浪潮来了",
+      "angle": "以华润新能源创纪录IPO为事实锚点，展开新能源板块的资本化与估值重塑叙事",
+      "thesis": "华润新能源IPO注册生效、宁德时代绑定零碳科技城与低空经济、碳酸锂价格波动——2026年新能源板块正经历从产能扩张到资本定价的关键转折，三条信号指向同一个结论：新能源行业洗牌加速，但头部企业的资本化窗口正在打开。",
+      "evidence": [
+        {
+          "point": "华润新能源IPO注册生效，拟募资245亿元创深交所纪录，为注册制下首单红筹企业回归主板",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "宁德时代与厦门深化战略合作，加快零碳科技城建设与低空经济(eVTOL)布局",
+          "source_type": "sina_live",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "碳酸锂涨至20万元/吨，储能EPC成本飙升至0.97元/Wh，多家企业暂停项目",
+          "source_type": "rsshub",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "title": "碳酸锂重回20万+储能经济性告急：新能源产业链利润正在重新分配",
+      "angle": "从碳酸锂涨价冲击储能经济性切入，顺着成本传导链讲清锂电→储能→新能源车的利润分配逻辑",
+      "thesis": "碳酸锂从年初低位反弹至20万元/吨，储能项目IRR大幅下降、多家企业暂停——这不是简单的原材料涨价，而是新能源产业链利润正在从下游应用向上游资源端转移的信号，投资逻辑需要重估。",
+      "evidence": [
+        {
+          "point": "碳酸锂涨至20万元/吨，储能EPC成本飙升至0.97元/Wh，项目IRR显著下降",
+          "source_type": "rsshub",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "宁德时代情绪值0.85领跑个股情绪极值，硬科技板块资金偏好龙头",
+          "source_type": "market",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "浙江松阳抽水蓄能电站深竖井贯通，国内纪录，储能基建端仍在扩张",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "title": "宁德时代0.85情绪极值领跑+零碳科技城落地：为什么新能源龙头正在'出圈'",
+      "angle": "以宁德时代高情绪值+跨界低空经济为锚点，讲新能源龙头从制造业公司向平台型公司的转型逻辑",
+      "thesis": "宁德时代个股情绪0.85领跑全市场，同时与厦门签约零碳科技城、推动eVTOL低空经济——新能源龙头企业正在从单纯的电池制造商，向涵盖储能、低空、零碳园区的平台型公司转型，这轮转型决定了下一阶段新能源板块的估值天花板。",
+      "evidence": [
+        {
+          "point": "宁德时代个股情绪极值0.85，全市场最高，资金高度聚焦龙头",
+          "source_type": "market",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "宁德时代与厦门签约深化战略合作，建设锂电池基地+推动eVTOL低空经济项目",
+          "source_type": "sina_live",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "华润新能源IPO注册生效+碳酸锂涨价，新能源板块资本化与成本端双重催化",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ]
+    }
+  ],
+  "preflight_meta": {
+    "direction": "新能源",
+    "relevance_scores": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "relevance_avg": 1.0,
+    "domain_tags": [
+      "energy_new",
+      "teacher_focus"
+    ],
+    "source_context_compact": true,
+    "candidate_evidence_pack_required": true,
+    "evidence_pack_instruction": "证据包已与 topic_payload 预计算合并；用户选定候选后直接从 candidate_evidence_packs[索引] 提取展示。",
+    "evidence_pack_precomputed": true,
+    "evidence_pack_precompute_errors": null
+  },
+  "candidate_evidence_packs": {
+    "1": {
+      "candidate_id": "C1",
+      "candidate_title": "华润新能源IPO注册生效",
+      "core_facts": [
+        {
+          "point": "华润新能源IPO注册生效，拟募资245亿元创深交所纪录",
+          "source_type": "deep_news",
+          "confidence": "high"
+        },
+        {
+          "point": "宁德时代与厦门深化零碳科技城与低空经济合作",
+          "source_type": "sina_live",
+          "confidence": "high"
+        },
+        {
+          "point": "碳酸锂涨至20万元/吨，储能项目经济性受关注",
+          "source_type": "rsshub",
+          "confidence": "high"
+        }
+      ],
+      "source_gaps": [],
+      "targeted_fetch": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    "2": {
+      "candidate_id": "C2",
+      "candidate_title": "碳酸锂重回20万+储能经济性告急",
+      "core_facts": [
+        {
+          "point": "碳酸锂涨至20万元/吨，储能EPC成本飙升至0.97元/Wh",
+          "source_type": "rsshub",
+          "confidence": "high"
+        },
+        {
+          "point": "宁德时代情绪值0.85领跑个股情绪极值",
+          "source_type": "market",
+          "confidence": "high"
+        },
+        {
+          "point": "浙江松阳抽水蓄能电站深竖井贯通",
+          "source_type": "deep_news",
+          "confidence": "high"
+        }
+      ],
+      "source_gaps": [],
+      "targeted_fetch": {
+        "attempted": false,
+        "ok": false
+      }
+    },
+    "3": {
+      "candidate_id": "C3",
+      "candidate_title": "宁德时代0.85情绪极值领跑",
+      "core_facts": [
+        {
+          "point": "宁德时代个股情绪极值0.85，全市场最高",
+          "source_type": "market",
+          "confidence": "high"
+        },
+        {
+          "point": "宁德时代与厦门签约建设锂电池基地+推动eVTOL低空经济项目",
+          "source_type": "sina_live",
+          "confidence": "high"
+        },
+        {
+          "point": "华润新能源IPO注册生效+碳酸锂涨价",
+          "source_type": "deep_news",
+          "confidence": "high"
+        }
+      ],
+      "source_gaps": [],
+      "targeted_fetch": {
+        "attempted": false,
+        "ok": false
+      }
+    }
+  },
+  "chosen": 2
+}

@@ -76,18 +76,24 @@ python3 skills/streamy-content-gen/scripts/fetch_market.py --json
 
 **先读 `meta.stage`。** 顺序记忆：
 
-`preflight（方向）` → `topic_picking`（三候选）→ **用户选候选** → **方向证据包** → **稿件类型 + IP（meta 落盘）** → **user-style** → `outline_refining` → `script_refining` → `finalize`
+`preflight（方向，含证据包）` → `topic_picking`（三候选）→ **用户选候选** → **证据包提取（从 payload）** → **稿件类型 + IP（meta 落盘）** → **user-style** → `outline_refining` → `script_refining` → `finalize`
 
-### 2.0A 方向证据包（`candidate_evidence_pack_gate`）
+### 2.0A 方向证据包（`candidate_evidence_pack_gate` · 已与 preflight 合并）
 
-前置：`topic_picking` 已落盘且用户选了序号。
+前置：`topic_picking` 已落盘（`topic_candidates.json` 含 `candidate_evidence_packs`）且用户选了序号。
 
-1. `draft_manager.py update --draft <DID> --set-chosen <N>`
-2. `preflight_topic.py --candidate-id <N> --topic-payload-file '...' --snapshot-path '...' --allow-targeted-fetch`
-3. 展示 `evidence_pack`；并 `draft_manager.py update --draft <DID> --set-evidence-pack-file '<evidence_pack.json>'`
-4. 缺口 `source_gaps[]` 如实提示，禁脑补。
+**优先（W5，1 次 exec）**：
 
-可选：`scripts/stream_gen_workflow_helper.py apply-choice ...` 打包 1–2；**仍须**展示证据包并走 style 门禁。
+```bash
+python3 skills/streamy-content-gen/scripts/draft_manager.py update \
+  --draft <DID> --apply-topic-choice <N> --json
+```
+
+或 `python3 scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N>`
+
+展示返回/落盘的 `evidence_pack`；`source_gaps[]` 如实提示，禁脑补。**仍须**等用户确认后再走 style 门禁。
+
+**legacy**（无内嵌包时）：`set-chosen` → `preflight --candidate-id` → `set-evidence-pack-file`，或 `apply-choice --force-preflight`。
 
 ### 2.0B 稿件类型与 IP 画像（v0.2.3 · 人工）
 
@@ -99,7 +105,7 @@ python3 skills/streamy-content-gen/scripts/fetch_market.py --json
 
 - 展示候选须含 **title + thesis + 三条 evidence**（禁只贴标题）。
 - 默认回复**不**拼大盘/快讯块（除非用户要看数据来源）。
-- **默认路径**：`set-chosen` → §2.0A 证据包 → **§2.0B 稿件类型 + IP（`update --set-content-type`）** → `style_cli list` → 用户选 → `update --set-style-id` → 读 `outline-generation.md` 索引 → 生成大纲 → `update --stage outline_refining ...`
+- **默认路径**：§2.0A 证据包（`--apply-topic-choice`）→ **§2.0B 稿件类型 + IP** → `list-styles` / `style_cli list --with-context` → 用户选 → `bind-style` 或 `--set-style-id` → 读 `outline-generation.md` → 生成大纲 → `update --stage outline_refining ...`
 - **禁**：未展示证据包或未绑 `style_id` 就写大纲；禁手写 `outline.md` / 跳 `draft_manager`。
 
 ### 2.2 `regenerate_topics`

@@ -1,0 +1,87 @@
+{
+  "candidate_id": "C1",
+  "candidate_index": 1,
+  "candidate_title": "测试收口：半导体设备｜盘面热点：**整体情绪分**：0.13 (🟡 中性)",
+  "candidate_thesis": "测试收口：半导体设备相关讨论与盘面事实正在共振，优先围绕「测试收口：半导体设备｜盘面热点：**整体情绪分*」展开。",
+  "direction": "测试收口：半导体设备",
+  "core_facts": [
+    {
+      "point": "**整体情绪分**：0.13 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "事件：AI芯片企业Cerebras Systems在纳斯达克上市，发行价185美元，首日收于311美元，涨68%，市值约670亿美元，为今年最大科技IPO",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "影响：科技主线锚点：AI芯片、AI、芯片；大模型融资/港股 IPO 预期强化 AI 资产证券化与产业资本入场叙事。",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "detailed_sources": [
+    {
+      "detail_id": "D3",
+      "title": "**整体情绪分**：0.13 (🟡 中性)",
+      "summary": "**整体情绪分**：0.13 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D5",
+      "title": "**个股情绪极值**：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)",
+      "summary": "**个股情绪极值**：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D6",
+      "title": "🔹 🟢利好 [2026-05-18 06:58:00] **Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元** （deep_news",
+      "summary": "🔹 🟢利好 [2026-05-18 06:58:00] **Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元** （deep_news）",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D1",
+      "title": "**三大指数**：**创业板指** 3914.88 (-0.36%) / **深证成指** 15530.23 (-0.20%) / **上证指数** 4131.",
+      "summary": "**三大指数**：**创业板指** 3914.88 (-0.36%) / **深证成指** 15530.23 (-0.20%) / **上证指数** 4131.5276 (-0.09%)",
+      "source_type": "market",
+      "source_ref": "market_snapshot",
+      "source_path": "markdown_summary"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "**整体情绪分**：0.13 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "**个股情绪极值**：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "🔹 🟢利好 [2026-05-18 06:58:00] **Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元** （deep_news",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "source_gaps": [],
+  "targeted_fetch": {
+    "attempted": false,
+    "ok": false
+  },
+  "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+}

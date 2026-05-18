@@ -1,0 +1,68 @@
+{
+  "candidate_id": "C2",
+  "candidate_title": "碳酸锂重回20万+储能经济性告急：新能源产业链利润正在重新分配",
+  "core_facts": [
+    {
+      "point": "碳酸锂涨至20万元/吨，储能EPC成本飙升至0.97元/Wh，项目IRR显著下降，多家企业暂停项目",
+      "source_type": "rsshub",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "宁德时代个股情绪值0.85领跑全市场，硬科技板块资金偏好龙头",
+      "source_type": "market",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "浙江松阳抽水蓄能电站两条深637米竖井全线贯通，刷新国内纪录",
+      "source_type": "deep_news",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "source_gaps": [
+    "当前数据库快照中新能源板块专项快讯较少（market/news/social 信源不可用），论据主要基于已有 cross-section 事实。建议后续刷新信源以补强。"
+  ],
+  "targeted_fetch": {
+    "attempted": false,
+    "ok": false
+  },
+  "candidate_thesis": "碳酸锂从年初低位反弹至20万元/吨，储能项目IRR大幅下降、多家企业暂停——这不是简单的原材料涨价，而是新能源产业链利润正在从下游应用向上游资源端转移的信号，投资逻辑需要重估。",
+  "direction": "新能源",
+  "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。",
+  "detailed_sources": [
+    {
+      "detail_id": "D1",
+      "title": "碳酸锂涨至20万元/吨，储能项目经济性堪忧",
+      "source_type": "rsshub",
+      "source_ref": "ingest_markdown_summary"
+    },
+    {
+      "detail_id": "D2",
+      "title": "宁德时代个股情绪极值0.85全市场最高",
+      "source_type": "market",
+      "source_ref": "ingest_markdown_summary"
+    },
+    {
+      "detail_id": "D3",
+      "title": "浙江松阳抽水蓄能电站深竖井贯通",
+      "source_type": "deep_news",
+      "source_ref": "ingest_markdown_summary"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "宁德时代情绪0.85+零碳科技城+低空经济布局，龙头正在突破制造业天花板",
+      "confidence": "high"
+    },
+    {
+      "point": "华润新能源IPO注册生效245亿创纪录，新能源资本化加速",
+      "confidence": "high"
+    },
+    {
+      "point": "碳酸锂20万/吨传导链：锂矿→电芯→储能EPC→项目IRR，利润向上游集中",
+      "confidence": "high"
+    }
+  ]
+}
