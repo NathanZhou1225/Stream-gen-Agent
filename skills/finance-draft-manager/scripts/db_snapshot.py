@@ -28,6 +28,7 @@ import re
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -74,11 +75,16 @@ from fetchers.sector_keywords import SECTOR_ORDER as _SK_ORDER, sectors_for_text
 from fetchers.sentiment import extract_stock_mentions  # noqa: E402
 from fetchers.social_intelligence import enhance_social_intelligence  # noqa: E402
 
+from pipeline import (  # noqa: E402
+    _format_sector_view_model_lines,
+    _item_source_label,
+    _sector_item_view_model,
+)
 from rewriter import RewriteResult, rewrite_sectors  # noqa: E402
 from router import RouterResult, run_router  # noqa: E402
 
 _SECTOR_ORDER: tuple[str, ...] = tuple(_SK_ORDER)
-_SUMMARY_CLIP = 220
+_SUMMARY_CLIP = 600
 _MAJORS_KEYS = (
     "政策", "监管", "央行", "美联储", "地缘", "国务院", "战事", "冲突", "制裁", "关税",
     "降准", "降息", "CPI", "非农", "GDP", "商务部", "外交部", "霍尔木兹", "石油危机",
@@ -86,7 +92,7 @@ _MAJORS_KEYS = (
 )
 _POOL_PER_SECTOR = 28
 _POOL_OTHER_FLASH = 72
-_DISPLAY_PER_SECTOR = 6
+_DISPLAY_PER_SECTOR = 5
 
 
 def _default_major_hours() -> int:
@@ -299,7 +305,8 @@ def _apply_router_rewrite_news(
     other_pool: list[dict[str, Any]] = list(pool_news.get("items_other_flash") or [])
 
     def _fallback_news_trim() -> dict[str, Any]:
-        by_sec = {s: sorted(pool_by_sec[s], key=_item_imp_sort, reverse=True)[:_DISPLAY_PER_SECTOR] for s in _SECTOR_ORDER}
+        cap = _display_per_sector()
+        by_sec = {s: sorted(pool_by_sec[s], key=_item_imp_sort, reverse=True)[:cap] for s in _SECTOR_ORDER}
         other = sorted(other_pool, key=_item_imp_sort, reverse=True)[:40]
         flat: list[dict[str, Any]] = []
         for s in _SECTOR_ORDER:
@@ -326,7 +333,7 @@ def _apply_router_rewrite_news(
         "router_timing": {},
     }
 
-    menu_per_sec = max(3, min(25, int(os.environ.get("FINANCE_LLM_ROUTER_MENU_PER_SECTOR", "8"))))
+    menu_per_sec = max(3, min(25, int(os.environ.get("FINANCE_LLM_ROUTER_MENU_PER_SECTOR", "12"))))
 
     candidates: list[dict[str, Any]] = []
     for sec in _SECTOR_ORDER:
@@ -345,18 +352,11 @@ def _apply_router_rewrite_news(
     def _run_rewrite_on(news: dict[str, Any]) -> RewriteResult | None:
         fin = news.get("items_by_sector") or {}
         rw_input = {
-            sec: [
-                {
-                    "clean_title": str(x.get("title") or ""),
-                    "raw_title": str(x.get("title") or ""),
-                    "clean_summary": str(x.get("clean_text") or x.get("summary") or "")[:400],
-                    "sentiment_hint": str(x.get("sentiment_hint") or "中性"),
-                }
-                for x in (fin.get(sec) or [])[:3]
-            ]
+            sec: _rewrite_input_for_sector(sec, fin.get(sec) or [])
             for sec in _SECTOR_ORDER
             if fin.get(sec)
         }
+        rw_input = {k: v for k, v in rw_input.items() if v}
         if not rw_input:
             return None
         return rewrite_sectors(rw_input)
@@ -400,6 +400,7 @@ def _apply_router_rewrite_news(
 
     # 先按 Router ID 顺序落地，再按 importance 在同板块池内补位
     for sec in _SECTOR_ORDER:
+        cap = _display_per_sector()
         pool = list(pool_by_sec[sec])
         pool_sorted = sorted(pool, key=_item_imp_sort, reverse=True)
         picked: list[dict[str, Any]] = []
@@ -421,7 +422,7 @@ def _apply_router_rewrite_news(
             picked.append(_annotate_router_item(sec, raw))
             seen.add(k)
         for it in pool_sorted:
-            if len(picked) >= _DISPLAY_PER_SECTOR:
+            if len(picked) >= cap:
                 break
             k = _item_key(it)
             if not k or k in seen:
@@ -431,7 +432,7 @@ def _apply_router_rewrite_news(
         # 仍偏少：从深度稿补位
         if len(picked) < 2 and deep_items:
             for d in sorted(deep_items, key=_item_imp_sort, reverse=True):
-                if len(picked) >= _DISPLAY_PER_SECTOR:
+                if len(picked) >= cap:
                     break
                 psec = str(d.get("primary_sector") or "").strip()
                 blob = f"{d.get('title','')} {d.get('clean_text','')}"
@@ -445,7 +446,7 @@ def _apply_router_rewrite_news(
                 dd["sector_line_source"] = "deep_news"
                 picked.append(_annotate_router_item(sec, dd))
                 seen.add(k)
-        final_by_sec[sec] = picked[:_DISPLAY_PER_SECTOR]
+        final_by_sec[sec] = picked[:_display_per_sector()]
 
     # other_flash：未进六大桶的仍从原池来
     other_trim = sorted(other_pool, key=_item_imp_sort, reverse=True)[:40]
@@ -495,6 +496,26 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+_CST = ZoneInfo("Asia/Shanghai")
+
+
+def _to_cst_label(iso_ts: str | None) -> str:
+    """UTC/带时区 ISO → ``YYYY-MM-DD HH:MM:SS CST``。"""
+    if not iso_ts or not str(iso_ts).strip():
+        return "未知"
+    raw = str(iso_ts).strip()
+    try:
+        if raw.endswith("Z"):
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return raw[:19].replace("T", " ")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_CST).strftime("%Y-%m-%d %H:%M:%S CST")
+
+
 def _to_float(v: Any) -> float | None:
     if v is None:
         return None
@@ -505,6 +526,22 @@ def _to_float(v: Any) -> float | None:
 
 
 # ── DB 读取层 ─────────────────────────────────────────────────────────────────
+
+def _market_snapshot_row_usable(row: dict[str, Any]) -> bool:
+    """有效指数行：price>0；兼容历史误入库（price 空但 raw 有数）。"""
+    price = row.get("price")
+    if price is None:
+        raw = row.get("raw_payload_json") or "{}"
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except Exception:
+            payload = {}
+        price = payload.get("close") if isinstance(payload, dict) else None
+    try:
+        return price is not None and float(price) > 0
+    except (TypeError, ValueError):
+        return False
+
 
 def _read_market(conn: sqlite3.Connection, since_hours: int) -> dict[str, Any]:
     """读 market_snapshots，返回兼容 pipeline sections['market'] 的结构。"""
@@ -519,12 +556,15 @@ def _read_market(conn: sqlite3.Connection, since_hours: int) -> dict[str, Any]:
     if not rows:
         return {}
 
-    # 取每个 index_code 最新一条
+    # 每个 index_code 取时间窗内最新且 price 有效的一条（跳过 09:00 等占位 0）
     seen: dict[str, dict] = {}
     for r in rows:
         code = str(r.get("index_code") or "")
-        if code and code not in seen:
-            seen[code] = r
+        if not code or code in seen:
+            continue
+        if not _market_snapshot_row_usable(r):
+            continue
+        seen[code] = r
 
     items = []
     for r in seen.values():
@@ -892,6 +932,104 @@ def _line_body(it: dict[str, Any]) -> str:
     return t
 
 
+def _display_per_sector() -> int:
+    try:
+        return max(3, min(8, int(os.environ.get("FINANCE_DB_SNAPSHOT_DISPLAY_PER_SECTOR", str(_DISPLAY_PER_SECTOR)))))
+    except ValueError:
+        return _DISPLAY_PER_SECTOR
+
+
+def _show_deep_section() -> bool:
+    return _env_truthy("FINANCE_DB_SNAPSHOT_SHOW_DEEP_SECTION", "0")
+
+
+def _item_tpart(it: dict[str, Any]) -> str:
+    ts_full = str(it.get("published_at") or "").strip()
+    ts_display = ts_full[:19].replace("T", " ")
+    return f"[{ts_display}]" if len(ts_full) >= 16 else ""
+
+
+def _sent_prefix_plain(hint: str) -> str:
+    h = (hint or "").strip() or "中性"
+    if "利好" in h:
+        return "🟢利好 "
+    if "利空" in h:
+        return "🔴利空 "
+    return "⚪中性 "
+
+
+def _view_models_for_sector(sec: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    vms: list[dict[str, Any]] = []
+    cap = _display_per_sector()
+    for it in items[:cap]:
+        if not isinstance(it, dict):
+            continue
+        hint = str(it.get("sentiment_hint") or "中性")
+        vm = _sector_item_view_model(
+            sec,
+            it,
+            tpart=_item_tpart(it),
+            s_prefix=_sent_prefix_plain(hint),
+            src_label=_item_source_label(it),
+        )
+        if vm:
+            vms.append(vm)
+    return vms
+
+
+def _merge_rewrite_view_models(
+    vms: list[dict[str, Any]],
+    rw_items: list[Any],
+    *,
+    rw_ok: bool,
+) -> list[dict[str, Any]]:
+    if not rw_ok or not rw_items:
+        return vms
+    out: list[dict[str, Any]] = []
+    for i, vm in enumerate(vms):
+        nv = dict(vm)
+        if i < len(rw_items) and isinstance(rw_items[i], dict):
+            ri = rw_items[i]
+            t = str(ri.get("title") or "").strip()
+            if t:
+                nv["display_title"] = t
+            imp = str(ri.get("impact") or "").strip()
+            ang = str(ri.get("angle") or "").strip()
+            if imp:
+                nv["impact"] = imp
+            if ang:
+                nv["angle"] = ang
+        out.append(nv)
+    return out
+
+
+def _rewrite_input_for_sector(sec: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    cap = _display_per_sector()
+    for it in items[:cap]:
+        if not isinstance(it, dict):
+            continue
+        vm = _sector_item_view_model(
+            sec,
+            it,
+            tpart="",
+            s_prefix="",
+            src_label=_item_source_label(it),
+        )
+        if not vm:
+            continue
+        rows.append({
+            "clean_title": str(vm.get("display_title") or vm.get("title") or ""),
+            "raw_title": str(it.get("title") or ""),
+            "clean_summary": str(vm.get("body") or "")[:400],
+            "sentiment_hint": str(it.get("sentiment_hint") or "中性"),
+            "event": str(vm.get("event") or ""),
+            "impact": str(vm.get("impact") or ""),
+            "angle": str(vm.get("angle") or ""),
+        })
+    return rows
+
+
 def _is_major_blob(title: str, summary: str, sector: str) -> bool:
     blob = f"{title} {summary} {sector}"
     return any(k in blob for k in _MAJORS_KEYS) or sector.strip() in ("宏观", "政策")
@@ -986,7 +1124,7 @@ def _build_markdown(
     lines.append(
         f"## 📊 今日信源全量快照（数据库 · 板块/快讯 {since_hours}h · 大事件 {major_since_hours}h · {now_cn} CST）"
     )
-    disp_last = db_last_at[:19].replace("T", " ") if len(db_last_at) >= 16 else (db_last_at or "未知")
+    disp_last = _to_cst_label(db_last_at)
     lines.append(f"> 数据源：`{db_path}`　最后入库：{disp_last}（新闻与市场快照时间的较大值）")
     lines.append(
         "> 💡 **数据引擎**：DB 离线快照；六大板块 = **LLM Router（可关）+ 规则补位 + 可选小模型润色**；"
@@ -1033,42 +1171,39 @@ def _build_markdown(
     rw_block = sections.get("sector_llm_rewrite") or {}
     rw_disp = rw_block.get("display") or {}
 
-    lines.append("### 【🎯 核心板块异动】（六大板块 · Router / 润色 / 情绪）")
+    lines.append("### 【🎯 核心板块异动】（全信源 · 六大板块精选 · 事件/影响/角度）")
     has_sector = False
     for sec in _SECTOR_ORDER:
         items = by_sec.get(sec) or []
         if not items:
             continue
         has_sector = True
-        lines.append(f"\n**{sec}**")
+        if lines and not lines[-1].startswith("###"):
+            lines.append("")
+        lines.append(f"**【{sec}】**")
         ins = str(insights.get(sec) or "").strip()
-        if ins:
-            lines.append(f"- *板块洞察*：{ins}")
         dins = rw_disp.get(sec) if isinstance(rw_disp.get(sec), dict) else {}
         rw_ok = str(dins.get("status") or "") == "ok"
         rw_ins = str(dins.get("insight") or "").strip()
-        if rw_ok and rw_ins:
-            if _rewrite_insight_usable(rw_ins):
-                lines.append(f"- *润色洞察*：{rw_ins}")
-            elif ins:
-                lines.append(f"- *润色洞察*：{ins}")
+        insight_line = ""
+        if rw_ok and _rewrite_insight_usable(rw_ins):
+            insight_line = rw_ins
+        elif ins:
+            insight_line = ins
+        if insight_line:
+            lines.append(f"🧠 **板块洞察**：{insight_line}")
+        lines.append("")
         rw_items = dins.get("items") if isinstance(dins.get("items"), list) else []
-        for i, it in enumerate(items[:_DISPLAY_PER_SECTOR]):
-            if i < len(rw_items) and rw_ok:
-                ri = rw_items[i]
-                if isinstance(ri, dict):
-                    t = str(ri.get("title") or it.get("title") or "")
-                    imp = str(ri.get("impact") or "")
-                    ang = str(ri.get("angle") or "")
-                    sl = _rewrite_row_sentiment_label(ri, it)
-                    lines.append(
-                        f"- 🧱【润色】{_sent_prefix(sl)}"
-                        f"**{t}** 影响：{imp} 角度：{ang}"
-                    )
-                    continue
-            lines.append(f"- {_sent_prefix(str(it.get('sentiment_hint') or '中性'))}{_line_body(it)}")
+        vms = _merge_rewrite_view_models(
+            _view_models_for_sector(sec, items),
+            rw_items,
+            rw_ok=rw_ok,
+        )
+        for vm in vms:
+            lines.extend(_format_sector_view_model_lines(vm))
+            lines.append("")
     if not has_sector:
-        lines.append("- （六大板块暂无命中；请看下方热点与深度区。）")
+        lines.append("- （六大板块暂无命中；请看下方热点与大事件。）")
     lines.append("")
 
     md_dedupe_seen: set[str] = set()
@@ -1096,10 +1231,10 @@ def _build_markdown(
     lines.append("")
 
     deep = (sections.get("deep_news") or {}).get("items") or []
-    if deep:
+    if deep and _show_deep_section():
         deep_for_md = _dedupe_items_for_md(deep, md_dedupe_seen)[:12]
         if deep_for_md:
-            lines.append("### 【📌 深度资讯】（importance≥0.35）")
+            lines.append("### 【📌 深度资讯】（importance≥0.35 · 补充阅读）")
             for it in deep_for_md:
                 lines.append(f"- {_sent_prefix(str(it.get('sentiment_hint') or '中性'))}{_line_body(it)}")
             lines.append("")
@@ -1118,11 +1253,6 @@ def _build_markdown(
     top_cand = _candidates_for_top3(news, sections.get("deep_news") or {})
     lines.append("### 【✍️ 今日值得开稿 Top 3】（选题雷达 · importance + 板块分散）")
     lines.extend(_build_top3_lines(top_cand, limit=3))
-    lines.append("")
-
-    lines.append(
-        "> ⚡ 本地数据库快照，无实时行情请求。要与旧版全文 1:1 可用：`python skills/streamy-content-gen/scripts/query_market_facts.py --live-fetch`。"
-    )
 
     return "\n".join(lines)
 
@@ -1285,7 +1415,7 @@ def build_db_snapshot(
             },
             "sections": {},
             "errors": [{"code": "DB_NOT_FOUND", "message": f"数据库文件不存在：{db_path}，请先运行 ingest.py run 入库。"}],
-            "markdown_summary": f"> ⚠️ 数据库不存在（{db_path}）。请先运行 `finance-source-ingest/scripts/ingest.py run` 完成首次入库，或等待定时任务（北京时间 09:00/14:00/20:00）。",
+            "markdown_summary": f"> ⚠️ 数据库不存在（{db_path}）。请先运行 `finance-ingest-cloud/worker/run_ingest.sh` 完成首次入库，或等待定时任务（北京时间 08:00 新闻 · 09:40 行情 · 14:00/20:00 全量）。",
             "invariants": {},
         }
 
@@ -1427,60 +1557,63 @@ def build_db_snapshot(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="finance-draft-manager DB 快照（不联网）")
-    parser.add_argument("--db", default="", help="DB 路径（默认 user_data/finance_sources.db）")
+    parser = argparse.ArgumentParser(
+        description="finance-draft-manager：云端 pre-Router stdin → Router/Rewriter → markdown_summary",
+    )
     parser.add_argument("--since-hours", type=int, default=24)
     parser.add_argument("--major-since-hours", type=int, default=None, help="大事件窗口（默认 env FINANCE_DB_SNAPSHOT_MAJOR_HOURS 或 168）")
     parser.add_argument("--no-router", action="store_true", help="禁用 LLM Router（仅规则分桶+补位）")
     parser.add_argument("--no-rewrite", action="store_true", help="禁用板块小润色")
-    parser.add_argument("--keywords", default="", help="关键词过滤（空格分隔）")
-    parser.add_argument("--sources", default="market,news,social")
     parser.add_argument("--out-dir", default="", help="写 snapshot.json 到该目录（供 preflight 使用）")
     parser.add_argument("--summary-only", action="store_true", help="只输出 meta+markdown_summary+errors")
     parser.add_argument(
         "--pre-router-stdin",
         action="store_true",
-        help="从 stdin 读取云端 pre-Router JSON（0.3.0-cloud），本地套用 Router/Rewriter",
+        help="从 stdin 读取云端 pre-Router JSON（必填；由 query_market_facts 调用）",
     )
     args = parser.parse_args()
 
-    keywords = [k for k in (args.keywords or "").split() if k.strip()]
-    sources = [s.strip() for s in args.sources.split(",") if s.strip()]
+    if not args.pre_router_stdin:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "errors": [
+                        {
+                            "code": "LOCAL_SQLITE_REMOVED",
+                            "message": "本地 finance_sources.db 路径已移除",
+                            "hint": "请使用 query_market_facts.py（云端 API）或 --live-fetch legacy",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        sys.exit(2)
 
-    if args.pre_router_stdin:
-        raw = sys.stdin.read()
-        if not raw.strip():
-            print(json.dumps({
-                "ok": False,
-                "errors": [{"code": "PRE_ROUTER_STDIN_EMPTY", "message": "stdin 为空"}],
-            }, ensure_ascii=False, indent=2))
-            sys.exit(2)
-        try:
-            envelope = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            print(json.dumps({
-                "ok": False,
-                "errors": [{"code": "PRE_ROUTER_JSON_INVALID", "message": str(exc)[:300]}],
-            }, ensure_ascii=False, indent=2))
-            sys.exit(2)
-        snap = build_snapshot_from_pre_router(
-            envelope,
-            since_hours=args.since_hours,
-            major_since_hours=args.major_since_hours,
-            use_router=False if args.no_router else None,
-            use_rewrite=False if args.no_rewrite else None,
-        )
-    else:
-        db_path = _resolve_db(args.db)
-        snap = build_db_snapshot(
-            db_path,
-            since_hours=args.since_hours,
-            major_since_hours=args.major_since_hours,
-            keywords=keywords,
-            sources=sources,
-            use_router=False if args.no_router else None,
-            use_rewrite=False if args.no_rewrite else None,
-        )
+    raw = sys.stdin.read()
+    if not raw.strip():
+        print(json.dumps({
+            "ok": False,
+            "errors": [{"code": "PRE_ROUTER_STDIN_EMPTY", "message": "stdin 为空"}],
+        }, ensure_ascii=False, indent=2))
+        sys.exit(2)
+    try:
+        envelope = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(json.dumps({
+            "ok": False,
+            "errors": [{"code": "PRE_ROUTER_JSON_INVALID", "message": str(exc)[:300]}],
+        }, ensure_ascii=False, indent=2))
+        sys.exit(2)
+    snap = build_snapshot_from_pre_router(
+        envelope,
+        since_hours=args.since_hours,
+        major_since_hours=args.major_since_hours,
+        use_router=False if args.no_router else None,
+        use_rewrite=False if args.no_rewrite else None,
+    )
 
     # 写 snapshot.json（供 preflight_topic.py 直接读取，兼容旧消费路径）
     if args.out_dir:

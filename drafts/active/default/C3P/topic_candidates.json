@@ -1,0 +1,116 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "SpaceX IPO",
+  "generated_at": "2026-05-18T16:03:40+08:00",
+  "hotlist_meta": {
+    "primary_source": "tophub.today",
+    "secondary_source": "social_api(vvhan->akshare)",
+    "fallback_used": true,
+    "fallback_reason": "both_sources_unavailable"
+  },
+  "source_context": [
+    "【用户方向】SpaceX IPO",
+    "【ingest 关键词】['SpaceX', 'IPO', '科技', '新能源', '港股', '黄金', '银行', '有色']",
+    "【领域标签】teacher_focus",
+    "【事实短摘】\n- **三大指数**：**创业板指** 3914.88 (-0.36%) / **深证成指** 15530.23 (-0.20%) / **上证指数** 4131.5276 (-0.09%)\n- **整体情绪分**：0.13 (🟡 中性)\n- **恐惧贪婪指数**：60.0 (🟨 贪婪)\n- **个股情绪极值**：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)\n- 🔹 🟢利好 [2026-05-18 06:58:00] **Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元**\n- 事件：AI芯片企业Cerebras Systems在纳斯达克上市，发行价185美元，首日收于311美元，涨68%，市值约670亿美元，为今年最大科技IPO\n- 影响：科技主线锚点：AI芯片、AI、芯片；大模型融资/港股 IPO 预期强化 AI 资产证券化与产业资本入场叙事。",
+    "provenance: finance-source-ingest|preflight_topic.py",
+    "【弱舆情提示】⚠️ 弱舆情热榜信号暂不可用（两路来源均失败），本轮选题基于行情/快讯/公告生成。",
+    "【信源状态】🔎 信源状态：可用[无]；降级[无]；不可用[market(UNKNOWN)、news(UNKNOWN)、social(UNKNOWN)、tophub(TIMEOUT)]。",
+    "【领域证据】事件：AI芯片企业Cerebras Systems在纳斯达克上市，发行价185美元，首日收于311美元，涨68%，市值约670亿美元，为今年最大科技IPO"
+  ],
+  "candidates": [
+    {
+      "title": "SpaceX IPO加速：从Cerebras首日暴涨看科技IPO热潮能否延续",
+      "angle": "以Cerebras Systems首日涨68%为事实锚点，映射SpaceX IPO的市场预期与科技板块IPO窗口期的资金情绪",
+      "thesis": "Cerebras Systems纳斯达克上市首日暴涨68%标志着2026年科技IPO窗口打开，SpaceX加速IPO进程正逢其时，但市场情绪中性偏谨慎，需要从科技IPO的供给端、需求端、定价博弈三个维度判断SpaceX的上市前景。",
+      "evidence": [
+        {
+          "point": "Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元，为今年最大科技IPO，发行价185美元首日收于311美元",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "SpaceX宣布拆股并加速IPO，计划5月20日公开招股说明书，最早6月12日登陆纳斯达克，代码SPCX",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "整体市场情绪0.13(中性)、恐惧贪婪指数60(贪婪)，科技板块AI主线持续强化，资金偏好硬科技但风险偏好谨慎",
+          "source_type": "market",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "title": "SpaceX值多少钱？拆股+IPO背后的估值逻辑与中美科技资本博弈",
+      "angle": "从SpaceX拆股动作与Cerebras/ChatGPT等科技公司密集IPO浪潮切入，讲估值方法论与资本博弈",
+      "thesis": "SpaceX在IPO前宣布拆股，配合Cerebras Systems首日暴涨、长鑫科技营收增719%等信号，揭示2026年全球科技公司正在经历一轮资产证券化加速——估值定价不再是单纯财务问题，而是中美科技竞争下的资本站位游戏。",
+      "evidence": [
+        {
+          "point": "SpaceX宣布拆股并加速IPO，最早6月12日登陆纳斯达克，代码SPCX，拆股动作意在降低股价门槛吸引散户参与",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "Cerebras Systems首日涨68%、长鑫科技一季度营收508亿增719%净利330亿，科技公司密集上市推高板块估值天花板",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "全球对冲基金一哥格里芬态度逆转称AI将重塑社会，中美经贸磋商达成初步成果，科技资产证券化窗口叠加政策利好",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "title": "从SpaceX到宁德时代：科技IPO浪潮下的产业链联动与普通人投资机会",
+      "angle": "把SpaceX IPO放在整个科技/新能源产业链视角下，讲'大公司上市→产业链受益→散户如何参与'的叙事逻辑",
+      "thesis": "SpaceX IPO不是孤立事件——Cerebras首日暴涨、宁德时代绑定低空经济、长鑫科技业绩爆发——2026年科技IPO浪潮正在形成产业链联动效应，从火箭到芯片到电池再到AI应用，普通人可以通过港股科技ETF、A股产业链标的间接分享这轮资本化红利。",
+      "evidence": [
+        {
+          "point": "SpaceX加速IPO + Cerebras Systems首日暴涨68% + 长鑫科技科创板IPO恢复审核，2026年科技公司扎堆上市形成'IPO集群效应'",
+          "source_type": "deep_news",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "宁德时代与厦门深化零碳科技城与低空经济合作(eVTOL)，科技IPO链条从航天→芯片→电池→应用形成产业链闭环",
+          "source_type": "sina_live",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "A股半导体、存储芯片领涨，联讯仪器反超茅台成新股王，市场对硬科技资产的定价热情为SpaceX上市营造正面参照",
+          "source_type": "social",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "medium"
+        }
+      ]
+    }
+  ],
+  "preflight_meta": {
+    "direction": "SpaceX IPO",
+    "ingest_schema_version": "0.3.0-cloud-client",
+    "ingest_fetched_at": "2026-05-18T07:30:05+00:00",
+    "markdown_truncated": true,
+    "relevance_scores": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "relevance_avg": 1.0,
+    "domain_tags": [
+      "teacher_focus"
+    ],
+    "source_context_compact": true,
+    "candidate_evidence_pack_required": true
+  },
+  "chosen": 2
+}

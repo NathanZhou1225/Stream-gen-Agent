@@ -1,0 +1,79 @@
+{
+  "candidate_id": "C1",
+  "candidate_index": 1,
+  "candidate_title": "新能源的未来｜从今日盘面看能源革命的投资机遇",
+  "candidate_thesis": "今日新能源板块全线爆发，能源金属、电池、光伏设备领涨全市场，叠加储能锂电池出货量暴增139%的行业数据，新能源的未来正在从概念走向现实，这背后的投资逻辑值得深挖。",
+  "direction": "新能源的未来",
+  "core_facts": [
+    {
+      "point": "行业强弱Top：能源金属 (+5.81%)、小金属 (+4.87%)、电池 (+4.64%)、光伏设备 (+3.13%)，新能源板块领涨全市场",
+      "source_type": "market",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "主力净流入：电池板块+154.29亿、光伏设备+58.41亿，资金大幅涌入新能源产业链",
+      "source_type": "market",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "2026年一季度中国储能锂电池出货量达215GWh，同比增长139%；头部企业订单已排产至2026年底至2027年Q2",
+      "source_type": "news",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "detailed_sources": [
+    {
+      "detail_id": "D3",
+      "title": "**整体情绪分**：0.13 (🟡 中性)",
+      "summary": "**整体情绪分**：0.13 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D5",
+      "title": "**个股情绪极值**：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)",
+      "summary": "**个股情绪极值**：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D6",
+      "title": "🔹 🟢利好 [2026-05-18 06:58:00] **Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元** （deep_news",
+      "summary": "🔹 🟢利好 [2026-05-18 06:58:00] **Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元** （deep_news）",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "**整体情绪分**：0.13 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "**个股情绪极值**：宁德时代(🟢 0.85)、英伟达(🟢 0.33)、美团(⚪ 0.00)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "🔹 🟢利好 [2026-05-18 06:58:00] **Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元** （deep_news",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "source_gaps": [],
+  "targeted_fetch": {
+    "attempted": false,
+    "ok": false
+  },
+  "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+}

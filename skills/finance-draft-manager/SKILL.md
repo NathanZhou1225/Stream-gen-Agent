@@ -9,9 +9,9 @@
 - **只做**：DB 检索 → Router 点菜 → 板块润色 → 输出上下文包；`db_snapshot.py` 从 DB 拼装 **飞书用 `markdown_summary`**
 - **不做**：网络请求、数据入库（采集由 `finance-source-ingest` 负责）
 
-如需与 **`ingest.py legacy` 实时 pipeline** 全文复杂度完全一致（北向/社媒情报嵌套等），请走 `query_market_facts.py --live-fetch`。
+如需与 **`ingest.py legacy` 实时 pipeline** 全文复杂度完全一致（北向/社媒情报嵌套等），请走 `query_market_facts.py --live-fetch`。本地 SQLite 已移除；`db_snapshot.py` 仅接受 **`--pre-router-stdin`**（由 `query_market_facts` 调用）。飞书 `markdown_summary` 头「最后入库」为 **CST**；文末不再重复 DB/ live-fetch 说明（见头「数据引擎」）。
 
-**DB 飞书快照（`scripts/db_snapshot.py`）**：默认 **`query_market_facts` 子进程**。六大板块可走 **`run_router` + 同池规则补位（含深度稿）+ 可选 `rewrite_sectors`**；**大事件** 独立长窗默认 **7 天**（`FINANCE_DB_SNAPSHOT_MAJOR_HOURS` / `--major-since-hours`）；**情绪量化** 对 DB 窗口新闻 / Router 结果 / 深度 / `sentiment_hot` 调用与 ingest 同源的 **`enhance_social_intelligence`**，写入 `sections.social_intelligence`，并读取 `social_intel_run_history` 中 **`legacy_pipeline` + `ingest_run`** 合并时间序列参与 FG（不写表）。开关：`FINANCE_DB_SNAPSHOT_USE_ROUTER`、`FINANCE_DB_SNAPSHOT_USE_REWRITE`（默认开）或 CLI `--no-router` / `--no-rewrite`。`router.py` / `rewriter.py` 的 OpenAI 兼容 URL 已自动补 `/v1/chat/completions`。
+**飞书快照（`scripts/db_snapshot.py`）**：由 **`query_market_facts`** 拉云端 pre-Router 后 **`--pre-router-stdin`** 套用 Router/Rewriter。六大板块 Markdown **对齐 legacy**：复用 `pipeline._sector_item_view_model`，每条 **🔹 标题 + 事件/影响/角度**；`rewrite_sectors` 输入含规则层 event/impact/angle（默认 **5** 条/板块，`FINANCE_SECTOR_LLM_REWRITE_MAX_ITEMS`）。深度稿经 Router 补位进板块；独立 **【📌 深度资讯】** 默认关（`FINANCE_DB_SNAPSHOT_SHOW_DEEP_SECTION=1` 可开）。**大事件** 窗默认 **7 天**（`FINANCE_DB_SNAPSHOT_MAJOR_HOURS`）。开关：`FINANCE_DB_SNAPSHOT_USE_ROUTER` / `USE_REWRITE`（默认开）或 `--no-router` / `--no-rewrite`。
 
 ---
 

@@ -22,8 +22,7 @@
 python3 scripts/deploy_readiness.py --repo-root "$(pwd)"
 ```
 
-- **P1 默认（`FINANCE_CLOUD_MODE=1`）**：`FINANCE_CLOUD_API_BASE_URL`、`FINANCE_CLOUD_API_KEY` 有效，且能访问 `{BASE_URL}/health`。  
-- **P1 Advanced（`FINANCE_CLOUD_MODE=0`）**：本机 `TUSHARE_TOKEN`、`FINANCE_RSSHUB_BASE_URL`（本地 ingest + SQLite）。  
+- **P1（唯一）**：`FINANCE_CLOUD_API_BASE_URL`、`FINANCE_CLOUD_API_KEY` 有效，且能访问 `{BASE_URL}/health`。  
 - **跳过（不推荐生产）**：`STREAM_GEN_SKIP_P1_READINESS=1`。  
 - 成功：`[DEPLOY_READINESS] p1=ok mode=cloud optional=see_above`
 
@@ -73,7 +72,6 @@ python3 scripts/openclaw_doctor.py --repo-root "$(pwd)"
 客户端 `.env`（拉数）：
 
 ```bash
-FINANCE_CLOUD_MODE=1
 FINANCE_CLOUD_API_BASE_URL=https://your-cloud-host:8080
 FINANCE_CLOUD_API_KEY=your-bearer-secret
 ```
@@ -84,8 +82,8 @@ FINANCE_CLOUD_API_KEY=your-bearer-secret
 python3 skills/streamy-content-gen/scripts/query_market_facts.py --cloud --sources market,news,social --summary-only
 ```
 
-- 云端返回 **pre-Router** `sections`；本地 **`db_snapshot`** 仍跑 Router/Rewriter（须配置 `FINANCE_LLM_ROUTER_*` / `FINANCE_SECTOR_LLM_*` 或宿主回退）。
-- 未开云模式时行为不变：默认读本地 `user_data/finance_sources.db`。
+- 云端返回 **pre-Router** `sections`；本地 **`db_snapshot --pre-router-stdin`** 跑 Router/Rewriter（须配置 `FINANCE_LLM_ROUTER_*` / `FINANCE_SECTOR_LLM_*` 或宿主回退）。
+- 本地 SQLite Newsbox 已移除；显式 **`--live-fetch`** 才走联网 legacy。
 - API 运维文档：`../finance-ingest-cloud/README.md`（Monorepo 同级目录）。
 
 ### 其它服务器上的 Agent（只 clone 本仓）
@@ -95,7 +93,6 @@ python3 skills/streamy-content-gen/scripts/query_market_facts.py --cloud --sourc
 业务机 `workspace-stream-gen/.env` 最少：
 
 ```bash
-FINANCE_CLOUD_MODE=1
 FINANCE_CLOUD_API_BASE_URL=http://<云端服务器IP或域名>:8080
 FINANCE_CLOUD_API_KEY=<运维下发的 Bearer 密钥，与云端 FINANCE_CLOUD_API_KEYS 中 secret 一致>
 # 本地仍须 Router/Rewriter 三件套（清洗已在云端完成）
@@ -173,7 +170,6 @@ curl -sS --connect-timeout 5 http://101.96.194.178:8080/health
 **外网业务机 `workspace-stream-gen/.env`（只 clone 本仓）**
 
 ```bash
-FINANCE_CLOUD_MODE=1
 FINANCE_CLOUD_API_BASE_URL=http://101.96.194.178:8080
 FINANCE_CLOUD_API_KEY=<运维私下发放的 secret，与云端 FINANCE_CLOUD_API_KEYS 一致>
 FINANCE_CLOUD_API_TIMEOUT=60

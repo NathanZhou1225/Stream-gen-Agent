@@ -9,10 +9,12 @@
 
 当用户要**今日行情、今日热点、快讯、信源快照、全量信息**等（**未**进入带方向开稿链、**未**要求你手写复盘报告）时：
 
-1. **唯一信源形态**：在 workspace 下执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`**（默认轻输出，内部仍等价于跑 `finance-source-ingest` 的 `ingest.py`；**不**再自动调用 Tavily）。
-2. **展示契约**：将 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户（可加一行采集时间）；**禁止**只贴三大指数表、**禁止**只贴六大板块/快讯表、**禁止**按用户口头词只跑 `market` 或 `news`、**禁止**把「行情」和「热点」拆成两条消息或两套结构。**禁止**在转述时省略任一六大板块标题及其下内容（含仅有「🧠 深度洞察」占位、无新快讯的板块）——省略会被误认为脚本漏跑。
-3. **结构说明**：`markdown_summary` 已内建 **大盘与情绪（三大指数优先 → 北向资金 → 其他情绪/资金）→ 六大核心板块快讯（深度层条目已并入各板块，无独立「深度内容」小节）→ 大事件 → 全球宏观 → 金融相关今日热点 → 社媒/人气榜 → 中文告警**；完整深度列表仍以 JSON **`sections.deep_news`** 为准。缺口以 `errors` 与告警区中文说明为准，**无** `meta.websearch_gaps` 自动清单。
-4. **旧版五段式**（大盘→焦点→新闻摘要→海外→选题）**仅**保留给：用户明确要求「写一份你手搓的盘面解读/复盘」、或对标账号分析/复盘技能等 **非 ingest 快照** 场景；与 §4.1 本条 **不**混用。
+1. **唯一信源形态**：在 workspace 下执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --summary-only`**（默认走**云端 API** → 本地 Router/Rewriter；**禁止**再跑 `ingest.py run` 或本地 `finance_sources.db`；**不**自动 Tavily）。耗时约 **90–120 秒**，须等命令结束再回复。OpenClaw **`exec` 的 `timeout` 须 ≥ 300**（秒）；`process poll` ≥ **180000** ms。  
+   **快照缓存（开稿提速）**：成功时脚本会自动写入 **`workspace-stream-gen/cache/snapshot/snapshot.json`**（**完整** snapshot JSON，含 `sections` + `markdown_summary`）。与 `preflight_topic.py` 共用；**同一 workspace 目录**下所有会话复用，**不是**每个 OpenClaw agent 各一份（WorkBuddy 若 clone 另一份 workspace 则有独立缓存）。stdout `meta.snapshot_cache_path` 可传给后续 `--snapshot-path`。`--no-write-cache` 可关闭。
+2. **展示契约**：将 stdout JSON 里的 **`markdown_summary` 全文原样**发给用户（可加一行采集时间）；**禁止**自编「六大板块 / 热点精选 / Top3 表格」等二次排版（脚本已是 **🔹 + 事件/影响/角度** 四行结构）。**禁止**只贴三大指数、**禁止**拆成两条消息。**用户明确要求「再展示一次全量快照」时**：须 **重新执行** `query_market_facts`（约 1～2 分钟），再 **全文粘贴** 新的 `markdown_summary`，不得以「本会话已展示过」为由缩写或表格化复述。
+3. **禁止**主动提议「实时刷新 / live-fetch」；仅当用户 **明确要求** 联网 legacy 时才用 `--live-fetch`。
+4. **结构说明**：`markdown_summary` 已内建 **大盘与情绪 → 六大板块（每条含 `事件 / 影响 / 角度` 四行，对齐 legacy pipeline；高 importance 深度稿经 Router 补位进板块，默认无独立「📌 深度资讯」小节，`FINANCE_DB_SNAPSHOT_SHOW_DEEP_SECTION=1` 可开）→ 大事件 → 热点 → 社媒 → Top3**；JSON **`sections.deep_news`** 仍保留供检索。云路径约 **1～2 分钟**，须等命令结束。缺口以 `errors` 为准。
+5. **旧版五段式**（大盘→焦点→新闻摘要→海外→选题）**仅**保留给：用户明确要求「写一份你手搓的盘面解读/复盘」、或对标账号分析/复盘技能等 **非 ingest 快照** 场景；与 §4.1 本条 **不**混用。
 
 ### 4.1A 可选：用户追问时的联网核对（Agent 层）
 

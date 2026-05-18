@@ -3805,29 +3805,32 @@ def build_snapshot(
         and truthy_env("FINANCE_SOCIAL_INTEL_HISTORY_APPEND", "1")
     ):
         _dbp = _finance_db_path_for_social_hist()
-        try:
-            import sqlite3
-
-            from storage import append_social_intel_run_history
-
-            _dbp.parent.mkdir(parents=True, exist_ok=True)
-            _c2 = sqlite3.connect(str(_dbp))
+        # cloud-only：勿在客户端自动创建 finance_sources.db（历史表仅 MySQL / 已存在库）
+        if not _dbp.is_file():
+            meta_extra["social_intelligence"]["history_append"] = "skipped:no_local_db"
+        else:
             try:
-                append_social_intel_run_history(
-                    _c2,
-                    recorded_at=fetched_at,
-                    headline_sentiment=float(_agg_si.get("headline_sentiment") or 0.0),
-                    mean_buzz_score=float(_agg_si.get("mean_buzz_score") or 0.0),
-                    fear_greed_index=float(_agg_si.get("fear_greed_index") or 50.0),
-                    dedupe_unique_count=len(unique_intel_items),
-                    source_kind="legacy_pipeline",
-                )
-            finally:
-                _c2.close()
-            meta_extra["social_intelligence"]["history_append"] = "ok"
-        except Exception as _ex:
-            logger.warning("social_intel DB history append failed: %s", _ex)
-            meta_extra["social_intelligence"]["history_append"] = f"failed:{str(_ex)[:120]}"
+                import sqlite3
+
+                from storage import append_social_intel_run_history
+
+                _c2 = sqlite3.connect(str(_dbp))
+                try:
+                    append_social_intel_run_history(
+                        _c2,
+                        recorded_at=fetched_at,
+                        headline_sentiment=float(_agg_si.get("headline_sentiment") or 0.0),
+                        mean_buzz_score=float(_agg_si.get("mean_buzz_score") or 0.0),
+                        fear_greed_index=float(_agg_si.get("fear_greed_index") or 50.0),
+                        dedupe_unique_count=len(unique_intel_items),
+                        source_kind="legacy_pipeline",
+                    )
+                finally:
+                    _c2.close()
+                meta_extra["social_intelligence"]["history_append"] = "ok"
+            except Exception as _ex:
+                logger.warning("social_intel DB history append failed: %s", _ex)
+                meta_extra["social_intelligence"]["history_append"] = f"failed:{str(_ex)[:120]}"
     
     md = _build_live_stream_markdown(sections, errors, fetched_at)
     _rewrite_meta = sections.get("sector_llm_rewrite") or {}

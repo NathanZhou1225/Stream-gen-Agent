@@ -265,16 +265,32 @@ def _normalize_item_sentiment(raw: Any, fallback_hint: str) -> str:
     return _hint_to_sent_label(fallback_hint)
 
 
+def _rewrite_max_items() -> int:
+    try:
+        return max(1, min(8, int(os.environ.get("FINANCE_SECTOR_LLM_REWRITE_MAX_ITEMS", "5"))))
+    except ValueError:
+        return 5
+
+
 def _build_sector_prompt(sector: str, items: list[dict[str, Any]]) -> str:
-    lines = [f"板块：{sector}", "已选事实（与 items 顺序一致，至多 3 条）："]
-    for it in items[:3]:
+    cap = _rewrite_max_items()
+    lines = [f"板块：{sector}", f"已选事实（与 items 顺序一致，至多 {cap} 条）："]
+    for it in items[:cap]:
         title = str(it.get("clean_title") or it.get("raw_title") or "")
+        event = str(it.get("event") or "").strip()
+        impact = str(it.get("impact") or "").strip()
+        angle = str(it.get("angle") or "").strip()
         summary = str(it.get("clean_summary") or "")[:120]
-        lines.append(f"- {title}：{summary}" if summary else f"- {title}")
+        if event or impact or angle:
+            lines.append(
+                f"- {title}\n  事件：{event or summary}\n  影响：{impact}\n  角度：{angle}"
+            )
+        else:
+            lines.append(f"- {title}：{summary}" if summary else f"- {title}")
     return (
         "\n".join(lines)
-        + "\n\n【格式】立即输出且仅输出一个 JSON 对象：全文第一个字符必须是 ASCII 的 { ，"
-        "禁止先写分析过程；items 长度与上列表格条数一致、不超过 3。"
+        + f"\n\n【格式】立即输出且仅输出一个 JSON 对象：全文第一个字符必须是 ASCII 的 {{ ，"
+        f"禁止先写分析过程；items 长度与上列表格条数一致、不超过 {cap}。"
     )
 
 
@@ -315,8 +331,9 @@ def _rewrite_sector(
             raw_items = raw.get("items") or []
             if isinstance(raw_items, list):
                 built: list[dict[str, Any]] = []
+                max_n = _rewrite_max_items()
                 for j, i in enumerate(raw_items):
-                    if not isinstance(i, dict) or len(built) >= 3:
+                    if not isinstance(i, dict) or len(built) >= max_n:
                         continue
                     src = items[j] if j < len(items) else {}
                     fh = str((src or {}).get("sentiment_hint") or "中性")

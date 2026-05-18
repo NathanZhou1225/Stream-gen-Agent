@@ -28,18 +28,17 @@ class SinaMarketCollector(BaseCollector):
             for idx_item in indices:
                 if not isinstance(idx_item, dict):
                     continue
+                price = _first_float(idx_item, "close", "current", "price")
+                change_pct = _first_float(idx_item, "pct_change", "percent", "change_pct")
                 snap = MarketSnapshot(
                     index_code=str(idx_item.get("code") or idx_item.get("symbol") or ""),
                     index_name=str(idx_item.get("name") or ""),
-                    price=_to_float(
-                        idx_item.get("close") or idx_item.get("current") or idx_item.get("price")
-                    ),
-                    change_pct=_to_float(
-                        idx_item.get("pct_change") or idx_item.get("percent") or idx_item.get("change_pct")
-                    ),
+                    price=price,
+                    change_pct=change_pct,
                     raw_payload=idx_item,
                 )
-                if snap.index_code:
+                # 开盘瞬间新浪常返回 0.0 占位；勿入库以免覆盖上一档有效快照
+                if snap.index_code and price is not None and price > 0:
                     result.market_items.append(snap)
         except Exception as exc:  # noqa: BLE001
             result.add_error("SINA_MARKET_FAILED", f"{type(exc).__name__}: {exc!s}"[:300])
@@ -53,3 +52,14 @@ def _to_float(v: Any) -> float | None:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _first_float(item: dict[str, Any], *keys: str) -> float | None:
+    """取第一个已存在字段（0.0 为有效值，勿用 ``or`` 链）。"""
+    for key in keys:
+        if key not in item:
+            continue
+        val = _to_float(item.get(key))
+        if val is not None:
+            return val
+    return None

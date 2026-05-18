@@ -189,15 +189,17 @@ def rewrite_effective_trio(env: dict[str, str]) -> tuple[str, str, str]:
 def run_checks(env: dict[str, str]) -> tuple[bool, list[str]]:
     errors: list[str] = []
 
-    if _clean_enabled(env):
+    # v0.3.0 客户端：ingest LLM 清洗仅在 finance-ingest-cloud Worker；本仓只校验 Router/Rewriter。
+    # 若显式 FINANCE_INGEST_LLM_CLEAN_ENABLED=1 且在本机跑 legacy/cleaner，仍校验三件套（高级用法）。
+    if _clean_enabled(env) and _truthy_switch(
+        str(env.get("FINANCE_INGEST_LLM_CLEAN_ENABLED", "0")).strip(), default="0"
+    ):
         b, k, m = clean_effective_trio(env)
         if not (is_set(b) and is_set(k) and is_set(m)):
             errors.append(
-                "MISSING_CONFIG: ingest_llm_clean — LLM 清洗默认开启，但未解析到完整的 "
-                "BASE_URL + API_KEY + MODEL。请在本目录 .env 填写 FINANCE_INGEST_LLM_CLEAN_BASE_URL / "
-                "FINANCE_INGEST_LLM_CLEAN_API_KEY / FINANCE_INGEST_LLM_CLEAN_MODEL（OpenAI 兼容），"
-                "或确保宿主进程已注入 OPENCLAW_ARK_* / ARK_API_KEY；不需要清洗时可设 "
-                "FINANCE_INGEST_LLM_CLEAN_ENABLED=0。详见 .env.example。"
+                "MISSING_CONFIG: ingest_llm_clean — FINANCE_INGEST_LLM_CLEAN_ENABLED=1 但未解析到完整的 "
+                "BASE_URL + API_KEY + MODEL。常规部署请删除该行或设为 0（清洗在云端）；"
+                "仅 --live-fetch / 本机 legacy 运维需要时保留并填写 FINANCE_INGEST_LLM_CLEAN_*。"
             )
 
     if _truthy_switch(env.get("FINANCE_LLM_ROUTER_ENABLED", "1")):

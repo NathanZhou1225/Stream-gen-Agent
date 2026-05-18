@@ -180,6 +180,43 @@ def _resolve_finance_venv_python(finance_root: Path) -> str:
     return sys.executable
 
 
+def _run_cloud_query_market_facts(
+    *,
+    out_dir: Path,
+    cache_path: Path,
+    keywords: str,
+    timeout_sec: int = 180,
+) -> None:
+    """调用 query_market_facts（云端 API，--full）并写入 snapshot.json。"""
+    qmf = SCRIPTS_DIR / "query_market_facts.py"
+    cmd = [
+        sys.executable,
+        str(qmf),
+        "--sources",
+        "market,news,social",
+        "--full",
+    ]
+    if keywords.strip():
+        cmd.extend(["--keywords", keywords.strip()])
+    proc = subprocess.run(
+        cmd,
+        cwd=str(WORKSPACE_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=timeout_sec,
+        check=False,
+    )
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "")[-800:]
+        raise RuntimeError(f"query_market_facts 退出码 {proc.returncode}: {tail}")
+    snapshot = json.loads(proc.stdout)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    snap_path = out_dir / "snapshot.json"
+    snap_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _markdown_bullet_lines(md: str, cap: int = 32) -> list[str]:
     """取 markdown 中以 '- ' 开头的行（截断），保序、去重前缀避免完全重复。"""
     out: list[str] = []
@@ -1128,6 +1165,66 @@ def _candidate_relevance(c: dict[str, Any], direction: str) -> float:
     return _relevance_score(base, direction)
 
 
+def validate_candidate_choice(
+    topic_payload: dict[str, Any],
+    candidate_id: str,
+    *,
+    min_score: float = 0.10,
+) -> dict[str, Any]:
+    """校验用户所选候选与 direction 的关联度（供 evidence_pack / workflow helper 复用）。"""
+    direction = str(
+        topic_payload.get("direction")
+        or (topic_payload.get("preflight_meta") or {}).get("direction")
+        or ""
+    ).strip()
+    candidates = topic_payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError("topic_payload.candidates 为空或不是数组")
+    n = _candidate_index_from_arg(candidate_id, len(candidates))
+    candidate = candidates[n - 1]
+    if not isinstance(candidate, dict):
+        raise ValueError(f"candidates[{n}] 不是 JSON object")
+    score = _candidate_relevance(candidate, direction)
+    scores = [_candidate_relevance(c, direction) for c in candidates if isinstance(c, dict)]
+    best_idx = max(range(len(scores)), key=lambda i: scores[i]) + 1 if scores else n
+    ok = score >= min_score
+    return {
+        "ok": ok,
+        "candidate_index": n,
+        "candidate_id": f"C{n}",
+        "relevance_score": round(score, 4),
+        "min_score": min_score,
+        "direction": direction,
+        "candidate_title": str(candidate.get("title") or ""),
+        "all_relevance_scores": [round(s, 4) for s in scores],
+        "best_candidate_index": best_idx,
+        "hint": (
+            None
+            if ok
+            else (
+                f"候选 {n} 与方向关联度 {score:.2f} 低于阈值 {min_score}；"
+                f"建议改选候选 {best_idx} 或补充更具体的开稿方向。"
+            )
+        ),
+    }
+
+
+def _attach_snapshot_meta(
+    topic_payload: dict[str, Any],
+    *,
+    snapshot_path: Path,
+    snapshot_cached: bool,
+    snapshot_fetched_at: str | None,
+) -> None:
+    pfm = topic_payload.setdefault("preflight_meta", {})
+    if not isinstance(pfm, dict):
+        return
+    pfm["snapshot_path"] = str(snapshot_path.resolve())
+    pfm["snapshot_cached"] = snapshot_cached
+    if snapshot_fetched_at:
+        pfm["snapshot_fetched_at"] = snapshot_fetched_at
+
+
 def _pick_tophub_signal(hot_rank: dict[str, Any]) -> dict[str, Any] | None:
     lists = hot_rank.get("lists") or []
     if not isinstance(lists, list):
@@ -1493,9 +1590,9 @@ def main() -> None:
     p.add_argument("--allow-targeted-fetch", action="store_true", help="证据包不足时允许按候选方向做一次定向补充拉取")
     p.add_argument(
         "--source-mode",
-        choices=["db", "legacy"],
-        default="db",
-        help="数据源模式：db（默认，从本地数据库读取，不联网）/ legacy（实时抓取，需要网络）",
+        choices=["cloud", "legacy", "db"],
+        default="cloud",
+        help="数据源：cloud（默认，云端 API）/ legacy（实时抓取，需网络）；db 已废弃为 cloud 别名",
     )
     p.add_argument(
         "--snapshot-max-age-hours",
@@ -1538,6 +1635,19 @@ def main() -> None:
         try:
             snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
             topic_payload = json.loads(topic_payload_path.read_text(encoding="utf-8"))
+            choice_check = validate_candidate_choice(topic_payload, str(args.candidate_id))
+            if not choice_check.get("ok"):
+                _exit_ok(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "PREFLIGHT_CANDIDATE_LOW_RELEVANCE",
+                            "message": choice_check.get("hint") or "所选候选与开稿方向关联度不足",
+                            "hint": "请改选其他候选或补充更具体的 --direction 后重新 preflight。",
+                        },
+                        "choice_validation": choice_check,
+                    }
+                )
             evidence_pack = _build_candidate_evidence_pack(
                 topic_payload=topic_payload,
                 snapshot=snapshot,
@@ -1565,6 +1675,7 @@ def main() -> None:
                 "evidence_pack": evidence_pack,
                 "snapshot_path": str(snap_path),
                 "topic_payload_file": str(topic_payload_path),
+                "choice_validation": choice_check,
                 "hint_ok": "先展示 evidence_pack；用户确认后再进入 user-style 选择/绑定，不得同轮越级输出大纲/逐字稿。",
             }
         )
@@ -1629,7 +1740,9 @@ def main() -> None:
     out_dir: Path = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    source_mode = getattr(args, "source_mode", "db")
+    source_mode = getattr(args, "source_mode", "cloud")
+    if source_mode == "db":
+        source_mode = "cloud"
     snapshot_max_age = getattr(args, "snapshot_max_age_hours", 6)
     cache_snapshot_path = getattr(args, "cache_snapshot_path", None)
     
@@ -1639,79 +1752,46 @@ def main() -> None:
     if cache_snapshot_path is None:
         cache_snapshot_path = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
     
-    # ── 数据源分叉：默认 DB，--source-mode legacy 才实时抓 ────────────────────
+    # ── 数据源：默认 cloud（API），legacy 显式联网 ─────────────────────────────
     t_ingest_start = time.perf_counter()
     cached_snapshot_used = False
     cached_snapshot_fetched_at = None
 
-    if source_mode == "db":
-        # 先尝试读取缓存的快照
+    if source_mode == "cloud":
         cached_snapshot, cached_fetched_at = _try_read_cached_snapshot(cache_snapshot_path, snapshot_max_age)
         if cached_snapshot is not None:
-            # 快照未过期，直接复用
             snapshot = cached_snapshot
             cached_snapshot_used = True
             cached_snapshot_fetched_at = cached_fetched_at
             snap_path = cache_snapshot_path
             timing["cached_snapshot_sec"] = round(time.perf_counter() - t_ingest_start, 3)
         else:
-            # 快照不存在或已过期，调用 db_snapshot.py 生成新快照
-            # DB 路径：调用 db_snapshot.py，写 snapshot.json 到 out_dir
-            _db_script = (
-                SKILL_ROOT.parent
-                / "finance-draft-manager"
-                / "scripts"
-                / "db_snapshot.py"
-            )
-            _py_exe = _resolve_finance_venv_python(finance_root)
-            _cmd = [
-                _py_exe,
-                str(_db_script),
-                "--since-hours", "24",
-                "--sources", "market,news,social",
-                "--keywords", kw,
-                "--out-dir", str(out_dir),
-            ]
             try:
-                _proc = subprocess.run(
-                    _cmd,
-                    cwd=str(WORKSPACE_ROOT),
-                    capture_output=True,
-                    text=True,
-                    timeout=30,  # 超时放宽到 30s
-                    check=False,
+                _run_cloud_query_market_facts(
+                    out_dir=out_dir,
+                    cache_path=cache_snapshot_path,
+                    keywords=kw,
+                    timeout_sec=180,
                 )
             except subprocess.TimeoutExpired:
                 _exit_ok(
                     {
                         "ok": False,
                         "error": {
-                            "code": "PREFLIGHT_DB_SNAPSHOT_TIMEOUT",
-                            "message": "db_snapshot.py 执行超时（30s）",
-                            "hint": "数据库可能损坏，请检查 user_data/finance_sources.db；或使用 --cache-snapshot-path 指定已有快照",
+                            "code": "PREFLIGHT_CLOUD_SNAPSHOT_TIMEOUT",
+                            "message": "query_market_facts 执行超时",
+                            "hint": "请检查 FINANCE_CLOUD_API_* 与 finance-ingest-cloud API/Worker",
                         },
                     }
                 )
-            except OSError as e:
+            except (OSError, json.JSONDecodeError, RuntimeError) as e:
                 _exit_ok(
                     {
                         "ok": False,
                         "error": {
-                            "code": "PREFLIGHT_DB_SNAPSHOT_OS_ERROR",
-                            "message": str(e),
-                            "hint": f"db_snapshot.py 启动失败，脚本路径: {_db_script}",
-                        },
-                    }
-                )
-
-            if _proc.returncode not in (0, 2):
-                _exit_ok(
-                    {
-                        "ok": False,
-                        "error": {
-                            "code": "PREFLIGHT_DB_SNAPSHOT_FAILED",
-                            "message": "db_snapshot.py 非正常退出",
-                            "hint": (_proc.stderr or _proc.stdout or "")[:600],
+                            "code": "PREFLIGHT_CLOUD_SNAPSHOT_FAILED",
+                            "message": str(e)[:500],
+                            "hint": "云端 Newsbox 不可用；可显式 --source-mode legacy（需网络与 RSS 配置）",
                         },
                     }
                 )
@@ -1876,6 +1956,17 @@ def main() -> None:
         )
     timing["build_payload_sec"] = round(time.perf_counter() - t_payload_start, 3)
     timing["total_sec"] = round(time.perf_counter() - t0_all, 3)
+
+    _attach_snapshot_meta(
+        payload,
+        snapshot_path=snap_path,
+        snapshot_cached=cached_snapshot_used,
+        snapshot_fetched_at=(
+            cached_snapshot_fetched_at
+            if cached_snapshot_used
+            else (snapshot.get("meta") or {}).get("fetched_at")
+        ),
+    )
 
     digest = _feishu_digest_bullets(md_summary)
     

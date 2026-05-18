@@ -1,0 +1,56 @@
+{
+  "title": "SpaceX值多少钱？拆股+IPO背后的估值逻辑与中美科技资本博弈",
+  "structure_template": "standard",
+  "user_style_context": "## User style (RAG block)\n- **style_id**: `cf999341-781e-497d-8c14-12148240f51e`\n- **style_name**: 老丁\n- **tags**: 老丁, 财经, 口播\n\n### Archive style fields (T5)\n{\n  \"bio\": \"老丁财经，2025年度·最佳拐点捕手丁利，全网粉丝34.8万（抖音、B站、小红书、头条），专注逃顶抄底的实战派财经博主。\",\n  \"ip_positioning\": \"聚焦逃顶抄底，通过「缠论 + 布林通道」结合，强调「顶部预警 + 底部确认」的双重验证；独创《八度空间交易法》，教你「逃顶真本事」，掌握主力出货信号。\",\n  \"audience\": \"关注逃顶抄底、希望提升盘感与节奏判断的投资者，涵盖A股、港股市场的散户交易者。\",\n  \"tone\": \"直接、判断清晰、偏实战，表达强调「信号」「验证」「顶底节奏」，不拖泥带水，给明确结论。\",\n  \"taboo\": \"空泛宏观分析，无明确信号的预判，模糊化表达，模棱两可的观点，纯理论无实战指导的内容。\",\n  \"structure_pref\": \"方法论+信号拆解+盘面提醒的三段式结构，先给明确结论，再讲信号验证逻辑，最后给操作节奏建议。\",\n  \"visual_pref\": \"蓝白财经风、关键数字高亮（如粉丝数/涨跌幅/信号词），顶底信号用特殊标识突出。\",\n  \"evidence_pref\": \"缠论结构信号、布林通道位置、主力资金数据、历史顶底验证案例、板块资金流向数据。\"\n}\n\n### Few-shot reference excerpts\n#### Ref 1\n名称：老丁财经，标注语：2025年度·最佳拐点捕手丁利，粉丝规模：全网粉丝34.8万（抖音、B站、小红书、头条）\n#### Ref 2\n个人定位：聚焦逃顶抄底，通过\"缠论 + 布林通道\"结合，强调\"顶部预警 + 底部确认\"的双重验证\n#### Ref 3\n核心方法/战法：独创战法《八度空间交易法》，方法主张：教你\"逃顶真本事\"，掌握主力出货信号\n#### Ref 4\n特色服务：1）最新机构资讯 2）大盘顶底提醒 3）板块博弈提醒 4）独家逃顶课程\n#### Ref 5\n风格偏好：语气直接、判断清晰、偏实战，表达强调\"信号\"\"验证\"\"顶底节奏\"，内容偏好方法论+信号拆解+盘面提醒，不走空泛宏观\n\n---\n在生成口播/大纲/逐字稿时，**语气和句式**应贴近以上画像与引用；**事实与数据**仍以当前 topic 的 source_context / evidence 为准。",
+  "hook": {
+    "text": "Cerebras上市首日暴涨68%，SpaceX紧随其后——2026年最大科技IPO潮来了，但这次定价逻辑完全不一样。",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "方法论：SpaceX拆股不是降价，是估值锚重置",
+      "evidence": "SpaceX宣布拆股并加速IPO，最早6月12日登陆纳斯达克，代码SPCX。拆股前私募市场隐含估值已被推至3500亿美元区间（2026年5月）。",
+      "production_hint": "中景口播+拆股前后估值对比数字弹出",
+      "duration_sec": 12
+    },
+    {
+      "order": 2,
+      "role": "argument",
+      "headline": "信号验证：Cerebras+长鑫双信号确认科技IPO窗口打开",
+      "evidence": "Cerebras Systems发行价185→首日收311美元，涨68%，市值670亿美元；长鑫科技Q1营收508亿增719%，净利330亿增1268%（均为2026年5月数据）。",
+      "production_hint": "三分屏：Cerebras涨势+长鑫营收曲线+SpaceX时间线",
+      "duration_sec": 14
+    },
+    {
+      "order": 3,
+      "role": "turn",
+      "headline": "盘面提醒：贪婪60≠盲目追高，科技板块内部分化信号已出",
+      "evidence": "整体情绪0.13（中性），恐惧贪婪指数60（贪婪）。硬科技内部分化：宁德时代0.85 vs 英伟达0.33（2026年5月18日DB快照）。",
+      "production_hint": "切近景，红绿对比宁德vs英伟达情绪值",
+      "duration_sec": 12
+    },
+    {
+      "order": 4,
+      "role": "action",
+      "headline": "节奏建议：盯两个时间窗——5月20日招股书 + 6月12日挂牌日",
+      "evidence": "SpaceX计划5月20日公开招股说明书；格里芬态度逆转+中美经贸磋商成果，科技资产证券化窗口叠加政策利好。",
+      "production_hint": "中景口播+时间轴动画：5/20→6/12双节点高亮",
+      "duration_sec": 14
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "评论区扣'SpaceX'，我把科技IPO估值对照表发你"
+  },
+  "total_duration_sec": 68,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  }
+}

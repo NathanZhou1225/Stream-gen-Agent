@@ -29,7 +29,7 @@ description: |
    - 只向用户展示 `evidence_pack`（核心事实、详细来源、论据补强点、缺口）；用户确认后才进入 user-style 选择/绑定。  
   默认**不展示**信源状态/大盘行情/市场焦点/事实摘要（除非用户显式要求回看数据来源）。  
   **唯一例外（纯拉数 / 非 topic_picking）**：用户仅要「今日行情 / 热点 / 全量 / 信源快照」**任一口径**且**未**进入带方向开稿链时，按 **`prompts/fragments/intent-core.md` §4.4**（经 `natural-language-intent.md` 索引引入）：必须执行 **`python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --max-items 30 --summary-only`**，并将返回 JSON 的 **`markdown_summary` 全文原样** 展示（不得拆成只行情或只热点、不得拆两条消息、不得自行重排版删段）。  
-   **纯拉数**：`query_market_facts.py` 仅调用 `finance-source-ingest` 并输出 JSON（与 `ingest.py` 同源），**不**再拼接 Tavily。纯拉数场景仍可用 `ingest.py` 调试；面向用户展示推荐 `query_market_facts.py` 以便统一加载 `.env`。  
+   **纯拉数**：**只**用 `query_market_facts.py`（云端 API，约 1～2 分钟）；**禁止** `ingest.py run` / 本地 SQLite。**不**拼接 Tavily。仅用户明确要求实时刷新时用 `--live-fetch`（legacy，更慢）。  
    **禁止**仅用三条候选标题复述用户原话却 **不展示** 任何 ingest 事实锚点（用户会误以为未拉信源）。  
    **同一轮内不得**再调用模型写 `outline_refining` / `script_refining` 内容，也不得在聊天里预写大纲/逐字稿「代替」落盘。
 
@@ -55,11 +55,10 @@ python3 scripts/preflight_topic.py --direction '用户的自然语言方向'
 python3 scripts/preflight_topic.py \
   --candidate-id 2 \
   --topic-payload-file '<上轮 topic_payload.json>' \
-  --snapshot-path '<上轮 snapshot_path>' \
-  --allow-targeted-fetch
+  --snapshot-path cache/snapshot/snapshot.json
 ```
 
-  该命令优先从同一份 `snapshot.json` 匹配候选方向相关来源；若强匹配不足且带 `--allow-targeted-fetch`，允许做一次定向补充拉取。展示 `evidence_pack` 后再询问/执行 user-style 选择与绑定。
+  `--snapshot-path` 默认即拉数阶段写入的 **`cache/snapshot/snapshot.json`**（`query_market_facts` 成功时自动落盘，与 preflight 共用）。从该文件匹配候选方向相关来源。**默认不要**加 `--allow-targeted-fetch`（会触发 `ingest.py legacy` 联网，最多约 180s）；仅当证据包 `source_gaps` 提示不足、用户同意补拉时再开。展示 `evidence_pack` 后再询问/执行 user-style 选择与绑定。
 - **证据包落盘**：展示前/后必须执行 `draft_manager update --draft <DID> --set-evidence-pack-file <evidence_pack.json>`；工具会在 `outline_refining` 前检查 `candidate_evidence_pack.json`，缺失则返回 `EVIDENCE_PACK_REQUIRED_BEFORE_OUTLINE`。
 - **后续步骤（禁止同轮续写大纲）**：证据包落盘、**稿件类型画像（见 `MEMORY_workflow` 步骤3A）**完成且用户确认继续后，先完成 user-style 门禁，再推进 `outline_refining`。对用户侧 topic 回复仅给 **draft 状态 + 候选标题 + 每条核心论点 + 每条 3 条论据 + 选号指令**；证据包回复仅给该方向证据包，不得混入其它候选或随机信源详情。
 - **安全批量 helper（可选）**：为减少工具来回，可用 `scripts/stream_gen_workflow_helper.py start-topic --direction '<方向>'` 打包创建 Draft、preflight 与 topic 落盘；用户选候选后可用 `scripts/stream_gen_workflow_helper.py apply-choice --draft <DID> --candidate-id <N> --topic-payload-file <file> --snapshot-path <snapshot>` 打包 set-chosen 与 evidence_pack 落盘。helper 只覆盖非决策段；候选选择、证据包确认、user-style 选择仍必须停下来等用户。

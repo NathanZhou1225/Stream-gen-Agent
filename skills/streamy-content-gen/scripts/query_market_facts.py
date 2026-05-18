@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""今日市场快照 — 默认从本地数据库读取，加 --live-fetch 才实时抓取。
+"""今日市场快照 — 默认云端 API；仅 --live-fetch 走联网 legacy。
 
-v0.2.2 架构：
-- 默认：调用 finance-draft-manager/scripts/db_snapshot.py（DB 路径，不联网，快速）
-- --cloud / FINANCE_CLOUD_MODE=1：HTTP 拉云端 pre-Router JSON → 本地 db_snapshot Router/Rewriter
-- --live-fetch：调用 ingest.py legacy（旧 pipeline 路径，实时抓取，慢）
+- 默认：HTTP 拉 finance-ingest-cloud pre-Router JSON → 本地 db_snapshot Router/Rewriter
+- --live-fetch：ingest.py legacy（实时 pipeline，慢，需网络）
 
-DB 为空/过期时直接返回提示，不自动触发网络请求。
+云 API 不可用时直接报错，不自动降级 legacy。
 """
 
 from __future__ import annotations
@@ -27,6 +25,8 @@ WORKSPACE_ROOT = SKILL_ROOT.parent.parent
 FINANCE_ROOT = SKILL_ROOT.parent / "finance-source-ingest"
 DRAFT_MANAGER_ROOT = SKILL_ROOT.parent / "finance-draft-manager"
 DB_SNAPSHOT_SCRIPT = DRAFT_MANAGER_ROOT / "scripts" / "db_snapshot.py"
+# 与 preflight_topic.DEFAULT_OUT_DIR / cache_snapshot_path 对齐（同 workspace，非按 agent 分目录）
+DEFAULT_CACHE_SNAPSHOT = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
 
 
 def _load_dotenv(env: dict[str, str] | None = None) -> dict[str, str]:
@@ -74,13 +74,6 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
 def _finance_python(finance_root: Path = FINANCE_ROOT) -> str:
     vpy = finance_root / ".venv" / "bin" / "python"
     return str(vpy if vpy.exists() else sys.executable)
-
-
-def _cloud_mode_enabled(args: argparse.Namespace) -> bool:
-    if getattr(args, "cloud", False):
-        return True
-    v = os.environ.get("FINANCE_CLOUD_MODE", "").strip().lower()
-    return v in ("1", "true", "yes", "on")
 
 
 def _cloud_config_error(env: dict[str, str]) -> dict[str, Any]:
@@ -161,7 +154,7 @@ def _fetch_cloud_pre_router(args: argparse.Namespace, env: dict[str, str]) -> di
         }
 
 
-# ── 云路径（--cloud / FINANCE_CLOUD_MODE=1）──────────────────────────────────
+# ── 云路径（默认）────────────────────────────────────────────────────────────
 
 def _run_cloud_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     """HTTP 拉 pre-Router → 本地 db_snapshot 套 Router/Rewriter。"""
@@ -229,63 +222,6 @@ def _run_cloud_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         }
 
 
-# ── DB 路径（默认）────────────────────────────────────────────────────────────
-
-def _run_db_snapshot(args: argparse.Namespace) -> dict[str, Any]:
-    """从本地 DB 读取快照，不联网。"""
-    if not DB_SNAPSHOT_SCRIPT.exists():
-        return {
-            "ok": False,
-            "error": {
-                "code": "DB_SNAPSHOT_SCRIPT_MISSING",
-                "message": f"db_snapshot.py 不存在: {DB_SNAPSHOT_SCRIPT}",
-                "hint": "请确认 finance-draft-manager skill 已正确部署。",
-            },
-        }
-
-    since_h = str(getattr(args, "since_hours", 24))
-    cmd = [
-        _finance_python(),
-        str(DB_SNAPSHOT_SCRIPT),
-        "--since-hours", since_h,
-        "--sources", getattr(args, "sources", "market,news,social"),
-        "--summary-only",
-    ]
-    msh = getattr(args, "major_since_hours", None)
-    if msh is not None:
-        cmd += ["--major-since-hours", str(msh)]
-    if getattr(args, "no_router", False):
-        cmd.append("--no-router")
-    if getattr(args, "no_rewrite", False):
-        cmd.append("--no-rewrite")
-    if getattr(args, "keywords", ""):
-        cmd += ["--keywords", args.keywords]
-
-    env = _load_dotenv(dict(os.environ))
-    db_timeout = int(getattr(args, "db_timeout", 180))
-    proc = subprocess.run(
-        cmd,
-        cwd=str(WORKSPACE_ROOT),
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=db_timeout,
-        check=False,
-    )
-    try:
-        return _extract_json_object(proc.stdout)
-    except ValueError:
-        return {
-            "ok": False,
-            "error": {
-                "code": "DB_SNAPSHOT_PARSE_ERROR",
-                "message": "db_snapshot.py 输出无法解析",
-                "hint": proc.stdout[-500:],
-            },
-        }
-
-
 # ── legacy 路径（--live-fetch）────────────────────────────────────────────────
 
 def _run_live_fetch(args: argparse.Namespace) -> dict[str, Any]:
@@ -317,7 +253,27 @@ def _run_live_fetch(args: argparse.Namespace) -> dict[str, Any]:
     return _extract_json_object(proc.stdout)
 
 
-def _build_summary_view(snap: dict[str, Any]) -> dict[str, Any]:
+def _write_snapshot_cache(snap: dict[str, Any], *, cache_path: Path | None = None) -> Path:
+    """写入 workspace 级快照缓存，供 preflight --direction 复用（避免二次 query_market_facts）。"""
+    path = (cache_path or DEFAULT_CACHE_SNAPSHOT).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def _should_write_cache(snap: dict[str, Any]) -> bool:
+    if not snap.get("ok", True):
+        return False
+    if snap.get("error") and not snap.get("markdown_summary") and not snap.get("sections"):
+        return False
+    return bool(snap.get("markdown_summary") or snap.get("sections"))
+
+
+def _build_summary_view(
+    snap: dict[str, Any],
+    *,
+    cache_path: str | None = None,
+) -> dict[str, Any]:
     meta = snap.get("meta") or {}
     return {
         "ok": bool(snap.get("ok", True)),
@@ -336,6 +292,8 @@ def _build_summary_view(snap: dict[str, Any]) -> dict[str, Any]:
             "sector_llm_rewrite_status": meta.get("sector_llm_rewrite_status"),
             "major_since_hours": meta.get("major_since_hours"),
             "social_intelligence": meta.get("social_intelligence"),
+            "snapshot_cache_path": cache_path,
+            "snapshot_cache_written": bool(cache_path),
         },
         "errors": snap.get("errors") or [],
         "markdown_summary": str(snap.get("markdown_summary") or ""),
@@ -345,14 +303,14 @@ def _build_summary_view(snap: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="今日市场快照（默认从 DB 读取，不联网）",
+        description="今日市场快照（默认云端 API；--live-fetch 为联网 legacy）",
     )
     parser.add_argument("--sources", default="market,news,social")
-    parser.add_argument("--since-hours", type=int, default=24, help="DB 路径：新闻/板块主窗口（小时）")
-    parser.add_argument("--major-since-hours", type=int, default=None, help="DB 路径：大事件窗口（默认 168）")
-    parser.add_argument("--db-timeout", type=int, default=180, help="DB 路径：db_snapshot 子进程超时（秒）")
-    parser.add_argument("--no-router", action="store_true", help="DB 路径：禁用 LLM Router")
-    parser.add_argument("--no-rewrite", action="store_true", help="DB 路径：禁用板块润色")
+    parser.add_argument("--since-hours", type=int, default=24, help="云 API：新闻/板块主窗口（小时）")
+    parser.add_argument("--major-since-hours", type=int, default=None, help="云 API：大事件窗口（默认 168）")
+    parser.add_argument("--db-timeout", type=int, default=240, help="db_snapshot 子进程超时（秒）")
+    parser.add_argument("--no-router", action="store_true", help="禁用 LLM Router")
+    parser.add_argument("--no-rewrite", action="store_true", help="禁用板块润色")
     parser.add_argument("--keywords", default="")
     parser.add_argument("--max-items", type=int, default=30, help="仅 --live-fetch 时使用")
     parser.add_argument("--timeout", type=int, default=120, help="仅 --live-fetch 时使用")
@@ -370,33 +328,20 @@ def main() -> None:
     parser.add_argument(
         "--live-fetch",
         action="store_true",
-        help="实时抓取（旧 pipeline 路径，需要网络，慢）。默认从本地 DB 读取。",
+        help="实时抓取（ingest.py legacy，需网络，慢）",
     )
     parser.add_argument(
-        "--cloud",
+        "--no-write-cache",
         action="store_true",
-        help="从 finance-ingest-cloud API 拉 pre-Router JSON，本地 Router/Rewriter（需 FINANCE_CLOUD_API_*）",
+        help="成功时不写入 workspace-stream-gen/cache/snapshot/snapshot.json",
     )
-    # 保留旧参数名以向后兼容
+    parser.add_argument("--cloud", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--from-db", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     os.environ.update(_load_dotenv())
 
-    if args.live_fetch and (_cloud_mode_enabled(args) or args.cloud):
-        print(json.dumps({
-            "ok": False,
-            "error": {
-                "code": "MUTUALLY_EXCLUSIVE_FLAGS",
-                "message": "--live-fetch 与 --cloud / FINANCE_CLOUD_MODE 不能同时使用",
-            },
-        }, ensure_ascii=False, indent=2))
-        sys.exit(1)
-
-    if _cloud_mode_enabled(args):
-        snap = _run_cloud_snapshot(args)
-    elif args.live_fetch:
-        # 显式实时抓取
+    if args.live_fetch:
         try:
             snap = _run_live_fetch(args)
         except Exception as e:
@@ -406,15 +351,31 @@ def main() -> None:
             }, ensure_ascii=False, indent=2))
             sys.exit(1)
     else:
-        # 默认：DB 路径（含旧 --from-db 向后兼容）
-        snap = _run_db_snapshot(args)
+        snap = _run_cloud_snapshot(args)
 
     if snap.get("error") and not snap.get("markdown_summary") and not snap.get("sections"):
         print(json.dumps(snap, ensure_ascii=False, indent=2))
         sys.exit(0 if snap.get("ok") else 1)
 
+    cache_written: str | None = None
+    if not args.no_write_cache and _should_write_cache(snap):
+        try:
+            cache_written = str(_write_snapshot_cache(snap))
+        except OSError:
+            cache_written = None
+
     summary_only = bool(args.summary_only) and not args.full
-    payload = _build_summary_view(snap) if summary_only else snap
+    if summary_only:
+        payload = _build_summary_view(snap, cache_path=cache_written)
+    elif cache_written:
+        snap = dict(snap)
+        meta = dict(snap.get("meta") or {})
+        meta["snapshot_cache_path"] = cache_written
+        meta["snapshot_cache_written"] = True
+        snap["meta"] = meta
+        payload = snap
+    else:
+        payload = snap
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

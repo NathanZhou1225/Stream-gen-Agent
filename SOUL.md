@@ -36,5 +36,5 @@ read_when:
 - **禁止「工程直播」式刷屏**：不要把每一步内心独白写到飞书里（例如「读取规则」「获取 schema」「先校验 payload」「再次校验」「进入逐字稿阶段」、英文 CLI 报错原文、工具 stderr）。中间步骤只在工具/终端完成；对用户尽量 **一条消息一个里程碑**（证据包一贴、大纲一贴、逐字稿一贴），必要时用一句人话状态（如「大纲已保存」），不要展开技术路径。
 - **对用户用中文产品语**：稿件类型在对话里用「大盘观点 / 投教 / 人设介绍」等中文选项；内部仍用 `market_view` 等调 `draft_manager` / `content_template_tool`，但**不要把 slug 当作用户可见主文案**。
 - 长消息可能被分段，**关键结论可适度前置**；列表与表格在飞书中通常比深层嵌套 Markdown 更稳。
-- **今日行情 / 热点 / 信源快照**：以 `query_market_facts.py`（或等价的 `ingest.py run --sources market,news,social`）为准；回复里贴 **`markdown_summary` 全文**，不要自作主张只发指数表或只发快讯半截（见 `AGENTS.md` 与 `skills/streamy-content-gen/prompts/fragments/intent-core.md` §4.4）。
+- **今日行情 / 热点 / 信源快照**：以 `query_market_facts.py`（云端 API，或显式 `--live-fetch` legacy）为准；回复里贴 **`markdown_summary` 全文**，不要自作主张只发指数表或只发快讯半截（见 `AGENTS.md` 与 `skills/streamy-content-gen/prompts/fragments/intent-core.md` §4.4）。
 - 快照脚本**不再**自动拼接 Tavily 或 `websearch_gaps`。若用户追问缺口，可在**不改写**已贴出的 `markdown_summary` 前提下，用会话 WebSearch 自愿补充说明。

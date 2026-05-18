@@ -41,7 +41,7 @@ if [[ "$has_env" -eq 0 ]]; then
   echo "phase=missing_dotenv"
   echo "next_steps=read_dotenv_example_and_ask_user"
   echo "workspace_root=$WS_ROOT"
-  echo "hint=Read .env.example. Router + Rewriter default ON. P1 default CLOUD: FINANCE_CLOUD_API_BASE_URL + FINANCE_CLOUD_API_KEY (or STREAM_GEN_SKIP_P1_READINESS=1). Advanced local: FINANCE_CLOUD_MODE=0 + TUSHARE + RSSHub. Feishu optional. Do not echo secrets."
+  echo "hint=Read .env.example. Router + Rewriter default ON. P1: FINANCE_CLOUD_API_BASE_URL + FINANCE_CLOUD_API_KEY (or STREAM_GEN_SKIP_P1_READINESS=1). Live legacy: --live-fetch only. Feishu optional. Do not echo secrets."
   echo "======================================================"
   exit 10
 fi
