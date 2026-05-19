@@ -99,14 +99,15 @@ python3 skills/streamy-content-gen/scripts/draft_manager.py update \
 
 - **时机**：**证据包已落盘**、用户确认继续后，**在绑 `style_id` 之前**，询问用户本稿类型并写入 `meta`：  
   `draft_manager.py update --draft <DID> --set-content-type market_view|investor_edu|persona_intro [--set-ip-id <stem>]`；清除：`--clear-content-profile`。`persona_intro` 或与模板中 `{{ var }}` 同时出现时**应**带 `--set-ip-id`（对应 `configs/ip_profiles/<stem>.json`）。
+- **一次确认（推荐）**：同条消息展示「类型+风格」组合选项；用户一次回复后 `stream_gen_workflow_helper.py bind-profile --draft <DID> --content-type … --style-id <UUID> [--ip-id …]`。
 - **分模块口播（可选链路）**：`python3 skills/streamy-content-gen/scripts/content_template_tool.py prompt-bundle --content-type ... [--ip-id ...]` 得到 `system` / `user` / `json_schema`；**由 OpenClaw 会话内模型**按 schema 产出模块 JSON；`assemble` / `segments` 仅做机械拼装，**不在 skill 脚本内直连 LLM**。
 
 ### 2.1 `confirm_topic`（`stage=topic_picking`）
 
 - 展示候选须含 **title + thesis + 三条 evidence**（禁只贴标题）。
 - 默认回复**不**拼大盘/快讯块（除非用户要看数据来源）。
-- **默认路径**：§2.0A 证据包（`--apply-topic-choice`）→ **§2.0B 稿件类型 + IP** → `list-styles` / `style_cli list --with-context` → 用户选 → `bind-style` 或 `--set-style-id` → 读 `outline-generation.md` → 生成大纲 → `update --stage outline_refining ...`
-- **禁**：未展示证据包或未绑 `style_id` 就写大纲；禁手写 `outline.md` / 跳 `draft_manager`。
+- **默认路径**：§2.0A 证据包（`--apply-topic-choice`）→ **§2.0B 稿件类型 + IP + 风格（一次 `bind-profile` 或组合选项）** → 读 `outline-generation.md` → 生成大纲 → `update --stage outline_refining ...`
+- **禁**：未展示证据包或未绑 `content_type` / `style_id` 就写大纲；禁 `write`/`edit` payload 到 `/tmp`；禁手写 `outline.md` / 跳 `draft_manager`。
 
 ### 2.2 `regenerate_topics`
 
@@ -120,7 +121,7 @@ python3 skills/streamy-content-gen/scripts/draft_manager.py update \
 python3 skills/streamy-content-gen/scripts/draft_manager.py update \
   --draft <DID> \
   --stage script_refining \
-  --payload-file /tmp/script-<DID>.json \
+  --payload-file drafts/active/default/<DID>/_scratch/script_payload.json \
   --validate-only \
   --json
 ```

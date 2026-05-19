@@ -22,6 +22,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from snapshot_cache import (
+    DEFAULT_CACHE_SNAPSHOT as SNAPSHOT_CACHE_DEFAULT,
+    DEFAULT_MAX_AGE_HOURS,
+    try_load_fresh_snapshot,
+    write_snapshot_cache,
+)
+
 # streamy-content-gen 根目录（本文件位于 scripts/）
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -55,6 +62,16 @@ def _env_int(name: str, default: int, *, min_v: int, max_v: int) -> int:
         v = default
     return max(min_v, min(max_v, v))
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+# 热榜默认关闭（Sprint：省 preflight 5–15s）；设 PREFLIGHT_SKIP_HOT_RANK=0 可恢复。
+PREFLIGHT_SKIP_HOT_RANK_DEFAULT = True
 
 # 热榜默认快速失败，避免 preflight 在弱网场景下卡 60-100s。
 # 如需增强热榜鲁棒性，可通过环境变量调高重试与超时。
@@ -195,6 +212,7 @@ def _run_cloud_query_market_facts(
         "--sources",
         "market,news,social",
         "--full",
+        "--force-refresh",
     ]
     if keywords.strip():
         cmd.extend(["--keywords", keywords.strip()])
@@ -372,6 +390,11 @@ def _relevance_score(text: str, direction: str) -> float:
 def _strict_direction_hints(direction: str) -> tuple[str, ...] | None:
     """用户方向强约束词（用于从全量 bullets 前插同域行，避免 domain_enhanced 落在列表末尾抢不到候选①）。"""
     d = direction or ""
+    if any(k in d for k in ("美伊", "伊朗", "中东", "地缘", "霍尔木兹", "以伊", "以色列")):
+        return (
+            "美伊", "伊朗", "中东", "地缘", "霍尔木兹", "以色列", "以伊", "特朗普", "袭击",
+            "制裁", "原油", "石油", "避险", "冲突", "战争",
+        )
     if any(k in d for k in ("黄金", "有色", "贵金属", "COMEX")):
         return ("黄金", "有色", "贵金属", "COMEX", "白银", "现货金", "能源金属", "铜", "铝", "锌", "锂", "镍")
     if any(k in d for k in ("新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩")):
@@ -1271,6 +1294,19 @@ def _pick_social_signal(snapshot: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _build_hotlist_context(hot_rank: dict[str, Any], snapshot: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None, str | None]:
+    if hot_rank.get("skipped"):
+        signal_secondary = _pick_social_signal(snapshot)
+        return (
+            {
+                "primary_source": "disabled",
+                "secondary_source": "social_api(vvhan->akshare)",
+                "fallback_used": bool(signal_secondary),
+                "fallback_reason": "hot_rank_skipped",
+                "skipped": True,
+            },
+            signal_secondary,
+            None,
+        )
     signal_primary = _pick_tophub_signal(hot_rank)
     signal_secondary = _pick_social_signal(snapshot)
     if signal_primary:
@@ -1566,41 +1602,6 @@ def _build_topic_payload(
     }
 
 
-def _is_snapshot_stale(fetched_at: str, max_age_hours: int) -> bool:
-    """检查快照是否过期"""
-    if not fetched_at:
-        return True
-    try:
-        # 解析 ISO 8601 时间格式
-        ts_str = fetched_at.replace("Z", "+00:00")
-        if "+" not in ts_str and "-" not in ts_str[-6:]:
-            ts_str = ts_str + "+00:00"
-        ts = datetime.fromisoformat(ts_str)
-        # 转换为 UTC 比较
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        age_hours = (datetime.now(timezone.utc) - ts.astimezone(timezone.utc)).total_seconds() / 3600
-        return age_hours > max_age_hours
-    except Exception:
-        return True
-
-
-def _try_read_cached_snapshot(cache_path: Path, max_age_hours: int) -> tuple[dict[str, Any] | None, str | None]:
-    """尝试读取缓存的快照，返回 (snapshot, fetched_at) 或 (None, None)"""
-    if not cache_path.is_file():
-        return None, None
-    try:
-        cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if not cached.get("ok"):
-            return None, None
-        fetched_at = (cached.get("meta") or {}).get("fetched_at")
-        if _is_snapshot_stale(fetched_at, max_age_hours):
-            return None, fetched_at  # 过期，返回 None 但告知时间
-        return cached, fetched_at
-    except Exception:
-        return None, None
-
-
 def main() -> None:
     t0_all = time.perf_counter()
     timing: dict[str, float] = {}
@@ -1636,6 +1637,11 @@ def main() -> None:
         "--cache-snapshot-path",
         type=Path,
         help="快照缓存路径（优先读取，过期则重新生成）",
+    )
+    p.add_argument(
+        "--no-hot-rank",
+        action="store_true",
+        help="跳过热榜 fetch_hot_rank（与 PREFLIGHT_SKIP_HOT_RANK=1 等效）",
     )
     args = p.parse_args()
 
@@ -1782,19 +1788,24 @@ def main() -> None:
     # 1. --cache-snapshot-path 显式指定
     # 2. workspace 标准缓存路径 cache/snapshot/snapshot.json
     if cache_snapshot_path is None:
-        cache_snapshot_path = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
+        cache_snapshot_path = SNAPSHOT_CACHE_DEFAULT
     
     # ── 数据源：默认 cloud（API），legacy 显式联网 ─────────────────────────────
     t_ingest_start = time.perf_counter()
     cached_snapshot_used = False
     cached_snapshot_fetched_at = None
+    cache_load_info: dict[str, Any] = {}
 
     if source_mode == "cloud":
-        cached_snapshot, cached_fetched_at = _try_read_cached_snapshot(cache_snapshot_path, snapshot_max_age)
+        cached_snapshot, cache_load_info = try_load_fresh_snapshot(
+            cache_snapshot_path,
+            max_age_hours=snapshot_max_age,
+            check_remote_db=True,
+        )
         if cached_snapshot is not None:
             snapshot = cached_snapshot
             cached_snapshot_used = True
-            cached_snapshot_fetched_at = cached_fetched_at
+            cached_snapshot_fetched_at = cache_load_info.get("snapshot_fetched_at")
             snap_path = cache_snapshot_path
             timing["cached_snapshot_sec"] = round(time.perf_counter() - t_ingest_start, 3)
         else:
@@ -1939,37 +1950,45 @@ def main() -> None:
             )
         timing["snapshot_parse_sec"] = round(time.perf_counter() - t_snapshot_parse_start, 3)
 
-    hot_rank_py = _resolve_hot_rank_fetcher()
+    skip_hot_rank = bool(getattr(args, "no_hot_rank", False)) or _env_bool(
+        "PREFLIGHT_SKIP_HOT_RANK",
+        default=PREFLIGHT_SKIP_HOT_RANK_DEFAULT,
+    )
     hot_rank: dict[str, Any] = {"ok": False, "lists": [], "errors": [{"item": "hot_rank_script", "reason": "missing"}]}
     t_hot_rank_start = time.perf_counter()
-    if hot_rank_py.is_file():
-        last_reason = "unknown"
-        for i in range(HOT_RANK_RETRY + 1):
-            try:
-                hr = subprocess.run(
-                    [sys.executable, str(hot_rank_py), "--sites", "微博,抖音,百度,知乎", "--top", "10"],
-                    cwd=str(SCRIPTS_DIR.resolve()),
-                    capture_output=True,
-                    text=True,
-                    timeout=HOT_RANK_TIMEOUT_SEC + i * HOT_RANK_TIMEOUT_STEP_SEC,
-                    check=False,
-                )
-                if hr.returncode == 0 and (hr.stdout or "").strip():
-                    hot_rank = json.loads(hr.stdout)
-                    if hot_rank.get("lists"):
-                        break
-                    last_reason = "empty_lists"
-                else:
-                    last_reason = (hr.stderr or hr.stdout or "").strip()[:300] or "nonzero_exit"
-            except Exception as e:  # noqa: BLE001
-                last_reason = f"{type(e).__name__}: {e}"
-        if not hot_rank.get("lists"):
-            hot_rank = {
-                "ok": False,
-                "lists": [],
-                "errors": [{"item": "hot_rank_script", "reason": last_reason, "retry_count": HOT_RANK_RETRY}],
-            }
+    if skip_hot_rank:
+        hot_rank = {"ok": False, "lists": [], "skipped": True, "skip_reason": "PREFLIGHT_SKIP_HOT_RANK"}
+    else:
+        hot_rank_py = _resolve_hot_rank_fetcher()
+        if hot_rank_py.is_file():
+            last_reason = "unknown"
+            for i in range(HOT_RANK_RETRY + 1):
+                try:
+                    hr = subprocess.run(
+                        [sys.executable, str(hot_rank_py), "--sites", "微博,抖音,百度,知乎", "--top", "10"],
+                        cwd=str(SCRIPTS_DIR.resolve()),
+                        capture_output=True,
+                        text=True,
+                        timeout=HOT_RANK_TIMEOUT_SEC + i * HOT_RANK_TIMEOUT_STEP_SEC,
+                        check=False,
+                    )
+                    if hr.returncode == 0 and (hr.stdout or "").strip():
+                        hot_rank = json.loads(hr.stdout)
+                        if hot_rank.get("lists"):
+                            break
+                        last_reason = "empty_lists"
+                    else:
+                        last_reason = (hr.stderr or hr.stdout or "").strip()[:300] or "nonzero_exit"
+                except Exception as e:  # noqa: BLE001
+                    last_reason = f"{type(e).__name__}: {e}"
+            if not hot_rank.get("lists"):
+                hot_rank = {
+                    "ok": False,
+                    "lists": [],
+                    "errors": [{"item": "hot_rank_script", "reason": last_reason, "retry_count": HOT_RANK_RETRY}],
+                }
     timing["hot_rank_sec"] = round(time.perf_counter() - t_hot_rank_start, 3)
+    timing["hot_rank_skipped"] = skip_hot_rank
 
     md_summary = str(snapshot.get("markdown_summary") or "")
     t_payload_start = time.perf_counter()

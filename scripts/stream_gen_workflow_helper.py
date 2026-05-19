@@ -6,6 +6,8 @@ Bundles only non-decision steps. It deliberately stops at user choice gates:
 - apply-choice: apply-topic-choice（内嵌证据包，1 次 draft_manager）或 legacy preflight 回退
 - list-styles: style_cli list --with-context（飞书展示选型）
 - bind-style: set-style-id + get-context 一步返回 user_style_context
+- bind-profile: set-content-type (+ ip) + set-style-id + get-context 一步（类型+风格一次确认）
+- list-profile-options: 稿件类型 × 风格组合列表（飞书一次选型）
 - prevalidate-script: 生成前 schema 预检（附录≤5、evidence_source_type 白名单等）
 - validate-script: wrapper around draft_manager update --validate-only
 """
@@ -470,6 +472,85 @@ def cmd_apply_choice(args: argparse.Namespace) -> None:
     _apply_choice_via_preflight(args, topic_payload_path, snapshot_path, choice_check)
 
 
+CONTENT_TEMPLATES_DIR = WORKSPACE_ROOT / "skills" / "streamy-content-gen" / "configs" / "content_templates"
+CONTENT_TYPE_LABELS: dict[str, str] = {
+    "market_view": "大盘观点",
+    "investor_edu": "投教",
+    "persona_intro": "人设介绍",
+}
+
+
+def _load_content_types() -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for slug in ("market_view", "investor_edu", "persona_intro"):
+        path = CONTENT_TEMPLATES_DIR / f"{slug}.json"
+        desc = slug
+        if path.is_file():
+            tpl = read_json(path, default={})
+            if isinstance(tpl, dict):
+                desc = str(tpl.get("description") or slug)
+        out.append(
+            {
+                "slug": slug,
+                "label_zh": CONTENT_TYPE_LABELS.get(slug, slug),
+                "description": desc,
+            }
+        )
+    return out
+
+
+def cmd_list_profile_options(args: argparse.Namespace) -> None:
+    styles_result = _run_json(
+        [sys.executable, str(STYLE_CLI), "list", "--json"],
+        timeout=30,
+    )
+    if not styles_result.get("ok"):
+        _fail("LIST_STYLES_FAILED", "style_cli list 失败。", context=styles_result)
+    styles = styles_result.get("styles") or styles_result.get("result") or []
+    if not isinstance(styles, list):
+        styles = []
+    content_types = _load_content_types()
+    combos: list[dict[str, Any]] = []
+    idx = 1
+    for ct in content_types:
+        slug = ct["slug"]
+        label = ct["label_zh"]
+        for st in styles:
+            if not isinstance(st, dict):
+                continue
+            sid = str(st.get("id") or st.get("style_id") or "").strip()
+            sname = str(st.get("name") or st.get("style_name") or sid).strip()
+            if not sid:
+                continue
+            combos.append(
+                {
+                    "option": idx,
+                    "display_zh": f"{label}·{sname}",
+                    "content_type": slug,
+                    "content_type_label_zh": label,
+                    "style_id": sid,
+                    "style_name": sname,
+                }
+            )
+            idx += 1
+    _emit(
+        {
+            "ok": True,
+            "command": "list-profile-options",
+            "result": {
+                "content_types": content_types,
+                "styles": styles,
+                "combo_options": combos,
+                "feishu_prompt": (
+                    "请选组合编号（如 1），或直接说「大盘观点·老丁」。"
+                    "选定后执行 bind-profile，勿只绑 style 跳过稿件类型。"
+                ),
+            },
+            "summary": f"共 {len(combos)} 个「稿件类型·风格」组合可选；用户一次回复后 bind-profile。",
+        }
+    )
+
+
 def cmd_list_styles(args: argparse.Namespace) -> None:
     cmd = [sys.executable, str(STYLE_CLI), "list", "--json"]
     if args.with_context:
@@ -525,6 +606,84 @@ def cmd_bind_style(args: argparse.Namespace) -> None:
                 "user_style_context": ctx.get("context_markdown"),
             },
             "summary": f"Draft #{args.draft} 已绑定风格 {ctx.get('style_name') or args.style_id}；可将 user_style_context 注入大纲/逐字稿生成。",
+        }
+    )
+
+
+def cmd_bind_profile(args: argparse.Namespace) -> None:
+    ct = str(args.content_type).strip()
+    style_id = str(args.style_id).strip()
+    ip_id = str(args.ip_id).strip() if args.ip_id else None
+
+    ct_cmd = [
+        sys.executable,
+        str(DRAFT_MANAGER),
+        "update",
+        "--draft",
+        args.draft,
+        "--set-content-type",
+        ct,
+        "--edit-note",
+        f"helper bind-profile: content_type={ct}",
+        "--json",
+    ]
+    if ip_id:
+        ct_cmd.extend(["--set-ip-id", ip_id])
+    ct_result = _run_json(ct_cmd, timeout=60)
+    if not ct_result.get("ok"):
+        _fail("BIND_PROFILE_CONTENT_TYPE_FAILED", "set-content-type 失败。", draft_id=args.draft, context=ct_result)
+
+    bind = _run_json(
+        [
+            sys.executable,
+            str(DRAFT_MANAGER),
+            "update",
+            "--draft",
+            args.draft,
+            "--set-style-id",
+            style_id,
+            "--edit-note",
+            f"helper bind-profile: style_id={style_id}",
+            "--json",
+        ],
+        timeout=60,
+    )
+    if not bind.get("ok"):
+        _fail("BIND_PROFILE_STYLE_FAILED", "set-style-id 失败。", draft_id=args.draft, context=bind)
+
+    ctx = _run_json(
+        [
+            sys.executable,
+            str(STYLE_CLI),
+            "get-context",
+            "--style-id",
+            style_id,
+            "--format",
+            "json",
+        ],
+        timeout=30,
+    )
+    if not ctx.get("ok"):
+        _fail("BIND_PROFILE_STYLE_CONTEXT_FAILED", "get-context 返回 ok=false。", draft_id=args.draft, context=ctx)
+
+    _emit(
+        {
+            "ok": True,
+            "command": "bind-profile",
+            "result": {
+                "draft_id": args.draft,
+                "content_type": ct,
+                "ip_id": ip_id,
+                "style_id": style_id,
+                "style_name": ctx.get("style_name"),
+                "set_content_type": ct_result.get("result"),
+                "set_style": bind.get("result"),
+                "user_style_context": ctx.get("context_markdown"),
+            },
+            "summary": (
+                f"Draft #{args.draft} 已绑定稿件类型 {ct!r} 与风格 {ctx.get('style_name') or style_id}；"
+                "可进入 outline_refining。"
+            ),
         }
     )
 
@@ -628,10 +787,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_styles.add_argument("--user-id", default=None)
     p_styles.set_defaults(func=cmd_list_styles)
 
+    p_profile_opts = sub.add_parser(
+        "list-profile-options",
+        help="稿件类型 × 风格组合列表（飞书一次选型，勿只 list-styles）",
+    )
+    p_profile_opts.set_defaults(func=cmd_list_profile_options)
+
     p_bind = sub.add_parser("bind-style", help="set-style-id + get-context in one step")
     p_bind.add_argument("--draft", required=True)
     p_bind.add_argument("--style-id", required=True)
     p_bind.set_defaults(func=cmd_bind_style)
+
+    p_profile = sub.add_parser(
+        "bind-profile",
+        help="set-content-type (+ optional ip) + set-style-id + get-context in one step",
+    )
+    p_profile.add_argument("--draft", required=True)
+    p_profile.add_argument(
+        "--content-type",
+        required=True,
+        choices=["market_view", "investor_edu", "persona_intro"],
+    )
+    p_profile.add_argument("--style-id", required=True)
+    p_profile.add_argument("--ip-id", default=None, help="persona_intro 或与模板占位符同时出现时建议传入")
+    p_profile.set_defaults(func=cmd_bind_profile)
 
     p_pre = sub.add_parser(
         "prevalidate-script",

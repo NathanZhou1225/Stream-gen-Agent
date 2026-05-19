@@ -5,6 +5,8 @@
 ## 输入与边界
 
 - 严格基于已落盘的 `outline.json`：`hook` / `points[]` / `cta` / `total_duration_sec` 是主骨架。
+- **`meta.content_type` 已绑定时（硬约束）**：先 `draft_manager schema --stage script_refining --draft <DID> --inject-prompt-template --json`；`segments[].role` **必须**与返回的 `content_type_profile.required_segment_roles` 一致（如 `market_view` = `hook, argument_1, turn, argument_2, result, cta` 共 **6** 段）。**禁止**用通用 `hook/argument_1/turn/action/cta` 五段代替。段职责见 **`memory/rules/MEMORY_script_templates.md`**（对齐 `configs/content_templates/<type>.json`）。
+- payload 路径：**`drafts/.../<DID>/_scratch/script_payload.json`**；**禁止** `write` 到 `/tmp/script_<DID>.json`。
 - 大纲没写的事实不要擅自加；可增强表达，但不要改变用户已确认的结构。
 - 已绑定 `style_id` 时，`draft_manager.py update` 会自动注入 `user_style_context`；若最终 payload 有该字段，必须补 `production_style_adaptation` 三项。
 - 不直接写 `drafts/**`，只通过 `draft_manager.py update --stage script_refining --payload-file <json>` 写入。

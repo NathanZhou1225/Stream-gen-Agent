@@ -1,0 +1,79 @@
+{
+  "candidate_id": "C1",
+  "candidate_index": 1,
+  "candidate_title": "美伊局势和黄金｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+  "candidate_thesis": "美伊局势和黄金相关讨论与盘面事实正在共振，优先围绕「美伊局势和黄金｜盘面热点：**整体情绪分**：0」展开。",
+  "direction": "美伊局势和黄金",
+  "core_facts": [
+    {
+      "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "影响：科技主线锚点：AI；优先关注算力、芯片、AI 应用或数据中心链条的资金映射。",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "角度：从“硬科技主线是否延续”切入，结合盘面强弱筛选可讲的产业链节点。",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "detailed_sources": [
+    {
+      "detail_id": "D3",
+      "title": "**整体情绪分**：0.05 (🟡 中性)",
+      "summary": "**整体情绪分**：0.05 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D6",
+      "title": "🔹 🟢利好 [2026-05-18 02:33:43] **城堡投资创始人格里芬转变态度，称AI将重塑社会** （deep_news）",
+      "summary": "🔹 🟢利好 [2026-05-18 02:33:43] **城堡投资创始人格里芬转变态度，称AI将重塑社会** （deep_news）",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D5",
+      "title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "summary": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "**整体情绪分**：0.05 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "🔹 🟢利好 [2026-05-18 02:33:43] **城堡投资创始人格里芬转变态度，称AI将重塑社会** （deep_news）",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "source_gaps": [],
+  "targeted_fetch": {
+    "attempted": false,
+    "ok": false
+  },
+  "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+}

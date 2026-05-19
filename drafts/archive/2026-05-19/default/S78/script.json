@@ -1,0 +1,198 @@
+{
+  "draft_id": "S78",
+  "title": "AI芯片上市潮：资本正在重新定价硬科技",
+  "duration_sec": 60,
+  "structure_template": "standard",
+  "segments": [
+    {
+      "time": "0:00-0:05",
+      "role": "hook",
+      "say": "Cerebras上市首日涨了68%，一天干出670亿美元市值。AI芯片，正在从PPT走到交易所。",
+      "visual": [
+        "贴纸:重点",
+        "配图:Cerebras首日涨68%"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "0:05-0:20",
+      "role": "argument_1",
+      "say": "两个数字你记住：第一，AI芯片企业Cerebras纳斯达克首日涨68%，今年最大科技IPO；第二，长鑫科技刚更新招股书，一季度净利润330亿，同比翻了十二倍，DRAM芯片供不应求。这就是信号——硬科技，正在进入资本化验证阶段。",
+      "claim_kind": "fact",
+      "evidence_source_type": "news_flash",
+      "evidence_source_ref": "Cerebras Systems纳斯达克上市首日涨68%/2026-05-18；长鑫科技Q1净利润330亿同比增1268%/2026-05-17",
+      "visual": [
+        "配图:Cerebras首日行情卡",
+        "配图:长鑫Q1净利润330亿"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "0:20-0:36",
+      "role": "turn",
+      "say": "但注意，今天恐惧贪婪指数只有10——极度恐惧。苹果、微软、Meta，情绪分全是负0.99。大盘在恐慌，AI芯片却在吸金。这不是普涨，是结构性分化。",
+      "claim_kind": "mixed",
+      "evidence_source_type": "market",
+      "evidence_source_ref": "恐惧贪婪指数10.0/2026-05-19；个股情绪极值苹果/微软/Meta均为-0.99/2026-05-19",
+      "visual": [
+        "特效:转场",
+        "配图:恐惧指数与AI芯片涨幅对比"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "0:36-0:51",
+      "role": "action",
+      "say": "怎么验证？看三个节点：第一，芯片出货量能不能持续超预期；第二，数据中心开支有没有加速；第三，大模型落地速度是快还是慢。格里芬从说AI是垃圾到说AI要重塑社会，顶级资本的认知切换，往往比散户早半年。",
+      "claim_kind": "opinion",
+      "visual": [
+        "配图:三个验证节点清单"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "0:51-1:00",
+      "role": "cta",
+      "say": "我把AI芯片产业链的验证指标整理好了，评论区回「AI芯片」，发给你。",
+      "visual": [
+        "动作:手指评论区"
+      ],
+      "cta_hint": null
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "position": "ending",
+    "phrasing": "评论区回「AI芯片」，发产业链验证指标"
+  },
+  "production_appendix": {
+    "camera_shots": [
+      "Hook近景+快速推入，强调冲击感",
+      "论据段中景留右侧图表位，数据弹出同步",
+      "转折段切近景，面部表情强化反差",
+      "行动段中景，三分屏左侧主持人+右侧节点清单",
+      "CTA段推近特写，手指评论区方向"
+    ],
+    "stickers_effects": [
+      "Hook加「涨68%」大字贴纸，红色",
+      "论据数字出现时加动态箭头+弹跳效果",
+      "转折段黄底黑字「极度恐惧10」警告贴纸",
+      "行动段三个节点各配序号圆圈贴纸",
+      "CTA加评论区箭头+「暗号:AI芯片」贴纸"
+    ],
+    "visual_assets": [
+      "Cerebras首日行情卡（涨68%/市值670亿）",
+      "长鑫科技Q1业绩卡（净利润330亿/同比+1268%）",
+      "恐惧贪婪指数对比卡（10:极度恐惧）",
+      "三项验证节点三联表（芯片出货量/数据中心开支/大模型落地）",
+      "格里芬态度转变时间轴（AI是垃圾→AI将重塑社会）"
+    ],
+    "host_actions": [
+      "Hook句末停顿半秒，让数字落地",
+      "讲Cerebras和长鑫时左右手各指一个方向",
+      "转折句低头停顿半秒再抬头，制造严肃感",
+      "行动段掰手指数三个节点",
+      "CTA时转身指向评论区位置"
+    ]
+  },
+  "source": {
+    "topic": "科技板块AI芯片上市",
+    "data_sources": [
+      "deep_news: Cerebras Systems纳斯达克上市首日涨68%/2026-05-18",
+      "deep_news: 长鑫科技Q1净利润330亿同比增1268%/2026-05-17",
+      "market: 恐惧贪婪指数10.0极度恐惧/2026-05-19",
+      "market: 苹果/微软/Meta情绪极值-0.99/2026-05-19",
+      "deep_news: 格里芬倒戈AI将重塑社会/2026-05-18"
+    ]
+  },
+  "production_style_adaptation": {
+    "ip_style_adaptation": "老丁风格强调信号+验证+节奏。本稿以AI芯片IPO为信号起点，恐惧贪婪指数为验证锚点，三个产业链节点为节奏指引，全程不拖泥带水。",
+    "tone_style_adaptation": "口语短句为主，每句不超过20字；先给结论再拆解，符合老丁的直接果断调性；转折用「但注意」制造反差，行动段用「怎么验证」引导方法论。",
+    "visual_style_adaptation": "视觉上强化数字冲击（大字贴纸+动态箭头），三段式镜头节奏（推入→中景→近景反差→三分屏→特写），贴合老丁的实战教学风格。"
+  },
+  "evidence_pack": {
+    "candidate_id": "C1",
+    "candidate_index": 1,
+    "candidate_title": "科技板块AI芯片上市｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+    "candidate_thesis": "科技板块AI芯片上市相关讨论与盘面事实正在共振，优先围绕「科技板块AI芯片上市｜盘面热点：**整体情绪分*」展开。",
+    "direction": "科技板块AI芯片上市",
+    "core_facts": [
+      {
+        "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ],
+    "detailed_sources": [
+      {
+        "detail_id": "D6",
+        "title": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "summary": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "source_path": "markdown_summary"
+      },
+      {
+        "detail_id": "D3",
+        "title": "**整体情绪分**：0.05 (🟡 中性)",
+        "summary": "**整体情绪分**：0.05 (🟡 中性)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "source_path": "markdown_summary"
+      },
+      {
+        "detail_id": "D5",
+        "title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+        "summary": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "source_path": "markdown_summary"
+      }
+    ],
+    "argument_boosters": [
+      {
+        "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "**整体情绪分**：0.05 (🟡 中性)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ],
+    "source_gaps": [],
+    "targeted_fetch": {
+      "attempted": false,
+      "ok": false
+    },
+    "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+  },
+  "compliance": {
+    "status": "pass",
+    "warnings": [],
+    "scanned_at": "2026-05-19T11:06:02+08:00",
+    "scanner_version": "v0.1.2"
+  }
+}

@@ -39,8 +39,8 @@ python3 scripts/deploy_readiness.py --repo-root "$(pwd)"
 
 ## `verify_env` 校验什么（不再要求「三选一 Ark/DeepSeek/Dashscope」）
 
-- **ingest LLM 清洗**（默认开）：须能解析 **BASE_URL + API_KEY + MODEL**；关闭：`FINANCE_INGEST_LLM_CLEAN_ENABLED=0`。  
-- **Router**（**默认开**）：同上；关闭：`FINANCE_LLM_ROUTER_ENABLED=0`。  
+- **ingest LLM 清洗**（**客户端默认不校**）：清洗在 **`finance-ingest-cloud` Worker**；仅当 `.env` 显式 **`FINANCE_INGEST_LLM_CLEAN_ENABLED=1`** 时才要求 **BASE_URL + API_KEY + MODEL**（`--live-fetch` / 本机 legacy 运维）。常规业务机**勿**设 `=1`。  
+- **Router**（**默认开**）：须能解析 **BASE_URL + API_KEY + MODEL**（或宿主 `OPENCLAW_ARK_*` / `ARK_*` 回退）；关闭：`FINANCE_LLM_ROUTER_ENABLED=0`。  
 - **Rewriter**（**默认开**）：同上；关闭：`FINANCE_SECTOR_LLM_REWRITE_ENABLED=0`。
 
 ## doctor
@@ -58,8 +58,9 @@ python3 scripts/openclaw_doctor.py --repo-root "$(pwd)"
 ### 锚点
 
 - **doctor**：见上。  
-- **finance-llm**：`FINANCE_LLM_ROUTER_*`  
-- **rsshub**：`FINANCE_RSSHUB_BASE_URL` 可达性；**P1 必填**另见 `deploy_readiness.py`
+- **finance-llm**：`FINANCE_LLM_ROUTER_*` / `FINANCE_SECTOR_LLM_*`  
+- **P1（唯一）**：`FINANCE_CLOUD_API_*` + `/health`，见 `deploy_readiness.py`  
+- **rsshub / Tushare**：仅 **`--live-fetch`** 或 preflight legacy；**不是**安装 P1
 
 ## 问财 SkillHub zip
 
@@ -79,7 +80,7 @@ FINANCE_CLOUD_API_KEY=your-bearer-secret
 验收：
 
 ```bash
-python3 skills/streamy-content-gen/scripts/query_market_facts.py --cloud --sources market,news,social --summary-only
+python3 skills/streamy-content-gen/scripts/query_market_facts.py --sources market,news,social --summary-only
 ```
 
 - 云端返回 **pre-Router** `sections`；本地 **`db_snapshot --pre-router-stdin`** 跑 Router/Rewriter（须配置 `FINANCE_LLM_ROUTER_*` / `FINANCE_SECTOR_LLM_*` 或宿主回退）。

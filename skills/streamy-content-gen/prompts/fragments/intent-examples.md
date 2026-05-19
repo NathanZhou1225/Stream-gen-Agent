@@ -277,13 +277,13 @@ python3 skills/streamy-content-gen/scripts/draft_manager.py update \
 
 **两种子场景**：
 
-**A. 选中候选后先生成方向证据包，再完成 user-style 门禁并推进到大纲**（默认）：
+**A. 选中候选后先生成方向证据包，再一次性确认稿件类型+风格，再推进到大纲**（默认）：
 1. `draft_manager.py update --draft <DID> --apply-topic-choice <N> --json`（或 helper `apply-choice`）；展示证据包；用户确认继续前不得进入大纲。
-2. 若 `meta.style_id` 为空：**停止生成大纲**，先 `style_cli list --with-context` 或 helper `list-styles`，用户选定后 `bind-style` 或 `--set-style-id`。
-3. 已绑定 `style_id` 后，用返回的 `user_style_context`（或 `get-context`）跑 `outline-generation.md`，生成大纲 JSON。
-4. 正式落盘前 `--validate-only`；再 `update --stage outline_refining --payload-file ...`
+2. 若 `meta.content_type` 或 `meta.style_id` 为空：**停止生成大纲**。先 `helper list-profile-options`，飞书展示「类型·风格」组合（如「A 大盘观点·老丁」）；用户一次回复后 `helper bind-profile --draft <DID> --content-type … --style-id <UUID>`。**禁止**只问风格、跳过稿件类型。
+3. 已绑定 `content_type` + `style_id` 后：`draft_manager schema --stage outline_refining --draft <DID> --inject-prompt-template --json` → 按 `content_type_profile` 生成大纲（大盘观点须 **≥5** 条 `points[]`）。
+4. payload 写入 `drafts/active/default/<DID>/_scratch/outline_payload.json`（**禁止** `write`/`edit` 到 `/tmp/outline_<DID>.json`）；`--validate-only` 通过后 `update --stage outline_refining --payload-file ... --inject-evidence-level minimal`
 
-**硬禁止**：未展示所选候选的 `evidence_pack`、或 `meta.style_id` 为空时，不得用通用模板直接写大纲；不得把“默认风格”当作绕过 user-style 的理由；不得手写 `outline.md` 或直接改 `meta.stage` 绕过 `draft_manager`。
+**硬禁止**：未展示所选候选的 `evidence_pack`、或 `meta.content_type` / `meta.style_id` 为空时，不得用通用三段式模板直接写大纲；不得把“默认风格”当作绕过门禁的理由；不得手写 `outline.md` 或直接改 `meta.stage` 绕过 `draft_manager`。
 
 **回复边界（新增硬规则）**：
 - 进入 `outline_refining` 后，默认只展示「大纲 + 制作提示 + 确认指令」。
@@ -330,21 +330,29 @@ draft_manager.py update --draft <DID> --set-chosen <N> --edit-note "用户口头
 | 带时长提示 | "出一版 60 秒的" · "做成 90 秒" | 额外参数 `time_budget_sec=60/90` |
 | 带 CTA 提示 | "CTA 走加微那条" · "结尾引导关注就好" | 额外参数 `cta_preference` |
 
-**Agent 动作**（v0.1.3 简化，合规扫描已内嵌；v0.2.1+ 先 dry-run 降低 schema 试错）：
+**Agent 动作**（v0.2.3+ 稿件类型硬约束；禁止 `/tmp` 写 payload）：
 
 ```bash
-# 1. 读 prompts/script-generation.md（短索引），默认再读 fragments/script-core.md + fragments/script-min-schema.md
-# 2. 生成最小结构化 payload：不含 display_markdown/stage/style_id/compliance
-# 3. 写盘前先 dry-run，一次性发现所有 schema 问题
-draft_manager.py update --draft <DID> --stage script_refining \
-    --payload-file /tmp/script-<DID>.json \
-    --validate-only \
-    --json
+# 0. 一次拉齐 schema + prompt + content_type（省 token，避免格式跑偏）
+python3 skills/streamy-content-gen/scripts/draft_manager.py schema \
+  --stage script_refining --draft <DID> --inject-prompt-template --json
+# → 使用 result.recommended_payload_paths.script_refining 作为 payload 路径
+# → segments.role 必须等于 result.content_type_profile.required_segment_roles
 
-# 4. validate-only 通过后，再正式落盘 script.json + 自动渲染 script.md + 自动合规扫描 + 回写 compliance
-draft_manager.py update --draft <DID> --stage script_refining \
-    --payload-file /tmp/script-<DID>.json \
-    --edit-note "初版逐字稿"
+# 1. 生成 payload 写入 drafts/active/default/<DID>/_scratch/script_payload.json（勿用 write 工具写 /tmp）
+# 2. validate-only 一次性修完 errors[]
+python3 skills/streamy-content-gen/scripts/draft_manager.py update \
+  --draft <DID> --stage script_refining \
+  --payload-file drafts/active/default/<DID>/_scratch/script_payload.json \
+  --inject-evidence-level full \
+  --validate-only --json
+
+# 3. 通过后正式落盘（合规扫描内嵌）
+python3 skills/streamy-content-gen/scripts/draft_manager.py update \
+  --draft <DID> --stage script_refining \
+  --payload-file drafts/active/default/<DID>/_scratch/script_payload.json \
+  --inject-evidence-level full \
+  --edit-note "初版逐字稿"
 ```
 
 若 `--validate-only` 返回 `errors[]`，必须一次性修复全部错误后重试；禁止“报一个错补一个字段”的瀑布式试错。

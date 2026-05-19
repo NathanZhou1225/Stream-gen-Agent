@@ -85,6 +85,66 @@ def _assert_known_ip_profile(ip_id: str) -> None:
             hint='文件须位于 configs/ip_profiles/<ip_id>.json',
         )
 
+
+CONTENT_TYPE_MIN_OUTLINE_POINTS: dict[str, int] = {
+    'market_view': 5,
+    'investor_edu': 4,
+    'persona_intro': 5,
+}
+
+CONTENT_TYPE_SCRIPT_ROLES: dict[str, tuple[str, ...]] = {
+    'market_view': ('hook', 'argument_1', 'turn', 'argument_2', 'result', 'cta'),
+    'investor_edu': ('hook', 'action', 'argument_1', 'turn', 'cta'),
+    'persona_intro': ('hook', 'argument_1', 'scene', 'argument_2', 'action', 'cta'),
+}
+
+
+def _load_content_template_dict(content_type: str) -> dict[str, Any] | None:
+    p = _content_template_path(content_type)
+    if not p.is_file():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _content_type_profile(content_type: str) -> dict[str, Any]:
+    tpl = _load_content_template_dict(content_type) or {}
+    schema_rows = tpl.get('schema') if isinstance(tpl.get('schema'), list) else []
+    beats: list[dict[str, str]] = []
+    for row in schema_rows:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get('key') or '').strip()
+        zh = str(row.get('section_zh') or key).strip()
+        instr = str(row.get('instruction') or '')[:200]
+        beats.append({'key': key, 'section_zh': zh, 'instruction_hint': instr})
+    roles = tpl.get('draft_segment_roles')
+    if not isinstance(roles, list):
+        roles = list(CONTENT_TYPE_SCRIPT_ROLES.get(content_type, ()))
+    return {
+        'content_type': content_type,
+        'description': str(tpl.get('description') or ''),
+        'required_segment_roles': roles,
+        'outline_min_points': CONTENT_TYPE_MIN_OUTLINE_POINTS.get(content_type, 3),
+        'beats': beats,
+        'reference_docs': [
+            'memory/rules/MEMORY_script_templates.md',
+            f'configs/content_templates/{content_type}.json',
+        ],
+        'doc_anchor': 'docs/视频文案和结构.docx（若仓库无此文件，以 configs + MEMORY_script_templates 为准）',
+    }
+
+
+def draft_payload_scratch_path(user_id: str, draft_id: str, filename: str) -> Path:
+    '''Agent 生成 outline/script payload 时写入此路径，禁止 /tmp/outline_<DID>.json。'''
+    d = get_active_draft_dir(user_id, draft_id) / '_scratch'
+    d.mkdir(parents=True, exist_ok=True)
+    return d / filename
+
+
 STAGE_ARTIFACTS = {
     STAGE_SCRIPT: {
         'json': 'script.json',
@@ -218,6 +278,68 @@ def _outline_min_schema() -> dict[str, Any]:
     }
 
 
+def _outline_schema_for_content_type(content_type: str) -> dict[str, Any]:
+    base = _outline_min_schema()
+    base['structure_template'] = content_type
+    profile = _content_type_profile(content_type)
+    beats = profile.get('beats') or []
+    points: list[dict[str, Any]] = []
+    for i, beat in enumerate(beats[: CONTENT_TYPE_MIN_OUTLINE_POINTS.get(content_type, 5)], start=1):
+        zh = beat.get('section_zh') or f'段{i}'
+        points.append(
+            {
+                'order': i,
+                'role': 'argument' if i < len(beats) else 'action',
+                'headline': f'【{zh}】一句话职责',
+                'evidence': '须绑定 evidence_pack / 大纲已确认事实',
+                'production_hint': f'{zh}拍摄提示≤36字',
+                'duration_sec': 12,
+            }
+        )
+    if points:
+        base['points'] = points
+        base['total_duration_sec'] = sum(int(p.get('duration_sec') or 0) for p in points) + int(
+            (base.get('hook') or {}).get('duration_sec') or 5
+        )
+    base['content_type_note'] = (
+        f'稿件类型 {content_type}：points[] 至少 {profile.get("outline_min_points")} 条，'
+        f'覆盖 {", ".join(b.get("section_zh", "") for b in beats)}。'
+    )
+    return base
+
+
+def _script_schema_for_content_type(content_type: str, duration_sec: int = 75) -> dict[str, Any]:
+    roles = list(CONTENT_TYPE_SCRIPT_ROLES.get(content_type, ()))
+    tpl = _load_content_template_dict(content_type)
+    if tpl and isinstance(tpl.get('draft_segment_roles'), list):
+        roles = [str(x) for x in tpl['draft_segment_roles']]
+    n = max(1, len(roles))
+    seg_dur = max(5, duration_sec // n)
+    segments: list[dict[str, Any]] = []
+    t0 = 0
+    for i, role in enumerate(roles):
+        t1 = min(duration_sec, t0 + seg_dur)
+        segments.append(
+            {
+                'time': f'{t0 // 60}:{t0 % 60:02d}-{t1 // 60}:{t1 % 60:02d}',
+                'role': role,
+                'say': f'【{role}】口播正文，须符合 MEMORY_script_templates §{content_type} 段职责。',
+                'visual': ['贴纸:重点'],
+                'cta_hint': None,
+            }
+        )
+        t0 = t1
+    base = _script_min_schema()
+    base['duration_sec'] = duration_sec
+    base['structure_template'] = content_type
+    base['segments'] = segments
+    base['content_type_note'] = (
+        f'稿件类型 {content_type}：segments 必须 {len(roles)} 段，role 依次为 {roles}。'
+        '禁止仅用 hook/argument_1/turn/action/cta 通用五段。'
+    )
+    return base
+
+
 def _script_min_schema() -> dict[str, Any]:
     return {
         'draft_id': '<DID>',
@@ -290,12 +412,24 @@ def _script_min_schema() -> dict[str, Any]:
     }
 
 
-def _validate_outline_schema(body: dict[str, Any]) -> list[dict[str, Any]]:
+def _validate_outline_schema(body: dict[str, Any], *, content_type: str | None = None) -> list[dict[str, Any]]:
     errors: list[dict[str, Any]] = []
     points = body.get('points')
     if not isinstance(points, list) or not points:
         errors.append(_schema_error('OUTLINE_POINTS_MISSING', 'points', 'outline_refining payload 缺少 points[] 或为空。'))
         return errors
+    ct = (content_type or '').strip()
+    min_pts = CONTENT_TYPE_MIN_OUTLINE_POINTS.get(ct, 3)
+    if ct and len(points) < min_pts:
+        errors.append(
+            _schema_error(
+                'OUTLINE_POINTS_TOO_FEW_FOR_CONTENT_TYPE',
+                'points',
+                f'稿件类型 {ct!r} 要求大纲至少 {min_pts} 个 points[]（对应六段/五段口播结构，见 MEMORY_script_templates）。当前仅 {len(points)} 条。',
+                got=len(points),
+                hint=f'执行 draft_manager schema --stage outline_refining --draft <DID> --inject-prompt-template --json 查看 content_type_profile。',
+            )
+        )
     for idx, point in enumerate(points):
         path = f'points[{idx}]'
         if not isinstance(point, dict):
@@ -396,12 +530,50 @@ def _validate_script_style_adaptation_schema(body: dict[str, Any]) -> list[dict[
     return errors
 
 
-def _validate_stage_payload_schema(stage: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+def _validate_script_content_type_roles(body: dict[str, Any], *, content_type: str | None) -> list[dict[str, Any]]:
+    ct = (content_type or '').strip()
+    if not ct:
+        return []
+    required = list(CONTENT_TYPE_SCRIPT_ROLES.get(ct, ()))
+    tpl = _load_content_template_dict(ct)
+    if tpl and isinstance(tpl.get('draft_segment_roles'), list):
+        required = [str(x) for x in tpl['draft_segment_roles']]
+    if not required:
+        return []
+    segments = body.get('segments')
+    if not isinstance(segments, list):
+        return []
+    roles_seen = [str(s.get('role') or '').strip() for s in segments if isinstance(s, dict)]
+    missing = [r for r in required if r not in roles_seen]
+    extra_hint = ''
+    if len(segments) != len(required):
+        extra_hint = f' 当前 segments 数量={len(segments)}，要求={len(required)}。'
+    if missing or len(segments) < len(required):
+        return [
+            _schema_error(
+                'SCRIPT_CONTENT_TYPE_ROLES_MISMATCH',
+                'segments',
+                f'稿件类型 {ct!r} 要求 segments 依次包含 role：{required}。'
+                f'缺失：{missing or "（段数不足）"}。{extra_hint}'
+                f'勿使用通用 standard 五段（hook/argument_1/turn/action/cta）；见 MEMORY_script_templates §{ct}。',
+                got=roles_seen,
+            )
+        ]
+    return []
+
+
+def _validate_stage_payload_schema(
+    stage: str,
+    body: dict[str, Any],
+    *,
+    content_type: str | None = None,
+) -> list[dict[str, Any]]:
     if stage == STAGE_OUTLINE:
-        return _validate_outline_schema(body)
+        return _validate_outline_schema(body, content_type=content_type)
     if stage == STAGE_SCRIPT:
         errors: list[dict[str, Any]] = []
         errors.extend(_validate_script_renderer_schema(body))
+        errors.extend(_validate_script_content_type_roles(body, content_type=content_type))
         errors.extend(_validate_script_appendix_schema(body))
         errors.extend(_validate_script_fact_opinion_schema(body))
         errors.extend(_validate_script_style_adaptation_schema(body))
@@ -853,8 +1025,11 @@ def _draft_doctor_report(meta: dict[str, Any], draft_dir: Path) -> dict[str, Any
             'content_type=persona_intro 时建议绑定 meta.ip_id（对应 configs/ip_profiles/<ip_id>.json），否则 content_template_tool prompt-bundle 会因缺 {{ 占位符 }} 变量而失败。'
         )
     if not str(ct or '').strip() and stage in (STAGE_OUTLINE, STAGE_SCRIPT):
-        profile_notes.append(
-            '未设置 meta.content_type；若业务需要按「大盘观点/投教/人设」模板约束逐字稿模块键，可在 evidence 落盘后、绑 style 前执行 update --set-content-type。'
+        issue(
+            'CONTENT_TYPE_MISSING',
+            '当前阶段已到大纲或逐字稿，但 meta.content_type 未绑定；'
+            '须先 helper list-profile-options → 用户选定 → helper bind-profile，再重新生成大纲/逐字稿。',
+            remediation='python3 scripts/stream_gen_workflow_helper.py bind-profile --draft <DID> --content-type market_view|... --style-id <UUID>',
         )
 
     return {
@@ -1320,6 +1495,27 @@ def _cmd_update_set_evidence_pack(args: argparse.Namespace) -> None:
         'written': ['candidate_evidence_pack.json'],
     }, summary=f'''Draft #{draft_id} 已写入候选 {chosen} 的方向证据包。''')
 
+def _assert_content_type_before_outline(stage: str, meta: dict[str, Any], draft_id: str) -> None:
+    """P0 guard: outline/script 生成前必须先绑定稿件类型。"""
+    if stage not in (STAGE_OUTLINE, STAGE_SCRIPT):
+        return
+    if str(meta.get('content_type') or '').strip():
+        return
+    emit_error(
+        'workflow',
+        'CONTENT_TYPE_REQUIRED_BEFORE_OUTLINE',
+        '生成大纲/逐字稿前必须先询问并绑定稿件类型（market_view / investor_edu / persona_intro）；'
+        '推荐一次确认：helper list-profile-options 展示「类型·风格」组合，用户选定后 helper bind-profile。'
+        '不得跳过类型询问、不得用通用三段式模板或直接写文件绕过该门禁。',
+        draft_id=draft_id,
+        stage=stage,
+        hint=(
+            '先执行：python3 scripts/stream_gen_workflow_helper.py list-profile-options；'
+            '用户选定后：python3 scripts/stream_gen_workflow_helper.py bind-profile '
+            '--draft <DID> --content-type market_view|investor_edu|persona_intro --style-id <UUID>'
+        ),
+    )
+
 def _assert_style_bound_before_generation(stage: str, meta: dict[str, Any], draft_id: str) -> None:
     """P0 guard: outline/script 生成前必须先完成 user-style 选择。"""
     if stage not in (STAGE_OUTLINE, STAGE_SCRIPT):
@@ -1417,6 +1613,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         emit_error('draft', 'ALREADY_CLOSED', f'''Draft #{draft_id} 已 {meta.get('stage')}，不能再 update。''', draft_id = draft_id)
     assert_stage_transition(str(meta.get('stage') or ''), str(stage))
     _assert_evidence_pack_before_outline(stage, meta, draft_dir, draft_id)
+    _assert_content_type_before_outline(stage, meta, draft_id)
     _assert_style_bound_before_generation(stage, meta, draft_id)
     _assert_upstream_integrity_for_update(str(stage), meta, draft_dir, draft_id)
     payload_path = Path(args.payload_file)
@@ -1458,6 +1655,30 @@ def cmd_update(args: argparse.Namespace) -> None:
                         body['user_style_context'] = ctx_obj['context_markdown']
             except Exception:  # noqa: BLE001
                 pass
+    # P2 优化：证据包按需注入（v0.3）
+    evidence_pack_auto_injected = False
+    evidence_pack_level = getattr(args, 'inject_evidence_level', None)
+    if stage in (STAGE_OUTLINE, STAGE_SCRIPT) and 'evidence_pack' not in body:
+        ep_path = draft_dir / 'candidate_evidence_pack.json'
+        if ep_path.is_file():
+            try:
+                ep_full = read_json(ep_path, default=None)
+                if isinstance(ep_full, dict):
+                    # 确定注入级别：未指定时按阶段默认（大纲 minimal，逐字稿 full）
+                    if evidence_pack_level is None:
+                        evidence_pack_level = 'minimal' if stage == STAGE_OUTLINE else 'full'
+                    if evidence_pack_level == 'minimal':
+                        # minimal 只保留 candidate_title + core_facts（约 200-300 Token）
+                        body['evidence_pack'] = {
+                            'candidate_title': ep_full.get('candidate_title'),
+                            'core_facts': ep_full.get('core_facts', []),
+                        }
+                    else:
+                        # full 保留完整内容（含 detailed_sources、argument_boosters）
+                        body['evidence_pack'] = ep_full
+                    evidence_pack_auto_injected = True
+            except Exception:  # noqa: BLE001
+                pass
     deprecation_warnings: list[dict[str, str]] = []
     if stage == STAGE_SCRIPT and isinstance(display_md, str) and display_md.strip():
         deprecation_warnings.append({
@@ -1465,7 +1686,8 @@ def cmd_update(args: argparse.Namespace) -> None:
             'field': 'display_markdown',
             'since': 'v0.1.3',
             'reason': 'script.md now auto-rendered from segments[] by draft_manager. Remove this field from your payload to save tokens.' })
-    _emit_payload_schema_errors(stage, _validate_stage_payload_schema(stage, body))
+    ct_meta = str(meta.get('content_type') or '').strip() or None
+    _emit_payload_schema_errors(stage, _validate_stage_payload_schema(stage, body, content_type=ct_meta))
     md_text: str | None = None
     if stage == STAGE_SCRIPT:
         try:
@@ -1491,6 +1713,8 @@ def cmd_update(args: argparse.Namespace) -> None:
                 and str(body.get('user_style_context') or '').strip()
                 and not str(payload.get('user_style_context') or '').strip()
             ),
+            'evidence_pack_auto_injected': evidence_pack_auto_injected,
+            'evidence_pack_level': evidence_pack_level if evidence_pack_auto_injected else None,
             'deprecation_warnings': deprecation_warnings,
         }, summary=f'Draft #{draft_id} 的 {stage} payload 校验通过（validate-only，未写盘）。')
         return
@@ -1613,6 +1837,8 @@ def cmd_update(args: argparse.Namespace) -> None:
         'written': written,
         'cleaned_forward': cleaned,
         'edit_note': args.edit_note,
+        'evidence_pack_auto_injected': evidence_pack_auto_injected,
+        'evidence_pack_level': evidence_pack_level if evidence_pack_auto_injected else None,
     }
     if compliance_info is not None:
         result_payload['compliance'] = compliance_info
@@ -1785,24 +2011,108 @@ def cmd_drop(args: argparse.Namespace) -> None:
         'dropped_at': now_iso(), 'drop_reason': reason } )
     emit_ok('drop', result = result, summary = f'''Draft #{result['draft_id']} 已放弃归档到 {result['archive_path']}，剩余 active: {result['remaining_active']}，focus=#{result['new_focus']}。''')
 
+def _read_prompt_template(stage: str) -> str | None:
+    """读取并返回对应阶段的 prompt 模板内容（极简压缩）。"""
+    fragments_dir = CONTENT_SKILL_ROOT / 'prompts' / 'fragments'
+    map_stage: dict[str, list[str]] = {
+        STAGE_OUTLINE: ['outline-core.md', 'outline-min-schema.md'],
+        STAGE_SCRIPT: ['script-core.md', 'script-min-schema.md'],
+    }
+    files = map_stage.get(stage, [])
+    if not files:
+        return None
+    parts: list[str] = []
+    for fname in files:
+        fp = fragments_dir / fname
+        if fp.is_file():
+            try:
+                content = fp.read_text(encoding='utf-8')
+                # 移除 frontmatter / 纯注释行以减少体积
+                lines = content.splitlines()
+                trimmed: list[str] = []
+                for line in lines:
+                    s = line.strip()
+                    if not s or s.startswith('#'):
+                        trimmed.append(line)
+                        continue
+                    trimmed.append(line)
+                parts.append('\n'.join(trimmed))
+            except Exception:
+                pass
+    return '\n\n---\n\n'.join(parts) if parts else None
+
+
 def cmd_schema(args: argparse.Namespace) -> None:
     stage = args.stage
+    content_type: str | None = None
+    draft_id = getattr(args, 'draft', None)
+    scratch_outline: str | None = None
+    scratch_script: str | None = None
+    if draft_id:
+        try:
+            (_mp, _meta) = _load_meta_or_fail(get_user_id(), draft_id)
+            content_type = str(_meta.get('content_type') or '').strip() or None
+            scratch_outline = str(
+                draft_payload_scratch_path(get_user_id(), draft_id, 'outline_payload.json')
+            )
+            scratch_script = str(
+                draft_payload_scratch_path(get_user_id(), draft_id, 'script_payload.json')
+            )
+        except SystemExit:
+            raise
+        except Exception:  # noqa: BLE001
+            content_type = None
     if stage == STAGE_OUTLINE:
-        template = _outline_min_schema()
+        template = (
+            _outline_schema_for_content_type(content_type)
+            if content_type
+            else _outline_min_schema()
+        )
     elif stage == STAGE_SCRIPT:
-        template = _script_min_schema()
+        outline_dur = 75
+        if draft_id:
+            op = get_active_draft_dir(get_user_id(), draft_id) / 'outline.json'
+            if op.is_file():
+                oj = read_json(op, default=None)
+                if isinstance(oj, dict) and isinstance(oj.get('total_duration_sec'), (int, float)):
+                    outline_dur = int(oj['total_duration_sec'])
+        template = (
+            _script_schema_for_content_type(content_type, duration_sec=outline_dur)
+            if content_type
+            else _script_min_schema()
+        )
     else:
         emit_error('usage', 'SCHEMA_STAGE_UNSUPPORTED', f'暂不支持 stage={stage} 的 schema 模板。', stage=stage)
         return
+    result: dict[str, Any] = {
+        'stage': stage,
+        'schema_kind': 'minimal_pass_template',
+        'template': template,
+        'usage': f'生成 payload 后先执行：python3 skills/streamy-content-gen/scripts/draft_manager.py update --draft <DID> --stage {stage} --payload-file <payload.json> --validate-only --json',
+        'payload_path_rule': '禁止写入 /tmp；使用 result.recommended_payload_paths 或 drafts/.../_scratch/*.json',
+    }
+    if draft_id:
+        result['draft_id'] = draft_id
+        result['recommended_payload_paths'] = {
+            'outline_refining': scratch_outline,
+            'script_refining': scratch_script,
+        }
+    if content_type:
+        result['content_type_profile'] = _content_type_profile(content_type)
+    if getattr(args, 'inject_prompt_template', False):
+        pt = _read_prompt_template(stage)
+        if pt:
+            result['prompt_template'] = pt
+            result['prompt_template_note'] = '已注入 prompt 模板，Agent 无需单独 read prompt 碎片文件。'
+        if content_type:
+            result['content_type_prompt_note'] = (
+                f'已绑定 content_type={content_type}；逐字稿 segments.role 必须匹配 '
+                f'{result["content_type_profile"]["required_segment_roles"]}。'
+            )
     emit_ok(
         'schema',
-        result={
-            'stage': stage,
-            'schema_kind': 'minimal_pass_template',
-            'template': template,
-            'usage': f'生成 payload 后先执行：python3 skills/streamy-content-gen/scripts/draft_manager.py update --draft <DID> --stage {stage} --payload-file <payload.json> --validate-only --json',
-        },
-        summary=f'{stage} 最小通过模板已返回；few-shot 不在此模板内。',
+        result=result,
+        summary=f'{stage} 最小通过模板已返回{"（含 prompt + 稿件类型）" if content_type and getattr(args, "inject_prompt_template", False) else ""}。',
     )
 
 
@@ -1834,7 +2144,16 @@ def cmd_prevalidate(args: argparse.Namespace) -> None:
     draft_id = getattr(args, 'draft', None)
     if draft_id and not str(body.get('draft_id') or '').strip():
         body['draft_id'] = str(draft_id).strip()
-    errors = _validate_stage_payload_schema(stage, body)
+    content_type: str | None = None
+    if draft_id:
+        try:
+            (_mp, _meta) = _load_meta_or_fail(get_user_id(), str(draft_id).strip())
+            content_type = str(_meta.get('content_type') or '').strip() or None
+        except SystemExit:
+            raise
+        except Exception:  # noqa: BLE001
+            content_type = None
+    errors = _validate_stage_payload_schema(stage, body, content_type=content_type)
     rules = _script_prevalidate_rules() if stage == STAGE_SCRIPT else {'stage': stage}
     if errors:
         emit_error(
@@ -1920,9 +2239,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument('--clear-content-profile', action='store_true', help='清空 meta.content_type 与 meta.ip_id（与 --set-content-type/--set-ip-id 互斥）')
     p_update.add_argument('--edit-note', default = '', help = '人改描述，写入 history.json')
     p_update.add_argument('--validate-only', action = 'store_true', help = '只执行门禁与 payload/schema/渲染校验，不写入 draft 文件')
+    p_update.add_argument('--inject-evidence-level', choices=['minimal', 'full'], default=None, help='证据包注入级别：minimal（只注入 core_facts + candidate_title，大纲阶段推荐）/ full（完整注入，逐字稿阶段按需）。若 payload 未带 evidence_pack，则自动从 candidate_evidence_pack.json 读取并裁剪。')
     p_update.set_defaults(func = cmd_update)
     p_schema = sub.add_parser('schema', help = '输出 outline/script 最小通过 payload 模板', parents = [ common ])
     p_schema.add_argument('--stage', required = True, choices = [ 'outline_refining', 'script_refining' ], help = '要查看模板的阶段')
+    p_schema.add_argument('--draft', default=None, help='读取 meta.content_type 并返回推荐 payload 路径（禁止 /tmp）')
+    p_schema.add_argument('--inject-prompt-template', action='store_true', default=False, dest='inject_prompt_template', help='同时注入 prompt 模板（outline-core/script-core），省去 Agent 单独 read 调用（减少 1000-1500 Token）')
     p_schema.set_defaults(func = cmd_schema)
     p_pre = sub.add_parser('prevalidate', help = '生成前 payload schema 预检（无阶段门禁、不写盘）', parents = [ common ])
     p_pre.add_argument('--stage', required = True, choices = [ 'outline_refining', 'script_refining' ])

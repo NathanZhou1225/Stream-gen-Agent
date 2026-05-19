@@ -1,0 +1,206 @@
+{
+  "draft_id": "GDH",
+  "title": "670亿美元并购信号：全球新能源版图正在加速重构",
+  "duration_sec": 70,
+  "structure_template": "standard",
+  "segments": [
+    {
+      "time": "0:00-0:08",
+      "role": "hook",
+      "say": "670亿美元一笔交易，新能源史上最大并购诞生了。但这只是冰山一角——三个信号告诉你，全球新能源正在重估。",
+      "visual": [
+        "贴纸:情绪词高亮670亿",
+        "特效:数字放大"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "0:08-0:26",
+      "role": "argument_1",
+      "say": "老丁在圈子里反复讲，产业资本的钱是最诚实的投票。4月初我就提醒过储能赛道在蓄力，当时抽水蓄能招标量翻倍，铝供应链订单在堆。跟上的朋友都知道节奏。我的圈子不推票，但关键节点的信号，第一时间给到。评论区蓝链可以直接进。",
+      "claim_kind": "mixed",
+      "evidence_source_type": "news_flash",
+      "evidence_source_ref": "老丁圈子4月储能赛道提醒 / 抽水蓄能招标量翻倍 / 铝供应链订单",
+      "visual": [
+        "配图:圈子战绩案例卡",
+        "动作:老丁竖拇指"
+      ],
+      "cta_hint": "评论区蓝链进圈子"
+    },
+    {
+      "time": "0:26-0:34",
+      "role": "turn",
+      "say": "一句话结论：全球新能源资产，正在被重新定价。不是反弹，是估值体系的重构。",
+      "claim_kind": "opinion",
+      "visual": [
+        "贴纸:结论字幕",
+        "特效:大字弹窗定格"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "0:34-0:57",
+      "role": "argument_2",
+      "say": "凭什么这么说？三步给你拆开看。第一，并购规模。NextEra砸670亿美元吞下Dominion，东海岸最大能源巨头一步成型。这个对价说明产业资本算过账——新能源资产现在被市场低估了。第二，储能订单。福特能源刚跟EDF签了20GWh的五年大单，每年4GWh，2028年首批交付。浙江松阳抽水蓄能637米竖井全线贯通，刷新国内纪录，说明资金在往新能源基础设施里灌。第三，但也别只看利好。碳酸锂涨到20万一吨，储能EPC成本飙到九毛七一度电，已经有企业暂停项目。上游成本在吃下游利润，不能只看一面。",
+      "claim_kind": "fact",
+      "evidence_source_type": "market",
+      "evidence_source_ref": "NextEra 670亿美元收购Dominion / 2026-05-18; 福特20GWh储能协议 / 2026-05-18; 碳酸锂20万元/吨 储能EPC 0.97元/Wh / 2026-05-18; 浙江松阳抽水蓄能637米贯通 / 2026-05-18",
+      "visual": [
+        "配图:三论点并列卡",
+        "配图:碳酸锂曲线红灯",
+        "配图:抽蓄工程现场"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "0:57-1:04",
+      "role": "result",
+      "say": "新能源现在不是能不能看的问题，是你会不会看信号。并购规模定方向，储能订单看景气，上游成本量空间——三层交叉，线就画出来了。后续关键信号，老丁在圈子里第一时间更新。",
+      "claim_kind": "opinion",
+      "visual": [
+        "贴纸:金句字幕",
+        "动作:手势三层计数"
+      ],
+      "cta_hint": null
+    },
+    {
+      "time": "1:04-1:10",
+      "role": "cta",
+      "say": "新能源三重信号的完整框架，我整理了份清单。评论区回复「新能源」，小助理发给你，顺带拉你进圈子免费看一周。",
+      "visual": [
+        "动作:手指评论区",
+        "贴纸:评论引导底条"
+      ],
+      "cta_hint": null
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "position": "ending",
+    "phrasing": "评论区回复「新能源」，小助理发完整框架+免费进圈体验一周"
+  },
+  "production_appendix": {
+    "camera_shots": [
+      "Hook近景推入，数字配合画面缩放冲击",
+      "导流段中景，留右侧战绩卡展示位",
+      "亮剑段切近景，表情坚定+字幕弹窗",
+      "论证段中景，三论点卡依次弹出",
+      "总结段近景，金句出现时画面定格半秒"
+    ],
+    "stickers_effects": [
+      "Hook「670亿」数字放大+粒子炸裂动画",
+      "亮剑结论大字弹窗定格0.5秒",
+      "论证段三论点卡片依次滑入+数字高亮",
+      "碳酸锂「20万/吨」红色闪烁警示",
+      "CTA评论区箭头跳动+气泡引导"
+    ],
+    "visual_assets": [
+      "NextEra/Dominion并购金额标题卡（670亿美元+东海岸能源巨头）",
+      "圈子战绩回顾卡（4月储能赛道提醒+铝供应链提醒）",
+      "三重信号并列论证卡（并购规模/储能订单/上游成本）",
+      "碳酸锂价格走势图（标注20万关口+成本传导示意）",
+      "评论引导底条（「回复新能源领框架+免费进圈」）"
+    ],
+    "host_actions": [
+      "Hook结尾停顿半秒，眼神锁定镜头制造悬念",
+      "导流段竖拇指强化人设信誉",
+      "论证段「第一/第二/第三」同步手指计数",
+      "讲碳酸锂成本时皱眉+加重语气",
+      "CTA指向屏幕右下方评论区"
+    ]
+  },
+  "source": {
+    "topic": "NextEra以670亿美元收购Dominion Energy — 全球新能源版图重构",
+    "data_sources": [
+      "NextEra 670亿美元收购Dominion Energy / 2026-05-18 rsshub & deep_news",
+      "福特能源与EDF签20GWh储能协议 / 2026-05-18 deep_news",
+      "碳酸锂涨至20万元/吨 储能EPC成本0.97元/Wh / 2026-05-18 rsshub",
+      "浙江松阳抽水蓄能电站637米竖井贯通 / 2026-05-18 deep_news"
+    ]
+  },
+  "evidence_pack": {
+    "candidate_id": "C1",
+    "candidate_index": 1,
+    "candidate_title": "NextEra以670亿美元收购Dominion Energ｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+    "candidate_thesis": "NextEra以670亿美元收购Dominion Energy 相关讨论与盘面事实正在共振，优先围绕「NextEra以670亿美元收购Dominion」展开。",
+    "direction": "NextEra以670亿美元收购Dominion Energy 新能源",
+    "core_facts": [
+      {
+        "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "影响：科技主线锚点：AI；优先关注算力、芯片、AI 应用或数据中心链条的资金映射。",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "角度：可从“硬科技主线是否延续”切入，结合盘面强弱筛选可讲的产业链节点。",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ],
+    "detailed_sources": [
+      {
+        "detail_id": "D3",
+        "title": "**整体情绪分**：0.05 (🟡 中性)",
+        "summary": "**整体情绪分**：0.05 (🟡 中性)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "source_path": "markdown_summary"
+      },
+      {
+        "detail_id": "D6",
+        "title": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "summary": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "source_path": "markdown_summary"
+      },
+      {
+        "detail_id": "D5",
+        "title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+        "summary": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "source_path": "markdown_summary"
+      }
+    ],
+    "argument_boosters": [
+      {
+        "point": "**整体情绪分**：0.05 (🟡 中性)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ],
+    "source_gaps": [],
+    "targeted_fetch": {
+      "attempted": false,
+      "ok": false
+    },
+    "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+  },
+  "compliance": {
+    "status": "pass",
+    "warnings": [],
+    "scanned_at": "2026-05-19T11:38:08+08:00",
+    "scanner_version": "v0.1.2"
+  }
+}

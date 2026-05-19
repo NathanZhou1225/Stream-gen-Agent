@@ -20,13 +20,19 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from snapshot_cache import (
+    DEFAULT_CACHE_SNAPSHOT,
+    DEFAULT_MAX_AGE_HOURS,
+    should_write_cache,
+    try_load_fresh_snapshot,
+    write_snapshot_cache,
+)
+
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = SKILL_ROOT.parent.parent
 FINANCE_ROOT = SKILL_ROOT.parent / "finance-source-ingest"
 DRAFT_MANAGER_ROOT = SKILL_ROOT.parent / "finance-draft-manager"
 DB_SNAPSHOT_SCRIPT = DRAFT_MANAGER_ROOT / "scripts" / "db_snapshot.py"
-# 与 preflight_topic.DEFAULT_OUT_DIR / cache_snapshot_path 对齐（同 workspace，非按 agent 分目录）
-DEFAULT_CACHE_SNAPSHOT = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
 
 
 def _load_dotenv(env: dict[str, str] | None = None) -> dict[str, str]:
@@ -253,28 +259,14 @@ def _run_live_fetch(args: argparse.Namespace) -> dict[str, Any]:
     return _extract_json_object(proc.stdout)
 
 
-def _write_snapshot_cache(snap: dict[str, Any], *, cache_path: Path | None = None) -> Path:
-    """写入 workspace 级快照缓存，供 preflight --direction 复用（避免二次 query_market_facts）。"""
-    path = (cache_path or DEFAULT_CACHE_SNAPSHOT).resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
-
-
-def _should_write_cache(snap: dict[str, Any]) -> bool:
-    if not snap.get("ok", True):
-        return False
-    if snap.get("error") and not snap.get("markdown_summary") and not snap.get("sections"):
-        return False
-    return bool(snap.get("markdown_summary") or snap.get("sections"))
-
-
 def _build_summary_view(
     snap: dict[str, Any],
     *,
     cache_path: str | None = None,
+    cache_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta = snap.get("meta") or {}
+    ci = cache_info or {}
     return {
         "ok": bool(snap.get("ok", True)),
         "schema_version": snap.get("schema_version"),
@@ -292,8 +284,11 @@ def _build_summary_view(
             "sector_llm_rewrite_status": meta.get("sector_llm_rewrite_status"),
             "major_since_hours": meta.get("major_since_hours"),
             "social_intelligence": meta.get("social_intelligence"),
-            "snapshot_cache_path": cache_path,
+            "snapshot_cache_path": cache_path or ci.get("cache_path"),
             "snapshot_cache_written": bool(cache_path),
+            "snapshot_cached": bool(ci.get("snapshot_cached")),
+            "cache_stale_reason": ci.get("cache_stale_reason"),
+            "remote_db_last_ingested_at": ci.get("remote_db_last_ingested_at"),
         },
         "errors": snap.get("errors") or [],
         "markdown_summary": str(snap.get("markdown_summary") or ""),
@@ -335,11 +330,38 @@ def main() -> None:
         action="store_true",
         help="成功时不写入 workspace-stream-gen/cache/snapshot/snapshot.json",
     )
+    parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="跳过本地 cache，强制云 API + 本机 Router/Rewriter",
+    )
+    parser.add_argument(
+        "--no-use-cache",
+        action="store_true",
+        help="同 --force-refresh",
+    )
+    parser.add_argument(
+        "--snapshot-max-age-hours",
+        type=int,
+        default=DEFAULT_MAX_AGE_HOURS,
+        help="cache 墙钟回退上限（小时）；db_last 探测成功时优先按库更新时间",
+    )
+    parser.add_argument(
+        "--cache-snapshot-path",
+        type=Path,
+        default=DEFAULT_CACHE_SNAPSHOT,
+        help="快照缓存路径（与 preflight 共用）",
+    )
     parser.add_argument("--cloud", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--from-db", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    os.environ.update(_load_dotenv())
+    env = _load_dotenv()
+    os.environ.update(env)
+
+    cache_info: dict[str, Any] = {}
+    snap: dict[str, Any]
+    force_refresh = bool(args.force_refresh or args.no_use_cache)
 
     if args.live_fetch:
         try:
@@ -350,7 +372,19 @@ def main() -> None:
                 "error": {"code": "LIVE_FETCH_FAILED", "message": str(e)[:500]},
             }, ensure_ascii=False, indent=2))
             sys.exit(1)
+    elif not force_refresh:
+        cached, cache_info = try_load_fresh_snapshot(
+            args.cache_snapshot_path,
+            max_age_hours=int(args.snapshot_max_age_hours),
+            check_remote_db=True,
+            env=env,
+        )
+        if cached is not None:
+            snap = cached
+        else:
+            snap = _run_cloud_snapshot(args)
     else:
+        cache_info = {"cache_stale_reason": "force_refresh", "snapshot_cached": False}
         snap = _run_cloud_snapshot(args)
 
     if snap.get("error") and not snap.get("markdown_summary") and not snap.get("sections"):
@@ -358,20 +392,24 @@ def main() -> None:
         sys.exit(0 if snap.get("ok") else 1)
 
     cache_written: str | None = None
-    if not args.no_write_cache and _should_write_cache(snap):
+    if not args.no_write_cache and should_write_cache(snap) and not cache_info.get("snapshot_cached"):
         try:
-            cache_written = str(_write_snapshot_cache(snap))
+            cache_written = str(write_snapshot_cache(snap, cache_path=args.cache_snapshot_path))
         except OSError:
             cache_written = None
+    elif cache_info.get("snapshot_cached"):
+        cache_written = str(args.cache_snapshot_path.resolve())
 
     summary_only = bool(args.summary_only) and not args.full
     if summary_only:
-        payload = _build_summary_view(snap, cache_path=cache_written)
-    elif cache_written:
+        payload = _build_summary_view(snap, cache_path=cache_written, cache_info=cache_info)
+    elif cache_written or cache_info.get("snapshot_cached"):
         snap = dict(snap)
         meta = dict(snap.get("meta") or {})
-        meta["snapshot_cache_path"] = cache_written
-        meta["snapshot_cache_written"] = True
+        meta["snapshot_cache_path"] = cache_written or cache_info.get("cache_path")
+        meta["snapshot_cache_written"] = bool(cache_written and not cache_info.get("snapshot_cached"))
+        meta["snapshot_cached"] = bool(cache_info.get("snapshot_cached"))
+        meta["cache_stale_reason"] = cache_info.get("cache_stale_reason")
         snap["meta"] = meta
         payload = snap
     else:

@@ -23,7 +23,24 @@
 
 ---
 
-## 3. 五种结构模板（选一个）
+## 3. 稿件类型优先（`meta.content_type` 已绑定时）
+
+当 `meta.json` 含 **`market_view` / `investor_edu` / `persona_intro`** 时：
+
+1. **先执行**（一次调用，勿手写通用五段）：
+   ```bash
+   python3 skills/streamy-content-gen/scripts/draft_manager.py schema \
+     --stage outline_refining --draft <DID> --inject-prompt-template --json
+   ```
+2. **`points[]` 条数** ≥ `content_type_profile.outline_min_points`（大盘观点 **5** 条 + hook，对应：导流→亮剑→论证→总结→转化前铺垫等）。
+3. payload 写入 **`drafts/active/default/<DID>/_scratch/outline_payload.json`**，**禁止** `/tmp/outline_<DID>.json`（易 write 失败且不落审计链）。
+4. 逐字稿阶段 `segments.role` 须与 `configs/content_templates/<type>.json` 的 `draft_segment_roles` 一致；结构说明见 **`memory/rules/MEMORY_script_templates.md`**（与 `docs/视频文案和结构.docx` 对齐）。
+
+未绑 `content_type` 时，才用下方「五种结构模板」自由选型。
+
+---
+
+## 4. 五种结构模板（选一个 · 无 content_type 时）
 
 | 结构 | 段序 | 适用 | 60s 参考分布 |
 |---|---|---|---|
@@ -37,7 +54,7 @@
 
 ---
 
-## 4. 每段职责与红线
+## 5. 每段职责与红线
 
 ### Hook（前 3–5 秒）
 
@@ -68,7 +85,7 @@
 
 ---
 
-## 5. 合规红线（承接 topic-generation，outline 追加）
+## 6. 合规红线（承接 topic-generation，outline 追加）
 
 | 红线 | 落点 |
 |---|---|
@@ -78,7 +95,7 @@
 
 ---
 
-## 6. `display_markdown`（对话与 `outline.md`）
+## 7. `display_markdown`（对话与 `outline.md`）
 
 工具会把 payload 里的 `display_markdown` 写入 `outline.md`（**不**写入 `outline.json`）。格式约定：
 
@@ -89,7 +106,7 @@
 
 ---
 
-## 7. 用户反馈 → 增量 update
+## 8. 用户反馈 → 增量 update
 
 | 用户说 | 动作 |
 |---|---|
@@ -102,7 +119,7 @@
 
 ---
 
-## 8. 提交前自查
+## 9. 提交前自查
 
 - [ ] `structure_template` 与方向类型匹配？
 - [ ] Hook 是完整一句，不是废话开场？
@@ -114,6 +131,6 @@
 
 ---
 
-## 9. Few-shot
+## 10. Few-shot
 
 完整 JSON 示例见 **`prompts/fragments/outline-examples.md`**（结构不稳或用户要样例时再读）。

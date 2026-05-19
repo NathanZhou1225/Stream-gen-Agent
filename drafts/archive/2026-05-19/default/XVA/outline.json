@@ -1,0 +1,70 @@
+{
+  "title": "AI叙事大反转：从“垃圾”到“将重塑社会”，三重验证锁定硬科技主线",
+  "structure_template": "standard",
+  "hook": {
+    "text": "全球对冲基金一哥，九个月前说AI是垃圾，现在公开认错——说AI将重塑社会。更关键的是，产业链数据正在验证这件事。",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "方法论：AI主线从概念炒作到业绩兑现的三重验证框架——机构叙事、业绩数据、资本市场，三者缺一不可",
+      "evidence": "①机构叙事层：格里芬态度逆转（deep_news 5/18）；②业绩层：长鑫Q1营收+719%净利+1268%（deep_news 5/17-18）；③资本层：Cerebras上市首日+68%市值670亿（deep_news 5/18）",
+      "production_hint": "中景口播+分屏展示三重验证框架图表",
+      "duration_sec": 15
+    },
+    {
+      "order": 2,
+      "role": "turn",
+      "headline": "信号拆解：恐惧贪婪指数仅10极度恐惧，但AI链业绩集体爆发——极端情绪中主线反而在强化，这是典型的认知差",
+      "evidence": "恐惧贪婪指数10.0极度恐惧，整体情绪0.05中性，但长鑫/Cerebras业绩与IPO溢价形成背离（market_snapshot + deep_news 5/18）",
+      "production_hint": "切近景，黄底字幕展示恐惧指数与业绩数据对比",
+      "duration_sec": 12
+    },
+    {
+      "order": 3,
+      "role": "action",
+      "headline": "盘面提醒：三个观察指标帮你判断AI主线能否延续——别被情绪带节奏，用数据做验证",
+      "evidence": "观察组合：①AI产业链龙头Q2业绩指引（长鑫预计H1营收1100-1200亿）；②北向/南向资金科技板块流向；③大模型融资与AI芯片IPO节奏",
+      "production_hint": "三分屏列三个观察指标，最后停留2秒",
+      "duration_sec": 12
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "想获取AI硬科技产业链核心标的观察清单？评论区回复AI主线，发你完整版。"
+  },
+  "total_duration_sec": 60,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  },
+  "evidence_pack": {
+    "candidate_title": "AI行情：全球对冲基金一哥倒戈看好AI，长鑫科技业绩暴增，C｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+    "core_facts": [
+      {
+        "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ]
+  }
+}

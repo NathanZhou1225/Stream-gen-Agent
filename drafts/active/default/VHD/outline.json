@@ -1,0 +1,86 @@
+{
+  "title": "恐惧贪婪指数跌到10.0，黄金失守4500又拉回：美伊已经把全球市场架在火上烤",
+  "structure_template": "standard",
+  "hook": {
+    "text": "恐惧贪婪指数砸到10.0——极度恐惧，黄金先破4500再拉回来，白银冲到77美元。美伊这把火还没灭，全球资金正在用脚投票。",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "hook_lock",
+      "headline": "开篇·10秒锁客｜恐惧贪婪指数10.0，美伊局势根本还没定价完",
+      "evidence": "恐惧贪婪指数10.0（极度恐惧）；特朗普推迟对伊打击但警告谈判失败即恢复战备；内塔尼亚胡与特朗普通话讨论联合空袭；阿联酋核电站遭无人机袭击",
+      "production_hint": "中景口播+屏幕左侧叠恐惧贪婪指数10.0大字+右侧美伊地图",
+      "duration_sec": 10
+    },
+    {
+      "order": 2,
+      "role": "value_show",
+      "headline": "导流·展示价值｜三周前圈子就提醒过地缘对黄金的脉冲节奏",
+      "evidence": "三周前地缘升温即提示黄金避险脉冲→回调→二次冲高的节奏；黄金板块连续多日位列六大板块头部，与圈子判断一致",
+      "production_hint": "切近景+屏幕弹出'圈子提示'截图标+脉冲示意图",
+      "duration_sec": 12
+    },
+    {
+      "order": 3,
+      "role": "core_view",
+      "headline": "亮剑·抛出观点｜黄金现在不是追，是等——等美伊下一步信号验证二次上车点",
+      "evidence": "黄金跌破4500后反弹，但美伊谈判仍在进行中；特朗普推迟但未取消攻击；布油111美元/桶对应避险尚未出清",
+      "production_hint": "中景→慢推近景+屏幕大字'不追·等信号验证'",
+      "duration_sec": 10
+    },
+    {
+      "order": 4,
+      "role": "argument",
+      "headline": "论证·三线验证｜高盛5400目标+央行购金60吨/月+白银77美元同步突破，三重信号共振",
+      "evidence": "高盛维持金价年底5400美元目标，预计央行月均购金60吨；现货白银突破77美元日内涨1.49%；全球债市30年期美债收益率5.12%创07年新高；美联储年内难降息→滞胀定价加速；近80国紧急应对能源危机",
+      "production_hint": "分屏：左高盛报告截图+右白银K线+下方央行购金柱状图",
+      "duration_sec": 15
+    },
+    {
+      "order": 5,
+      "role": "summary",
+      "headline": "总结·强化记忆｜极度恐惧不是抄底信号，是等待信号——地缘+滞胀双线，黄金的底要等局势先出方向",
+      "evidence": "恐惧贪婪10.0属极端区间但黄金尚未形成明确底部结构；美伊谈判/军事行动仍是最大不确定性变量；滞胀环境压制风险偏好但利好硬资产",
+      "production_hint": "切回中景+屏幕叠'等信号·不急'三字金句",
+      "duration_sec": 10
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "美伊下一步怎么走、黄金什么时候是真正的出击时机——圈子里我第一时间给信号，评论区扣'黄金'我拉你进来。"
+  },
+  "total_duration_sec": 62,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  },
+  "evidence_pack": {
+    "candidate_title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+    "core_facts": [
+      {
+        "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99) | provenance: finance-source-in",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "影响：科技主线锚点：AI；优先关注算力、芯片、AI 应用或数据中心链条的资金映射。",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "角度：可从“硬科技主线是否延续”切入，结合盘面强弱筛选可讲的产业链节点。",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ]
+  }
+}

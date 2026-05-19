@@ -1,0 +1,86 @@
+{
+  "title": "美伊局势与黄金：避险主线怎么讲",
+  "structure_template": "market_view",
+  "hook": {
+    "text": "布油站上110，黄金在4500附近拉锯——美伊一响，避险资产先动。",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "【开篇·10秒锁客】地缘风险升温，油价黄金同屏异动",
+      "evidence": "布伦特原油110美元/桶；美伊局势升温推高油价/2026-05-18 deep_news",
+      "production_hint": "近景+油价黄金双数字贴纸",
+      "duration_sec": 10
+    },
+    {
+      "order": 2,
+      "role": "argument",
+      "headline": "【导流/关注·展示价值】圈子价值：用三条线读避险",
+      "evidence": "方法论：地缘→油价→黄金传导；不荐股只讲观察框架",
+      "production_hint": "中景口播+三条线小字卡",
+      "duration_sec": 10
+    },
+    {
+      "order": 3,
+      "role": "argument",
+      "headline": "【亮剑·抛出观点】短期看波动，中期看央行购金",
+      "evidence": "高盛：各国央行加大购金，年底目标5400美元/2026-05-18",
+      "production_hint": "亮剑字幕+高盛观点来源",
+      "duration_sec": 12
+    },
+    {
+      "order": 4,
+      "role": "argument",
+      "headline": "【论证·我的论点】霍尔木兹与谈判窗口并存",
+      "evidence": "特朗普推迟对伊军事打击；内塔尼亚胡与特朗普通话/2026-05-18",
+      "production_hint": "地图贴纸+谈判/袭击双线对比",
+      "duration_sec": 12
+    },
+    {
+      "order": 5,
+      "role": "argument",
+      "headline": "【总结·强化记忆】恐惧指数10，别只盯单一资产",
+      "evidence": "恐惧贪婪指数10.0极度恐惧；整体情绪分0.05中性/盘面",
+      "production_hint": "恐惧指数+黄金油价三联对比",
+      "duration_sec": 10
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "评论区回「避险」，发三条观察清单"
+  },
+  "total_duration_sec": 60,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  },
+  "evidence_pack": {
+    "candidate_title": "美伊局势和黄金｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+    "core_facts": [
+      {
+        "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "影响：科技主线锚点：AI；优先关注算力、芯片、AI 应用或数据中心链条的资金映射。",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "角度：从“硬科技主线是否延续”切入，结合盘面强弱筛选可讲的产业链节点。",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "title": "AI芯片上市潮：资本正在重新定价硬科技",
+  "structure_template": "standard",
+  "hook": {
+    "text": "Cerebras上市首日暴涨68%，AI芯片从PPT走向交易所——资本市场正在给AI重新定价。",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "AI芯片上市潮：两个硬核数字",
+      "evidence": "Cerebras Systems纳斯达克上市首日涨68%，市值670亿美元；长鑫科技Q1净利润330亿同比增1268%，DRAM供不应求",
+      "production_hint": "中景口播+屏幕弹出Cerebras涨68%/长鑫330亿两组数字",
+      "duration_sec": 15
+    },
+    {
+      "order": 2,
+      "role": "turn",
+      "headline": "极度恐惧中的结构性分化",
+      "evidence": "恐惧贪婪指数10.0（极度恐惧）；苹果/微软/Meta情绪极值-0.99；但AI芯片方向逆势受资本追捧",
+      "production_hint": "切近景，左侧恐惧指数+右侧AI芯片涨幅对比",
+      "duration_sec": 15
+    },
+    {
+      "order": 3,
+      "role": "action",
+      "headline": "顶级资本的认知切换：跟踪三个验证节点",
+      "evidence": "格里芬从'AI是垃圾'到'AI将重塑社会'的180度转向；三个节点：芯片出货量→数据中心开支→大模型落地速度",
+      "production_hint": "三分屏列三个验证节点，各停留2秒",
+      "duration_sec": 15
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "评论区回「AI芯片」，我把产业链关键验证指标发你"
+  },
+  "total_duration_sec": 60,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  },
+  "evidence_pack": {
+    "candidate_title": "科技板块AI芯片上市｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+    "core_facts": [
+      {
+        "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      },
+      {
+        "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+        "source_type": "announcement",
+        "source_ref": "ingest_markdown_summary",
+        "confidence": "high"
+      }
+    ]
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "candidate_id": "C1",
+  "candidate_index": 1,
+  "candidate_title": "AI行情：全球对冲基金一哥倒戈看好AI，长鑫科技业绩暴增，C｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+  "candidate_thesis": "AI行情：全球对冲基金一哥倒戈看好AI，长鑫科技业绩暴增，Cer相关讨论与盘面事实正在共振，优先围绕「AI行情：全球对冲基金一哥倒戈看好AI，长鑫科技」展开。",
+  "direction": "AI行情：全球对冲基金一哥倒戈看好AI，长鑫科技业绩暴增，Cerebras上市首日涨68%，科技主线强化",
+  "core_facts": [
+    {
+      "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "detailed_sources": [
+    {
+      "detail_id": "D6",
+      "title": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+      "summary": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D3",
+      "title": "**整体情绪分**：0.05 (🟡 中性)",
+      "summary": "**整体情绪分**：0.05 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    },
+    {
+      "detail_id": "D5",
+      "title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "summary": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "source_path": "markdown_summary"
+    }
+  ],
+  "argument_boosters": [
+    {
+      "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "**整体情绪分**：0.05 (🟡 中性)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    },
+    {
+      "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "source_type": "announcement",
+      "source_ref": "ingest_markdown_summary",
+      "confidence": "high"
+    }
+  ],
+  "source_gaps": [],
+  "targeted_fetch": {
+    "attempted": false,
+    "ok": false
+  },
+  "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+}

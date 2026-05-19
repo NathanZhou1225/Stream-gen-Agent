@@ -1,0 +1,428 @@
+{
+  "version": "topic_schema_v1",
+  "direction": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会",
+  "generated_at": "2026-05-19T11:25:17+08:00",
+  "hotlist_meta": {
+    "primary_source": "disabled",
+    "secondary_source": "social_api(vvhan->akshare)",
+    "fallback_used": false,
+    "fallback_reason": "hot_rank_skipped",
+    "skipped": true
+  },
+  "source_context": [
+    "【用户方向】全球对冲基金一哥倒戈：AI已强大得多，将重塑社会",
+    "【ingest 关键词】[]",
+    "【领域标签】ai, teacher_focus",
+    "【事实短摘】\n- **三大指数**：**创业板指** 3889.89 (-0.64%) / **深证成指** 15490.61 (-0.26%) / **上证指…\n- （若仅有指数点位：北向/涨跌停等见定时采集扩展字段或 legacy 全量。）\n- **整体情绪分**：0.05 (🟡 中性)\n- **恐惧贪婪指数**：10.0 (🔵 极度恐惧)\n- **个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)\n- 🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）\n- 事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会\n- 影响：科技主线锚点：AI；优先关注算力、芯片、AI 应用或数据中心链条的资金映射。",
+    "provenance: finance-source-ingest|preflight_topic.py",
+    "【信源状态】🔎 信源状态：可用[无]；降级[无]；不可用[market(UNKNOWN)、news(UNKNOWN)、social(UNKNOWN)、tophub(UNKNOWN)]。",
+    "【领域证据】🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）"
+  ],
+  "candidates": [
+    {
+      "title": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+      "angle": "偏事实钩子：用本条快讯或数据开场，再扣回用户方向",
+      "thesis": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会相关讨论与盘面事实正在共振，优先围绕「全球对冲基金一哥倒戈：AI已强大得多，将重塑社会」展开。",
+      "evidence": [
+        {
+          "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- **整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "**恐惧贪婪指数**：10.0 (🔵 极度恐惧)",
+      "angle": "偏结构对照：与上条不同维度（板块/资金/节奏），避免重复口径",
+      "thesis": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会相关讨论与盘面事实正在共振，优先围绕「**恐惧贪婪指数**：10.0 (🔵 极度恐惧)」展开。",
+      "evidence": [
+        {
+          "point": "**恐惧贪婪指数**：10.0 (🔵 极度恐惧) | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- **恐惧贪婪指数**：10.0 (🔵 极度恐惧) | provenance: finance-source-ingest|preflight_topic.py"
+    },
+    {
+      "title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "angle": "偏讲述策略：把用户方向落成「观众能跟上的三段节奏」",
+      "thesis": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会相关讨论与盘面事实正在共振，优先围绕「**个股情绪极值**：苹果(🔴 -0.99)、微」展开。",
+      "evidence": [
+        {
+          "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99) | provenance: finance-source-in",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "weak_sentiment": null,
+      "evidence_anchor": "- **个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99) | provenance: finance-source-ingest|preflight_topic.py"
+    }
+  ],
+  "preflight_meta": {
+    "direction": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会",
+    "ingest_schema_version": "0.3.0-cloud-client",
+    "ingest_fetched_at": "2026-05-19T01:40:27+00:00",
+    "markdown_truncated": true,
+    "feishu_notice": null,
+    "feishu_source_notice": "🔎 信源状态：可用[无]；降级[无]；不可用[market(UNKNOWN)、news(UNKNOWN)、social(UNKNOWN)、tophub(UNKNOWN)]。",
+    "source_availability": {
+      "available": [],
+      "degraded": [],
+      "unavailable": [
+        {
+          "source": "market",
+          "failure_type": "UNKNOWN",
+          "detail": "market_unavailable"
+        },
+        {
+          "source": "news",
+          "failure_type": "UNKNOWN",
+          "detail": "news_unavailable"
+        },
+        {
+          "source": "social",
+          "failure_type": "UNKNOWN",
+          "detail": "social_unavailable"
+        },
+        {
+          "source": "tophub",
+          "failure_type": "UNKNOWN",
+          "detail": "tophub_unavailable"
+        }
+      ]
+    },
+    "relevance_scores": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "relevance_avg": 1.0,
+    "domain_tags": [
+      "ai",
+      "teacher_focus"
+    ],
+    "source_context_compact": true,
+    "source_context_bullet_count": 8,
+    "candidate_evidence_pack_required": true,
+    "evidence_pack_instruction": "证据包已与 topic_payload 预计算合并；用户选定候选后直接从 candidate_evidence_packs[索引] 提取展示，无需二次调用 preflight_topic.py --candidate-id。",
+    "evidence_pack_precomputed": true,
+    "evidence_pack_precompute_errors": null,
+    "snapshot_path": "/root/.openclaw/workspace-stream-gen/cache/snapshot/snapshot.json",
+    "snapshot_cached": true,
+    "snapshot_fetched_at": "2026-05-19T01:40:27+00:00"
+  },
+  "candidate_evidence_packs": {
+    "1": {
+      "candidate_id": "C1",
+      "candidate_index": 1,
+      "candidate_title": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会｜盘面热点：**整体情绪分**：0.05 (🟡 中性)",
+      "candidate_thesis": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会相关讨论与盘面事实正在共振，优先围绕「全球对冲基金一哥倒戈：AI已强大得多，将重塑社会」展开。",
+      "direction": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会",
+      "core_facts": [
+        {
+          "point": "**整体情绪分**：0.05 (🟡 中性) | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "detailed_sources": [
+        {
+          "detail_id": "D6",
+          "title": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "summary": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D3",
+          "title": "**整体情绪分**：0.05 (🟡 中性)",
+          "summary": "**整体情绪分**：0.05 (🟡 中性)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D5",
+          "title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+          "summary": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        }
+      ],
+      "argument_boosters": [
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**整体情绪分**：0.05 (🟡 中性)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "source_gaps": [],
+      "targeted_fetch": {
+        "attempted": false,
+        "ok": false
+      },
+      "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+    },
+    "2": {
+      "candidate_id": "C2",
+      "candidate_index": 2,
+      "candidate_title": "**恐惧贪婪指数**：10.0 (🔵 极度恐惧)",
+      "candidate_thesis": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会相关讨论与盘面事实正在共振，优先围绕「**恐惧贪婪指数**：10.0 (🔵 极度恐惧)」展开。",
+      "direction": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会",
+      "core_facts": [
+        {
+          "point": "**恐惧贪婪指数**：10.0 (🔵 极度恐惧) | provenance: finance-source-ingest|preflight_topic.py",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "detailed_sources": [
+        {
+          "detail_id": "D6",
+          "title": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "summary": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D4",
+          "title": "**恐惧贪婪指数**：10.0 (🔵 极度恐惧)",
+          "summary": "**恐惧贪婪指数**：10.0 (🔵 极度恐惧)",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D3",
+          "title": "**整体情绪分**：0.05 (🟡 中性)",
+          "summary": "**整体情绪分**：0.05 (🟡 中性)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D1",
+          "title": "**三大指数**：**创业板指** 3889.89 (-0.64%) / **深证成指** 15490.61 (-0.26%) / **上证指数** 4140.",
+          "summary": "**三大指数**：**创业板指** 3889.89 (-0.64%) / **深证成指** 15490.61 (-0.26%) / **上证指数** 4140.8854 (+0.23%)",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D2",
+          "title": "（若仅有指数点位：北向/涨跌停等见定时采集扩展字段或 legacy 全量。）",
+          "summary": "（若仅有指数点位：北向/涨跌停等见定时采集扩展字段或 legacy 全量。）",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "source_path": "markdown_summary"
+        }
+      ],
+      "argument_boosters": [
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**恐惧贪婪指数**：10.0 (🔵 极度恐惧)",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "confidence": "high"
+        },
+        {
+          "point": "**整体情绪分**：0.05 (🟡 中性)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "source_gaps": [],
+      "targeted_fetch": {
+        "attempted": false,
+        "ok": false
+      },
+      "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+    },
+    "3": {
+      "candidate_id": "C3",
+      "candidate_index": 3,
+      "candidate_title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+      "candidate_thesis": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会相关讨论与盘面事实正在共振，优先围绕「**个股情绪极值**：苹果(🔴 -0.99)、微」展开。",
+      "direction": "全球对冲基金一哥倒戈：AI已强大得多，将重塑社会",
+      "core_facts": [
+        {
+          "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99) | provenance: finance-source-in",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "事件：城堡投资创始人肯·格里芬此前称AI是垃圾，如今转变态度，认为比九个月前强大得多，将重塑社会",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "detailed_sources": [
+        {
+          "detail_id": "D6",
+          "title": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "summary": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D5",
+          "title": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+          "summary": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D3",
+          "title": "**整体情绪分**：0.05 (🟡 中性)",
+          "summary": "**整体情绪分**：0.05 (🟡 中性)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D1",
+          "title": "**三大指数**：**创业板指** 3889.89 (-0.64%) / **深证成指** 15490.61 (-0.26%) / **上证指数** 4140.",
+          "summary": "**三大指数**：**创业板指** 3889.89 (-0.64%) / **深证成指** 15490.61 (-0.26%) / **上证指数** 4140.8854 (+0.23%)",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "source_path": "markdown_summary"
+        },
+        {
+          "detail_id": "D2",
+          "title": "（若仅有指数点位：北向/涨跌停等见定时采集扩展字段或 legacy 全量。）",
+          "summary": "（若仅有指数点位：北向/涨跌停等见定时采集扩展字段或 legacy 全量。）",
+          "source_type": "market",
+          "source_ref": "market_snapshot",
+          "source_path": "markdown_summary"
+        }
+      ],
+      "argument_boosters": [
+        {
+          "point": "🔹 🟢利好 [2026-05-18 02:33:43] **全球对冲基金一哥倒戈：AI已强大得多，将重塑社会** （deep_news）",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**个股情绪极值**：苹果(🔴 -0.99)、微软(🔴 -0.99)、Meta(🔴 -0.99)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        },
+        {
+          "point": "**整体情绪分**：0.05 (🟡 中性)",
+          "source_type": "announcement",
+          "source_ref": "ingest_markdown_summary",
+          "confidence": "high"
+        }
+      ],
+      "source_gaps": [],
+      "targeted_fetch": {
+        "attempted": false,
+        "ok": false
+      },
+      "usage_hint": "先向用户展示本 evidence_pack；用户确认后再进入 user-style 选择/绑定。不得跳过证据包直接生成大纲。"
+    }
+  }
+}
