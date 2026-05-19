@@ -1,0 +1,56 @@
+{
+  "title": "碳酸锂重回20万+储能经济性告急：新能源产业链利润正在重新分配",
+  "structure_template": "standard",
+  "user_style_context": "## User style (RAG block)\n- **style_name**: 老丁\n- **tone**: 直接、判断清晰、偏实战，强调「信号」「验证」「顶底节奏」，不拖泥带水，给明确结论。\n- **taboo**: 空泛宏观分析，无明确信号的预判，模糊化表达，模棱两可的观点，纯理论无实战指导的内容。\n- **structure_pref**: 方法论+信号拆解+盘面提醒的三段式结构，先给明确结论，再讲信号验证逻辑，最后给操作节奏建议。",
+  "hook": {
+    "text": "碳酸锂从十几万涨到20万一吨，储能项目停了一片——你账户里的新能源基金，利润还在往下游跑吗？",
+    "duration_sec": 5
+  },
+  "points": [
+    {
+      "order": 1,
+      "role": "argument",
+      "headline": "方法论：利润传导三环模型——锂矿→电芯→EPC，看懂链条才能预判节奏",
+      "evidence": "碳酸锂涨至20万元/吨，储能EPC成本飙升至0.97元/Wh（2026年5月DB快照），项目IRR从8-10%降至盈亏线以下，多家企业暂停投建。",
+      "production_hint": "中景口播+三环传导动画：锂矿→电芯→EPC成本逐级放大",
+      "duration_sec": 12
+    },
+    {
+      "order": 2,
+      "role": "argument",
+      "headline": "信号验证：宁德时代情绪0.85领跑+零碳科技城落地，龙头在下一盘大棋",
+      "evidence": "宁德时代个股情绪极值0.85全市场最高（2026-05-18 DB）；与厦门签约锂电池基地+eVTOL低空经济项目；浙江松阳抽水蓄能深竖井贯通，刷新国内纪录。",
+      "production_hint": "三分屏：宁德情绪值高亮+零碳科技城效果图+松阳竖井实拍",
+      "duration_sec": 14
+    },
+    {
+      "order": 3,
+      "role": "turn",
+      "headline": "盘面提醒：碳酸锂20万不是偶然，是产业链利润从下游向上游转移的明确信号",
+      "evidence": "华润新能源IPO注册生效拟募资245亿创深市纪录（2026-05-17）；储能EPC成本与锂价同步飙升，利润向上游资源端集中。",
+      "production_hint": "切近景，红绿色块标注产业链利润转移方向",
+      "duration_sec": 12
+    },
+    {
+      "order": 4,
+      "role": "action",
+      "headline": "节奏建议：盯三条线——锂价走势+宁德时代Q2调研+储能政策窗口",
+      "evidence": "碳酸锂20万元/吨是盈亏分水岭；宁德时代零碳科技城+低空经济打开第二增长曲线；华润新能源245亿IPO为板块提供估值锚。",
+      "production_hint": "中景口播+三线并行动态卡片，逐条弹出",
+      "duration_sec": 14
+    }
+  ],
+  "cta": {
+    "type": "comment_reply",
+    "headline": "评论区回复「碳酸锂」，我把新能源产业链利润分配图发你"
+  },
+  "total_duration_sec": 68,
+  "compliance_preview": {
+    "checked_rules": [
+      "no_specific_stock",
+      "data_with_timeframe",
+      "action_stops_at_method"
+    ],
+    "warnings": []
+  }
+}
