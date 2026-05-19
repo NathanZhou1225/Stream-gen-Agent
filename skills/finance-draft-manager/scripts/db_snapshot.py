@@ -375,7 +375,7 @@ def _apply_router_rewrite_news(
     llm_router_payload["router_timing"] = {"total_sec": router_result.timing_sec}
     id_to_cand = {int(c.get("_router_id") or 0): c for c in candidates if c.get("_router_id")}
 
-    if router_result.status != "ok":
+    if router_result.status not in ("ok", "ok_retry"):
         if router_result.status == "not_configured":
             llm_router_payload["status"] = "not_configured"
             llm_router_payload["reason"] = router_result.error or "router_not_configured"

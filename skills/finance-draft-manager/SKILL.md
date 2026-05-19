@@ -114,6 +114,8 @@ FINANCE_SECTOR_LLM_REWRITE_ENABLED=1
 | `FINANCE_LLM_ROUTER_JSON_OBJECT` | 默认等价 **开**（设 `0`/`false` 关闭）；OpenAI 兼容 `response_format=json_object` |
 | `FINANCE_LLM_ROUTER_MENU_PER_SECTOR` | **`db_snapshot`** 构建 Router 菜单时每板块最大条数（默认 `8`，过大时小模型易输出分析文字而非 JSON） |
 | `FINANCE_LLM_ROUTER_MAX_TOKENS` / `FINANCE_LLM_ROUTER_TEMPERATURE` | Router 解码参数（默认 **`1200` / `0`**） |
+| `FINANCE_LLM_ROUTER_RETRY_EXTRA` | JSON 解析失败时额外重试次数（默认 **`1`**，硬顶 2） |
+| `FINANCE_LLM_ROUTER_RETRY_SLEEP_SEC` | 重试间隔秒（默认 **`0.4`**） |
 | `FINANCE_SECTOR_LLM_REWRITE_ENABLED` | 默认 `0`（关闭），设 `1` 开启板块润色 |
 | `FINANCE_SECTOR_LLM_JSON_OBJECT` | 默认等价 **开**（设 `0` 关闭） |
 | `FINANCE_SECTOR_LLM_MAX_TOKENS` | 润色单次 `max_tokens`（默认 **`640`**） |
