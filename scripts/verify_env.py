@@ -228,6 +228,33 @@ def run_checks(env: dict[str, str]) -> tuple[bool, list[str]]:
     return (len(errors) == 0, errors)
 
 
+def snapshot_sidecar_smoke(repo_root: Path) -> list[str]:
+    """非致命：检查侧车 markdown 是否存在且含展示锚点。"""
+    warnings: list[str] = []
+    sidecar = repo_root / "cache" / "snapshot" / "markdown_summary.md"
+    if not sidecar.is_file():
+        warnings.append(
+            f"SNAPSHOT_SMOKE: 侧车不存在 ({sidecar})；"
+            "首次拉数请运行 scripts/present_today_snapshot.sh --refresh"
+        )
+        return warnings
+    try:
+        text = sidecar.read_text(encoding="utf-8")
+    except OSError as exc:
+        warnings.append(f"SNAPSHOT_SMOKE: 无法读取侧车: {exc}")
+        return warnings
+    for anchor in ("今日信源全量快照", "大盘与情绪"):
+        if anchor not in text:
+            warnings.append(
+                f"SNAPSHOT_SMOKE: 侧车缺少锚点「{anchor}」；建议 --force-refresh"
+            )
+    if not warnings:
+        warnings.append(
+            f"SNAPSHOT_SMOKE: OK ({sidecar.name}, {len(text)} chars)"
+        )
+    return warnings
+
+
 def _default_repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -240,10 +267,18 @@ def main() -> int:
         default=_default_repo_root(),
         help="Workspace root: standalone stream-gen repo, or OpenClaw monorepo root.",
     )
+    ap.add_argument(
+        "--snapshot-smoke",
+        action="store_true",
+        help="额外检查 cache/snapshot/markdown_summary.md 侧车（非致命，仅提示）",
+    )
     args = ap.parse_args()
     repo_root: Path = args.repo_root.resolve()
     env = merged_with_runtime(repo_root)
     ok, errs = run_checks(env)
+    if args.snapshot_smoke:
+        for msg in snapshot_sidecar_smoke(repo_root):
+            print(f"verify_env: {msg}", file=sys.stderr)
     try:
         from platform_env import windows_utf8_warnings
 

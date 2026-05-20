@@ -1,5 +1,11 @@
 # WorkBuddy / Windows 业务机：依赖安装 + 环境校验（无 Git / 无 bash 时）
-# Usage: powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1
+#   powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -ClearSnapshotCache
+
+param(
+    [switch]$ClearSnapshotCache
+)
 
 $ErrorActionPreference = "Stop"
 $env:PYTHONUTF8 = "1"
@@ -11,6 +17,15 @@ if (-not $Py) { $Py = "python" }
 
 Set-Location $Root
 Write-Host "[bootstrap_windows] workspace=$Root"
+
+if ($ClearSnapshotCache) {
+    $SnapDir = Join-Path $Root "cache\snapshot"
+    if (Test-Path $SnapDir) {
+        Remove-Item (Join-Path $SnapDir "snapshot.json") -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $SnapDir "markdown_summary.md") -ErrorAction SilentlyContinue
+        Write-Host "[bootstrap_windows] cleared cache\snapshot\*" -ForegroundColor Yellow
+    }
+}
 
 if (-not (Test-Path ".env")) {
     Write-Host "[bootstrap_windows] ERROR: missing .env (copy from .env.example)" -ForegroundColor Red
@@ -30,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
-Write-Host "[bootstrap_windows] OK. After code/zip update, delete cache\snapshot\* then run:" -ForegroundColor Green
+Write-Host "[bootstrap_windows] OK. After code/zip update, use -ClearSnapshotCache or delete cache\snapshot\* then:" -ForegroundColor Green
+Write-Host "  .\scripts\present_today_snapshot.ps1 --refresh"
 Write-Host "  .\scripts\query_market_facts.ps1 --sources market,news,social --summary-only --force-refresh"
-Write-Host "  Get-Content cache\snapshot\markdown_summary.md -Encoding utf8 -TotalCount 15"
 exit 0

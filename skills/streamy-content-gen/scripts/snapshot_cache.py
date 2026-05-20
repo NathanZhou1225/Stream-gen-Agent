@@ -22,6 +22,20 @@ DEFAULT_CACHE_SNAPSHOT = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
 DEFAULT_CACHE_MARKDOWN = WORKSPACE_ROOT / "cache" / "snapshot" / "markdown_summary.md"
 DEFAULT_MAX_AGE_HOURS = 6
 
+CACHE_STALE_HINTS: dict[str, str] = {
+    "cache_missing": "无本地快照；运行 query_market_facts 或 present_today_snapshot --refresh",
+    "cache_not_ok": "缓存 ok=false；删除 cache/snapshot/* 后 --force-refresh",
+    "cache_empty": "缓存无 markdown/sections；--force-refresh",
+    "cache_encoding_version": (
+        f"缓存编码版本过旧（需 >= {SNAPSHOT_CACHE_ENCODING_VERSION}）；"
+        "删除 cache/snapshot/* 后 --force-refresh"
+    ),
+    "markdown_mojibake": "检测到乱码；删除 cache/snapshot/* 后 --force-refresh（Windows 请用 .ps1）",
+    "db_last_ingested_at_changed": "云端库已更新；--force-refresh 拉最新",
+    "max_age_hours": f"超过 {DEFAULT_MAX_AGE_HOURS}h 墙钟；--force-refresh 或等 cron warm",
+    "force_refresh": "已强制刷新",
+}
+
 
 def _load_dotenv() -> dict[str, str]:
     merged = dict(os.environ)
@@ -177,6 +191,7 @@ def try_load_fresh_snapshot(
     cached = read_cache_file(path)
     if cached is None:
         info["cache_stale_reason"] = "cache_missing"
+        info["cache_stale_hint"] = CACHE_STALE_HINTS["cache_missing"]
         return None, info
 
     info["local_db_last_ingested_at"] = snapshot_db_last_ingested_at(cached)
@@ -194,6 +209,11 @@ def try_load_fresh_snapshot(
         remote_db_last=remote_db,
     )
     info["cache_stale_reason"] = reason
+    if reason:
+        info["cache_stale_hint"] = CACHE_STALE_HINTS.get(
+            reason,
+            f"缓存失效（{reason}）；建议 --force-refresh",
+        )
     if reason is None:
         info["snapshot_cached"] = True
         return cached, info

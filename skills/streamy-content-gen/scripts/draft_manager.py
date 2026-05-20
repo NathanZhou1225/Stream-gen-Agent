@@ -41,6 +41,7 @@ from _common import (
     get_active_draft_dir,
     get_archive_root,
     get_user_id,
+    get_workspace_root,
     now_iso,
     read_index,
     read_json,
@@ -1630,7 +1631,7 @@ def cmd_update(args: argparse.Namespace) -> None:
     # T5: auto-inject archive-driven style context for outline/script when style is bound.
     style_id = meta.get('style_id')
     if stage in (STAGE_OUTLINE, STAGE_SCRIPT) and style_id and not str(body.get('user_style_context') or '').strip():
-        workspace_root = Path(__file__).parent.parent.parent
+        workspace_root = get_workspace_root()
         style_cli = workspace_root / 'skills' / 'user-style-manager' / 'scripts' / 'style_cli.py'
         if style_cli.exists():
             try:
@@ -1646,6 +1647,8 @@ def cmd_update(args: argparse.Namespace) -> None:
                     ],
                     capture_output=True,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     timeout=20,
                     cwd=str(workspace_root),
                 )
@@ -1918,7 +1921,7 @@ def _try_auto_refine(
         return None
     
     # 定位 style_cli.py
-    workspace_root = Path(__file__).parent.parent.parent
+    workspace_root = get_workspace_root()
     style_cli = workspace_root / 'skills' / 'user-style-manager' / 'scripts' / 'style_cli.py'
     if not style_cli.exists():
         print(f'[draft_manager:WARNING] style_cli.py 不存在，跳过 auto-refine：{style_cli}', file=sys.stderr)
@@ -1929,7 +1932,10 @@ def _try_auto_refine(
             [sys.executable, str(style_cli), 'refine', '--style-id', style_id, '--text-file', str(script_md)],
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=300,
+            cwd=str(workspace_root),
         )
         
         if result.returncode == 0:

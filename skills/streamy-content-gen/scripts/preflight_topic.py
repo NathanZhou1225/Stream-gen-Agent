@@ -221,6 +221,8 @@ def _run_cloud_query_market_facts(
         cwd=str(WORKSPACE_ROOT),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout_sec,
         check=False,
     )
@@ -845,6 +847,8 @@ def _run_targeted_detail_fetch(
             cwd=str((finance_root / "scripts").resolve()),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=180,
             check=False,
         )
@@ -1870,6 +1874,8 @@ def main() -> None:
                 cwd=str((finance_root / "scripts").resolve()),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=180,
                 check=False,
             )
@@ -1969,6 +1975,8 @@ def main() -> None:
                         cwd=str(SCRIPTS_DIR.resolve()),
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         timeout=HOT_RANK_TIMEOUT_SEC + i * HOT_RANK_TIMEOUT_STEP_SEC,
                         check=False,
                     )

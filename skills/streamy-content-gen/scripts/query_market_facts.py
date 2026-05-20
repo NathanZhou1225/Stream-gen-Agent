@@ -273,10 +273,12 @@ def _build_summary_view(
     *,
     cache_path: str | None = None,
     cache_info: dict[str, Any] | None = None,
+    include_markdown: bool = False,
 ) -> dict[str, Any]:
     meta = snap.get("meta") or {}
     ci = cache_info or {}
-    return {
+    md_path = str((snap.get("meta") or {}).get("markdown_summary_sidecar") or DEFAULT_CACHE_MARKDOWN)
+    view: dict[str, Any] = {
         "ok": bool(snap.get("ok", True)),
         "schema_version": snap.get("schema_version"),
         "meta": {
@@ -297,15 +299,21 @@ def _build_summary_view(
             "snapshot_cache_written": bool(cache_path),
             "snapshot_cached": bool(ci.get("snapshot_cached")),
             "cache_stale_reason": ci.get("cache_stale_reason"),
+            "cache_stale_hint": ci.get("cache_stale_hint"),
             "remote_db_last_ingested_at": ci.get("remote_db_last_ingested_at"),
         },
         "errors": snap.get("errors") or [],
-        "markdown_summary": str(snap.get("markdown_summary") or ""),
-        "markdown_summary_path": str(
-            (snap.get("meta") or {}).get("markdown_summary_sidecar") or DEFAULT_CACHE_MARKDOWN
+        "markdown_summary_path": md_path,
+        "display_hint": (
+            "展示全文请 read markdown_summary_path 或运行 "
+            "scripts/present_today_snapshot.ps1（Windows）/ present_today_snapshot.sh；"
+            "勿解析 JSON 内中文或读 snapshot.json"
         ),
         "invariants": snap.get("invariants"),
     }
+    if include_markdown:
+        view["markdown_summary"] = str(snap.get("markdown_summary") or "")
+    return view
 
 
 def main() -> None:
@@ -365,6 +373,11 @@ def main() -> None:
         default=DEFAULT_CACHE_SNAPSHOT,
         help="快照缓存路径（与 preflight 共用）",
     )
+    parser.add_argument(
+        "--include-markdown-in-stdout",
+        action="store_true",
+        help="summary 模式时在 JSON 内附带 markdown_summary 全文（默认仅 path + display_hint）",
+    )
     parser.add_argument("--cloud", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--from-db", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -423,7 +436,12 @@ def main() -> None:
 
     summary_only = bool(args.summary_only) and not args.full
     if summary_only:
-        payload = _build_summary_view(snap, cache_path=cache_written, cache_info=cache_info)
+        payload = _build_summary_view(
+            snap,
+            cache_path=cache_written,
+            cache_info=cache_info,
+            include_markdown=bool(args.include_markdown_in_stdout),
+        )
     elif cache_written or cache_info.get("snapshot_cached"):
         snap = dict(snap)
         meta = dict(snap.get("meta") or {})
@@ -435,6 +453,14 @@ def main() -> None:
         payload = snap
     else:
         payload = snap
+    if summary_only and payload.get("ok"):
+        md_path = payload.get("markdown_summary_path") or str(DEFAULT_CACHE_MARKDOWN)
+        print(
+            "[query_market_facts] DISPLAY: read "
+            f"{md_path} or run scripts/present_today_snapshot.ps1 — "
+            "do NOT parse JSON stdout for Chinese",
+            file=sys.stderr,
+        )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
