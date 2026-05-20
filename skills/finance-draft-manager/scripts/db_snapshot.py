@@ -45,6 +45,16 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 
+def _configure_stdio_utf8() -> None:
+    """Windows GBK 控制台下 print emoji 会 UnicodeEncodeError；统一 UTF-8。"""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
 def _load_dotenv() -> None:
     """加载 .env；**工作区** `WORKSPACE_ROOT/.env` 中的键覆盖已存在环境变量（便于覆盖根目录/Shell 默认值）。"""
     paths = (
@@ -1257,6 +1267,22 @@ def _build_markdown(
     return "\n".join(lines)
 
 
+def rebuild_markdown_summary_from_snapshot(snap: dict[str, Any]) -> str:
+    """从 snapshot 内 sections/meta 重新生成 markdown_summary（修复乱码 cache 用）。"""
+    sections = snap.get("sections") or {}
+    if not isinstance(sections, dict) or not sections:
+        return str(snap.get("markdown_summary") or "")
+    meta = snap.get("meta") or {}
+    since_hours = int(meta.get("since_hours") or 24)
+    major_since_hours = int(meta.get("major_since_hours") or _default_major_hours())
+    db_last_at = str(meta.get("db_last_ingested_at") or meta.get("fetched_at") or _now_iso())
+    tenant = str(meta.get("tenant_id") or "cloud").strip() or "cloud"
+    data_label = str(meta.get("data_source") or "").strip()
+    if not data_label or data_label == "cloud-mysql":
+        data_label = f"finance-ingest-cloud (tenant={tenant})"
+    return _build_markdown(sections, data_label, db_last_at, since_hours, major_since_hours)
+
+
 # ── 快照构建主函数 ────────────────────────────────────────────────────────────
 
 def build_snapshot_from_pre_router(
@@ -1557,6 +1583,7 @@ def build_db_snapshot(
 
 
 def main() -> None:
+    _configure_stdio_utf8()
     parser = argparse.ArgumentParser(
         description="finance-draft-manager：云端 pre-Router stdin → Router/Rewriter → markdown_summary",
     )

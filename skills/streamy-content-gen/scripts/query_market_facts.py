@@ -21,18 +21,30 @@ from pathlib import Path
 from typing import Any
 
 from snapshot_cache import (
+    DEFAULT_CACHE_MARKDOWN,
     DEFAULT_CACHE_SNAPSHOT,
     DEFAULT_MAX_AGE_HOURS,
     should_write_cache,
     try_load_fresh_snapshot,
     write_snapshot_cache,
 )
+from snapshot_text_encoding import ensure_snapshot_markdown
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = SKILL_ROOT.parent.parent
 FINANCE_ROOT = SKILL_ROOT.parent / "finance-source-ingest"
 DRAFT_MANAGER_ROOT = SKILL_ROOT.parent / "finance-draft-manager"
 DB_SNAPSHOT_SCRIPT = DRAFT_MANAGER_ROOT / "scripts" / "db_snapshot.py"
+
+
+def _configure_stdio_utf8() -> None:
+    """Windows GBK 控制台下 print emoji 会 UnicodeEncodeError；统一 UTF-8。"""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 
 def _load_dotenv(env: dict[str, str] | None = None) -> dict[str, str]:
@@ -193,7 +205,6 @@ def _run_cloud_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         str(DB_SNAPSHOT_SCRIPT),
         "--pre-router-stdin",
         "--since-hours", since_h,
-        "--summary-only",
     ]
     msh = getattr(args, "major_since_hours", None)
     if msh is not None:
@@ -210,20 +221,23 @@ def _run_cloud_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         env=env,
         input=json.dumps(cloud, ensure_ascii=False),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         timeout=db_timeout,
         check=False,
     )
     try:
-        return _extract_json_object(proc.stdout)
+        snap = _extract_json_object(proc.stdout or "")
+        return ensure_snapshot_markdown(snap)
     except ValueError:
         return {
             "ok": False,
             "error": {
                 "code": "CLOUD_SNAPSHOT_PARSE_ERROR",
                 "message": "db_snapshot --pre-router-stdin 输出无法解析",
-                "hint": proc.stdout[-500:],
+                "hint": (proc.stdout or "")[-500:],
             },
         }
 
@@ -249,14 +263,18 @@ def _run_live_fetch(args: argparse.Namespace) -> dict[str, Any]:
         cwd=str(WORKSPACE_ROOT),
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         timeout=getattr(args, "timeout", 120),
         check=False,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"finance-source-ingest legacy failed ({proc.returncode}): {proc.stdout[-2000:]}")
-    return _extract_json_object(proc.stdout)
+        raise RuntimeError(
+            f"finance-source-ingest legacy failed ({proc.returncode}): {(proc.stdout or '')[-2000:]}"
+        )
+    return _extract_json_object(proc.stdout or "")
 
 
 def _build_summary_view(
@@ -292,11 +310,15 @@ def _build_summary_view(
         },
         "errors": snap.get("errors") or [],
         "markdown_summary": str(snap.get("markdown_summary") or ""),
+        "markdown_summary_path": str(
+            (snap.get("meta") or {}).get("markdown_summary_sidecar") or DEFAULT_CACHE_MARKDOWN
+        ),
         "invariants": snap.get("invariants"),
     }
 
 
 def main() -> None:
+    _configure_stdio_utf8()
     parser = argparse.ArgumentParser(
         description="今日市场快照（默认云端 API；--live-fetch 为联网 legacy）",
     )
@@ -390,6 +412,8 @@ def main() -> None:
     if snap.get("error") and not snap.get("markdown_summary") and not snap.get("sections"):
         print(json.dumps(snap, ensure_ascii=False, indent=2))
         sys.exit(0 if snap.get("ok") else 1)
+
+    snap = ensure_snapshot_markdown(snap)
 
     cache_written: str | None = None
     if not args.no_write_cache and should_write_cache(snap) and not cache_info.get("snapshot_cached"):

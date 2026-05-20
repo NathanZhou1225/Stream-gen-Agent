@@ -17,6 +17,7 @@ from typing import Any
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = SKILL_ROOT.parent.parent
 DEFAULT_CACHE_SNAPSHOT = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
+DEFAULT_CACHE_MARKDOWN = WORKSPACE_ROOT / "cache" / "snapshot" / "markdown_summary.md"
 DEFAULT_MAX_AGE_HOURS = 6
 
 
@@ -115,6 +116,13 @@ def cache_stale_reason(
         return "cache_not_ok"
     if not (cached.get("markdown_summary") or cached.get("sections")):
         return "cache_empty"
+    try:
+        from snapshot_text_encoding import looks_like_mojibake
+
+        if looks_like_mojibake(str(cached.get("markdown_summary") or "")):
+            return "markdown_mojibake"
+    except Exception:
+        pass
     local_db = snapshot_db_last_ingested_at(cached)
     fetched_at = snapshot_fetched_at(cached)
     if remote_db_last and local_db:
@@ -131,7 +139,15 @@ def read_cache_file(cache_path: Path) -> dict[str, Any] | None:
         return None
     try:
         data = json.loads(cache_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            return None
+        from snapshot_text_encoding import ensure_snapshot_markdown, looks_like_mojibake
+
+        data = ensure_snapshot_markdown(data)
+        md = str(data.get("markdown_summary") or "")
+        if md and looks_like_mojibake(md):
+            return None
+        return data
     except Exception:
         return None
 
@@ -185,8 +201,18 @@ def write_snapshot_cache(
     *,
     cache_path: Path | None = None,
 ) -> Path:
+    from snapshot_text_encoding import ensure_snapshot_markdown
+
     path = (cache_path or DEFAULT_CACHE_SNAPSHOT).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
+    snap = ensure_snapshot_markdown(snap)
+    md = str(snap.get("markdown_summary") or "")
+    if md:
+        md_path = path.parent / "markdown_summary.md"
+        md_path.write_text(md, encoding="utf-8")
+        meta = dict(snap.get("meta") or {})
+        meta["markdown_summary_sidecar"] = str(md_path.resolve())
+        snap["meta"] = meta
     path.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
