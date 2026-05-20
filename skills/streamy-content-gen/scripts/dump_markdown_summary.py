@@ -19,17 +19,11 @@ QMF = SCRIPT_DIR / "query_market_facts.py"
 DEFAULT_MD = WORKSPACE_ROOT / "cache" / "snapshot" / "markdown_summary.md"
 
 
-def _configure_stdio_utf8() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
+from platform_env import apply_python_utf8_mode
 
 
 def main() -> None:
-    _configure_stdio_utf8()
+    apply_python_utf8_mode()
     p = argparse.ArgumentParser(description="打印 markdown_summary 纯文本（UTF-8）")
     p.add_argument("--refresh", action="store_true", help="先 force-refresh 再输出")
     p.add_argument("--path", type=Path, default=DEFAULT_MD, help="侧车 .md 路径")

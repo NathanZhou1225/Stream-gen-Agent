@@ -45,16 +45,6 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 
-def _configure_stdio_utf8() -> None:
-    """Windows GBK 控制台下 print emoji 会 UnicodeEncodeError；统一 UTF-8。"""
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
-
-
 def _load_dotenv() -> None:
     """加载 .env；**工作区** `WORKSPACE_ROOT/.env` 中的键覆盖已存在环境变量（便于覆盖根目录/Shell 默认值）。"""
     paths = (
@@ -1583,7 +1573,15 @@ def build_db_snapshot(
 
 
 def main() -> None:
-    _configure_stdio_utf8()
+    # 子进程可能被 WorkBuddy 直接调用；独立设置 UTF-8（与 streamy platform_env 一致）
+    os.environ["PYTHONUTF8"] = "1"
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
     parser = argparse.ArgumentParser(
         description="finance-draft-manager：云端 pre-Router stdin → Router/Rewriter → markdown_summary",
     )

@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from platform_env import SNAPSHOT_CACHE_ENCODING_VERSION, cache_encoding_version_ok
+
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = SKILL_ROOT.parent.parent
 DEFAULT_CACHE_SNAPSHOT = WORKSPACE_ROOT / "cache" / "snapshot" / "snapshot.json"
@@ -116,6 +118,8 @@ def cache_stale_reason(
         return "cache_not_ok"
     if not (cached.get("markdown_summary") or cached.get("sections")):
         return "cache_empty"
+    if not cache_encoding_version_ok(cached.get("meta") or {}):
+        return "cache_encoding_version"
     try:
         from snapshot_text_encoding import looks_like_mojibake
 
@@ -207,12 +211,13 @@ def write_snapshot_cache(
     path.parent.mkdir(parents=True, exist_ok=True)
     snap = ensure_snapshot_markdown(snap)
     md = str(snap.get("markdown_summary") or "")
+    meta = dict(snap.get("meta") or {})
+    meta["snapshot_cache_encoding_version"] = SNAPSHOT_CACHE_ENCODING_VERSION
     if md:
         md_path = path.parent / "markdown_summary.md"
         md_path.write_text(md, encoding="utf-8")
-        meta = dict(snap.get("meta") or {})
         meta["markdown_summary_sidecar"] = str(md_path.resolve())
-        snap["meta"] = meta
+    snap["meta"] = meta
     path.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 

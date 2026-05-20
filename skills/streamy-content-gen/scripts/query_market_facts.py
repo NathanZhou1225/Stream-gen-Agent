@@ -29,22 +29,13 @@ from snapshot_cache import (
     write_snapshot_cache,
 )
 from snapshot_text_encoding import ensure_snapshot_markdown
+from platform_env import apply_python_utf8_mode, safe_update_os_environ
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = SKILL_ROOT.parent.parent
 FINANCE_ROOT = SKILL_ROOT.parent / "finance-source-ingest"
 DRAFT_MANAGER_ROOT = SKILL_ROOT.parent / "finance-draft-manager"
 DB_SNAPSHOT_SCRIPT = DRAFT_MANAGER_ROOT / "scripts" / "db_snapshot.py"
-
-
-def _configure_stdio_utf8() -> None:
-    """Windows GBK 控制台下 print emoji 会 UnicodeEncodeError；统一 UTF-8。"""
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
 
 
 def _load_dotenv(env: dict[str, str] | None = None) -> dict[str, str]:
@@ -318,7 +309,7 @@ def _build_summary_view(
 
 
 def main() -> None:
-    _configure_stdio_utf8()
+    apply_python_utf8_mode()
     parser = argparse.ArgumentParser(
         description="今日市场快照（默认云端 API；--live-fetch 为联网 legacy）",
     )
@@ -379,7 +370,13 @@ def main() -> None:
     args = parser.parse_args()
 
     env = _load_dotenv()
-    os.environ.update(env)
+    skipped_env = safe_update_os_environ(env)
+    if skipped_env:
+        print(
+            "[query_market_facts] skipped long .env keys (Windows limit): "
+            + ", ".join(skipped_env[:8]),
+            file=sys.stderr,
+        )
 
     cache_info: dict[str, Any] = {}
     snap: dict[str, Any]

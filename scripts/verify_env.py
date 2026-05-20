@@ -8,6 +8,10 @@ import os
 import sys
 from pathlib import Path
 
+_SCRIPTS_STREAMY = Path(__file__).resolve().parent.parent / "skills" / "streamy-content-gen" / "scripts"
+if _SCRIPTS_STREAMY.is_dir() and str(_SCRIPTS_STREAMY) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_STREAMY))
+
 _PLACEHOLDERS = frozenset(
     {
         "",
@@ -240,6 +244,13 @@ def main() -> int:
     repo_root: Path = args.repo_root.resolve()
     env = merged_with_runtime(repo_root)
     ok, errs = run_checks(env)
+    try:
+        from platform_env import windows_utf8_warnings
+
+        for w in windows_utf8_warnings():
+            print(f"verify_env: {w}", file=sys.stderr)
+    except ImportError:
+        pass
     if ok:
         print("verify_env: OK (finance LLM feature gates satisfied).")
         return 0

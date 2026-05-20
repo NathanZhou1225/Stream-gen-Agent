@@ -41,7 +41,8 @@
       "total_sec": 8.984
     },
     "sector_llm_rewrite_status": "partial",
-    "markdown_summary_sidecar": "/root/.openclaw/workspace-stream-gen/cache/snapshot/markdown_summary.md"
+    "markdown_summary_sidecar": "/root/.openclaw/workspace-stream-gen/cache/snapshot/markdown_summary.md",
+    "snapshot_cache_encoding_version": 2
   },
   "sections": {
     "market": {
